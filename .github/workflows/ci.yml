@@ -28,13 +28,10 @@ jobs:
           ${{ runner.os }}-go-
           
     - name: Download dependencies
-      run: |
-        cd .. && go mod tidy
+      run: go mod tidy
       
     - name: Run tests
-      run: |
-        cd .. && go test -v .
+      run: go test -v .
       
     - name: Build
-      run: |
-        cd .. && go build -v .
+      run: go build -v .
