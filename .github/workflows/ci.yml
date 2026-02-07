@@ -28,10 +28,16 @@ jobs:
           ${{ runner.os }}-go-
           
     - name: Download dependencies
-      run: go mod tidy
+      run: |
+        cd baseline
+        go mod tidy
       
     - name: Run tests
-      run: go test -v .
+      run: |
+        cd baseline
+        go test -v .
       
     - name: Build
-      run: go build -v ./...
+      run: |
+        cd baseline
+        go build -v .
