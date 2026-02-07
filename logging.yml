@@ -1,0 +1,37 @@
+# Baseline Logging Configuration
+
+# Log levels: debug, info, warn, error
+log_level: info
+
+# Log format
+log_format: json
+
+# Output destinations
+outputs:
+  - type: console
+    level: info
+  - type: file
+    level: debug
+    path: ./logs/baseline.log
+    max_size: 100MB
+    max_files: 5
+
+# Security event logging
+security:
+  enabled: true
+  log_all_violations: true
+  log_policy_checks: true
+  log_ai_generation: true
+
+# Performance logging
+performance:
+  enabled: true
+  log_scan_duration: true
+  log_policy_check_time: true
+
+# Audit logging
+audit:
+  enabled: true
+  log_all_commands: true
+  log_file_access: true
+  log_git_operations: true

@@ -1,0 +1,63 @@
+# Baseline Monitoring Configuration
+
+# Health checks
+health_checks:
+  - name: baseline_binary
+    type: file_exists
+    path: ./baseline.exe
+    interval: 60s
+  - name: policy_engine
+    type: command
+    command: ./baseline.exe check
+    interval: 300s
+    timeout: 30s
+
+# Metrics collection
+metrics:
+  enabled: true
+  interval: 60s
+  collectors:
+    - name: policy_violations
+      type: counter
+      labels: [policy_id, severity]
+    - name: scan_duration
+      type: histogram
+      buckets: [1s, 5s, 10s, 30s, 60s]
+    - name: ai_generation_requests
+      type: counter
+      labels: [success, failure]
+
+# Alerts
+alerts:
+  - name: high_violation_rate
+    condition: policy_violations > 10
+    duration: 5m
+    severity: warning
+    action: log
+  - name: baseline_unavailable
+    condition: baseline_binary == 0
+    duration: 1m
+    severity: critical
+    action: log
+  - name: policy_engine_failure
+    condition: policy_engine != 0
+    duration: 2m
+    severity: error
+    action: log
+
+# Security monitoring
+security:
+  enabled: true
+  monitor:
+    - failed_policy_checks
+    - secret_detection_events
+    - unauthorized_access_attempts
+    - unusual_file_access
+
+# Performance monitoring
+performance:
+  enabled: true
+  thresholds:
+    scan_duration: 30s
+    policy_check_time: 5s
+    memory_usage: 100MB

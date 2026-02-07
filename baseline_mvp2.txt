@@ -1,0 +1,124 @@
+# Baseline MVP — AI-Assisted Production Enforcement
+
+**Goal:**  
+Raise the minimum production maturity for any repo to a safe level while keeping AI usage strictly safe and deterministic. Focus on blocking unsafe code, enforcing policies, and scaffolding missing pieces.
+
+---
+
+## 1. Core MVP Scope (Non-Negotiable)
+
+Baseline MVP will fully enforce:
+
+| Feature | Enforcement |
+|---------|------------|
+| Secrets Management | No plaintext secrets; all secrets via vault/env; CI logs sanitized |
+| Rollback Plans | Deployments blocked without rollback definition |
+| PR-Only Merges | Main branch cannot be pushed directly |
+| CI Presence | CI pipeline required; PR must trigger CI |
+| Tests | Tests must exist (unit + integration) and run in CI |
+
+**AI-assisted scaffolding** will target:
+
+- Unit test skeletons  
+- Integration test templates  
+- CI/CD pipeline templates  
+
+**Human review is mandatory** before merge.
+
+---
+
+## 2. MVP Components
+
+### 2.1 Policy Engine
+- Determines **pass/fail for every rule**.
+- Policies are written in PRPL (Baseline Policy Language).  
+- No AI decides policies.  
+- Blocks unsafe actions deterministically.
+
+### 2.2 CLI Interface
+- Commands:
+  - `baseline check` — read-only policy validation
+  - `baseline enforce` — block unsafe merges/deploys
+  - `baseline scan` — exhaustive scan for security, CI, tests
+  - `baseline generate` — scaffolds missing tests/pipelines
+  - `baseline pr` — opens PRs with AI-generated scaffolds
+  - `baseline report` — outputs violations (JSON/SARIF/text)
+- CLI must be **deterministic, scriptable, CI-safe**.
+
+### 2.3 AI Integration Layer
+- Purpose: scaffolding only.
+- AI **cannot execute deployments**, modify policies, or act autonomously.
+- Tiny model from Ollama or open-source equivalent.  
+- AI inputs:
+  - Repo structure
+  - Policy constraints
+  - File targets
+- AI outputs:
+  - Test templates
+  - CI/CD YAML templates
+- Human review gate mandatory before merge.
+
+### 2.4 Repo Scanning
+- Detects:
+  - Missing tests
+  - Missing CI
+  - Secrets violations
+  - Rollback missing
+- Generates **diff-ready suggestions**.
+- Blocks merges if critical violations exist.
+
+---
+
+## 3. MVP Ruleset
+
+| Category | Rule | AI Role |
+|----------|------|---------|
+| Security | No plaintext secrets | None |
+| CI/CD | CI required | Template scaffolding |
+| Tests | Tests must exist | Skeleton scaffolding |
+| Rollback | Rollback must exist | None |
+| Merges | PR-only for main | None |
+| Integration | Integration test scaffold | AI generates template |
+
+**Key Principle:** **AI scaffolds; humans approve; policy engine enforces.**
+
+---
+
+## 4. MVP Timeline (90 Days)
+
+| Phase | Duration | Deliverables |
+|-------|---------|-------------|
+| Phase 1: Deterministic Core | 1–30 days | Policy engine, CLI, repo scanning, enforcement gates |
+| Phase 2: AI-Assisted Scaffolds | 31–60 days | AI layer integrated, scaffolding templates for tests/CI, PR flow |
+| Phase 3: CI/CD Integration & Validation | 61–90 days | End-to-end CI enforcement, human-approved AI scaffolds, diff-only PRs |
+
+---
+
+## 5. Success Metrics
+
+- All blocking violations prevent merge/deploy.  
+- 90% of repos with missing CI/tests get scaffolded PRs.  
+- Human review gate prevents any AI hallucinated changes.  
+- Security rules are fully deterministic, zero AI.  
+
+---
+
+## 6. Exclusions (Out of MVP)
+
+- Fully autonomous deployment pipelines.  
+- Auto-generated integration tests with business logic.  
+- Dataset versioning enforcement.  
+- Replacing spreadsheets / workflow automation.  
+
+---
+
+## 7. MVP Summary
+
+Baseline MVP **ensures safety, enforcement, and minimal production readiness**, while **using AI to reduce manual effort**.  
+
+**Principles maintained:**
+
+- AI **cannot bypass policy**.  
+- Humans remain in the loop for all generated artifacts.  
+- Security is **deterministic and non-AI**.  
+- Violations **fail loudly**; nothing is silent.

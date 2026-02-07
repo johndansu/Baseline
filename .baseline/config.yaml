@@ -1,0 +1,5 @@
+# Baseline Configuration
+# This file configures Baseline policy enforcement
+
+policy_set = "baseline:prod"
+enforcement_mode = "audit"
