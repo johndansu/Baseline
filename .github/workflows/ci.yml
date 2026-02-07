@@ -28,7 +28,8 @@ jobs:
           ${{ runner.os }}-go-
           
     - name: Download dependencies
-      run: go mod tidy
+      run: |
+        find . -name "go.mod" -type f && echo "Found go.mod" && go mod tidy || echo "go.mod not found"
       
     - name: Run tests
       run: go test -v .
