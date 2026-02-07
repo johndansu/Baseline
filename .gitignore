@@ -1,0 +1,49 @@
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+baseline.exe
+baseline_*.exe
+
+# Go specific
+vendor/
+*.sum
+*.mod
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# AI and development artifacts
+baseline_ai_failure_assistance.txt
+baseline_master_documentation_pack.md
+policy_assist.md
+
+# Backup files (keep local only)
+backups/
+*.backup
+*.bak
+
+# Environment files (keep .env.example)
+.env
+.env.local
+.env.production
+.env.staging
+
+# OS specific
+Thumbs.db
+Desktop.ini
