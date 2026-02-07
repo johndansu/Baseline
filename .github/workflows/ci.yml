@@ -29,7 +29,13 @@ jobs:
           
     - name: Download dependencies
       run: |
-        find . -name "go.mod" -type f && echo "Found go.mod" && go mod tidy || echo "go.mod not found"
+        if [ -f "go.mod" ]; then
+          echo "go.mod found"
+          go mod tidy
+        else
+          echo "go.mod not found"
+          exit 1
+        fi
       
     - name: Run tests
       run: go test -v .
