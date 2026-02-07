@@ -29,17 +29,19 @@ jobs:
           
     - name: Download dependencies
       run: |
-        pwd && ls -la && echo "=== Current directory contents ===" && \
         if [ -f "go.mod" ]; then
           echo "go.mod found in current directory"
           go mod tidy
         elif [ -f "../go.mod" ]; then
           echo "go.mod found in parent directory"
-          cd .. && go mod tidy
+          go mod tidy
         else
-          echo "go.mod not found in current or parent directory"
-          echo "=== Searching for go.mod ===" && \
-          find .. -name "go.mod" -type f 2>/dev/null || echo "go.mod not found anywhere"
+          echo "go.mod not found in current directory"
+          echo "go.mod not found in parent directory"
+          echo "=== Current directory contents ==="
+          pwd && ls -la
+          echo "=== Parent directory contents ==="
+          ls -la ..
           exit 1
         fi
       
