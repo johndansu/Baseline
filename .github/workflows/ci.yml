@@ -29,16 +29,8 @@ jobs:
           
     - name: Download dependencies
       run: |
-        if [ -f "Baseline/go.mod" ]; then
-          cd Baseline
-          echo "go.mod found in Baseline/"
-          go mod tidy
-          cd ..
-        elif [ -f "go.mod" ]; then
+        if [ -f "go.mod" ]; then
           echo "go.mod found in current directory"
-          go mod tidy
-        elif [ -f "../go.mod" ]; then
-          echo "go.mod found in parent directory"
           go mod tidy
         else
           echo "go.mod not found."
@@ -47,7 +39,7 @@ jobs:
         fi
       
     - name: Run tests
-      run: cd Baseline && go test -v .
+      run: go test -v .
       
     - name: Build
-      run: cd Baseline && go build -v .
+      run: go build -v .
