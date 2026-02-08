@@ -1,0 +1,42 @@
+# Security policy for Baseline repository
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+  checks: read
+  deployments: none
+  issues: write
+  pull-requests: write
+
+# Require PR reviews before merging
+branch-protections:
+  main:
+    required_status_checks:
+      strict: true
+      contexts:
+        - "CI/CD Pipeline"
+    required_approving_review_count: 1
+    dismiss_stale_reviews: true
+    require_code_owner_reviews: false
+    require_last_push_approval: false
+    required_linear_history: false
+
+# Require signed commits
+commits:
+  required:
+    - type: user
+    email: "dansu.jw@gmail.com"
+
+# Block common patterns that could introduce security issues
+allowed_patterns:
+  - "chore(deps): *"
+  - "chore(ci): *"
+  - "chore(build): *"
+
+# Require vulnerability scanning before merge
+required_status_checks:
+  strict: true
+  contexts:
+    - "CI/CD Pipeline"
+    - "Security Scan"

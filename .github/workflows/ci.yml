@@ -1,45 +1,149 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  release:
+    types: [ published ]
+
+env:
+  GO_VERSION: '1.21'
 
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Setup Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.21'
-        
+        go-version: ${{ env.GO_VERSION }}
+
     - name: Cache Go modules
       uses: actions/cache@v3
       with:
-        path: ~/go/pkg/mod
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
-          
+
     - name: Download dependencies
-      run: |
-        if [ -f "go.mod" ]; then
-          echo "go.mod found in current directory"
-          go mod tidy
-        else
-          echo "go.mod not found."
-          pwd && ls -la
-          exit 1
-        fi
-      
+      run: go mod download
+
     - name: Run tests
-      run: go test -v .
-      
-    - name: Build
-      run: go build -v .
+      run: go test -v -race -coverprofile=coverage.out ./...
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run Gosec Security Scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: '-no-fail -fmt sarif -out results.sarif ./...'
+
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: results.sarif
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        arch: [amd64]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Build binary
+      run: |
+        go build -ldflags="-X github.com/baseline/baseline/internal/version.Version=${{ github.ref_name }}" \
+                   -ldflags="-X github.com/baseline/baseline/internal/version.GitCommit=${{ github.sha }}" \
+                   -ldflags="-X github.com/baseline/baseline/internal/version.BuildDate=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+                   -o baseline${{ runner.os == 'windows' && '.exe' || '' }} ./cmd/baseline
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: baseline-${{ runner.os }}-${{ github.arch }}
+        path: baseline${{ runner.os == 'windows' && '.exe' || '' }}
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'release'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download all build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: .
+
+    - name: Create Release Assets
+      run: |
+        mkdir -p release
+        for os in ubuntu windows macos; do
+          for arch in amd64; do
+            if [ -f "baseline-${os}-${arch}${{ os == 'windows' && '.exe' || '' }" ]; then
+              cp "baseline-${os}-${arch}${{ os == 'windows' && '.exe' || '' }" "release/"
+            fi
+          done
+        done
+        tar -czf baseline-release.tar.gz -C release .
+
+    - name: Upload Release Assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: baseline-release.tar.gz
+        draft: false
+        prerelease: false

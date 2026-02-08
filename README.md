@@ -4,18 +4,24 @@ A Production Policy & Enforcement Engine that enforces software fundamentals bef
 
 ## Status
 
-✅ **MVP2 Implementation Complete**
-- All 6 CLI commands implemented
-- Full security compliance
-- AI-assisted scaffolding
-- GitHub PR workflow
-- Rollback plan enforcement
+✅ **Production Ready - MVP Complete**
+- All 6 CLI commands implemented and tested
+- Full security compliance with 12 deterministic rules
+- Comprehensive test coverage (unit + integration)
+- AI-assisted scaffolding with human review workflow
+- Automated CI/CD pipeline with security scanning
+- GitHub integration with PR-based workflow
+- Version management with build-time injection
 
 ## Installation
 
+### From Source
 ```bash
-go build -o baseline.exe .
+go build -o baseline.exe ./cmd/baseline
 ```
+
+### From Release
+Download the latest release from [GitHub Releases](https://github.com/baseline/baseline/releases).
 
 ## Usage
 
@@ -111,6 +117,28 @@ Baseline uses AI **only for scaffolding**:
 
 All AI-generated content requires **human review** before use.
 
+## CI/CD Pipeline
+
+Baseline includes a comprehensive GitHub Actions workflow that:
+
+- **Multi-platform builds** (Ubuntu, Windows, macOS)
+- **Automated testing** with race condition detection
+- **Security scanning** using Gosec static analysis
+- **Code coverage** reporting via Codecov
+- **Dependency updates** via Dependabot
+- **Branch protection** requiring reviews and status checks
+
+### Workflow Triggers
+- Push to main/master branches
+- Pull requests
+- Release publications
+
+### Code Style
+- Follow Go idiomatic patterns
+- Use structured logging with log/slog
+- Handle errors explicitly
+- No TODO comments in production code
+
 ## Contributing
 
 1. Fork the repository
@@ -120,5 +148,4 @@ All AI-generated content requires **human review** before use.
 5. Submit a pull request
 
 ## License
-
 This project is licensed under the MIT License.
