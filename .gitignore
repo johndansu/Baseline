@@ -8,8 +8,6 @@ baseline_*.exe
 
 # Go specific
 vendor/
-*.sum
-*.mod
 
 # IDE and editor files
 .vscode/
