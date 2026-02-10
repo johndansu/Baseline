@@ -1,0 +1,30 @@
+baseline:
+  log_level: "info"
+  mode: "production"
+  policies:
+    enforce_blocking: true
+    require_approval: true
+    scan_paths:
+      - "C:\projects"
+      - "C:\repositories"
+    ignore_patterns:
+      - "*.tmp"
+      - "node_modules/*"
+      - ".git/*"
+      - "*.log"
+  notifications:
+    email: "admin@yourcompany.com"
+    slack_webhook: "https://hooks.slack.com/services/YOUR/WEBHOOK"
+  security:
+    require_signed_commits: true
+    max_file_size_mb: 100
+    blocked_extensions:
+      - ".exe"
+      - ".dll"
+      - ".so"
+      - ".bat"
+      - ".cmd"
+  performance:
+    max_scan_time_minutes: 5
+    max_memory_mb: 512
+    concurrent_scans: 2
