@@ -38,7 +38,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4.4.3
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: coverage
           path: coverage.out
@@ -118,7 +118,7 @@ jobs:
             -o "dist/${{ matrix.binary }}" ./cmd/baseline
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4.4.3
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: ${{ matrix.binary }}
           path: dist/${{ matrix.binary }}
