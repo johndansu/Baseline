@@ -25,6 +25,10 @@ logs/
 tmp/
 temp/
 *.tmp
+internal/api/*.go.*
+.gocache/
+.baseline/*.log
+.baseline/*.pid
 
 # AI and development artifacts
 baseline_ai_failure_assistance.txt
@@ -35,6 +39,9 @@ policy_assist.md
 backups/
 *.backup
 *.bak
+*.db-shm
+*.db-wal
+*.db-journal
 
 # Environment files (keep .env.example)
 .env

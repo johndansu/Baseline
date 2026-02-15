@@ -3,8 +3,13 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/baseline/baseline/internal/api"
 	"github.com/baseline/baseline/internal/types"
 )
 
@@ -27,8 +32,8 @@ func TestHandleVersion(t *testing.T) {
 		t.Error("Expected version output, got empty string")
 	}
 
-	if output[:8] != "baseline" {
-		t.Errorf("Expected output to start with 'baseline', got '%s'", output[:8])
+	if !strings.HasPrefix(strings.TrimSpace(output), "baseline") {
+		t.Errorf("Expected output to start with 'baseline', got '%s'", output)
 	}
 }
 
@@ -66,7 +71,16 @@ func TestRequireGitRepoSuccess(t *testing.T) {
 }
 
 func TestHandleExplainUsage(t *testing.T) {
-	t.Skip("Skipping problematic test - CLI explain functionality works in practice")
+	cmd := exec.Command("go", "run", "../../cmd/baseline", "explain")
+	output, err := cmd.CombinedOutput()
+
+	if err == nil {
+		t.Fatalf("Expected explain command without args to fail. Output: %s", string(output))
+	}
+
+	if !strings.Contains(string(output), "Usage: baseline explain <policy_id>") {
+		t.Fatalf("Expected usage output for explain command. Output: %s", string(output))
+	}
 }
 
 func TestHandleExplainWithPolicyID(t *testing.T) {
@@ -89,7 +103,7 @@ func TestHandleExplainWithPolicyID(t *testing.T) {
 	}
 
 	expectedHeader := "=== POLICY EXPLANATION ==="
-	if !contains(output, expectedHeader) {
+	if !strings.Contains(output, expectedHeader) {
 		t.Errorf("Expected output to contain '%s', got '%s'", expectedHeader, output)
 	}
 }
@@ -138,20 +152,6 @@ func TestHandleReportArgs(t *testing.T) {
 	}
 }
 
-// Helper function to check if string contains substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-			func() bool {
-				for i := 0; i <= len(s)-len(substr); i++ {
-					if s[i:i+len(substr)] == substr {
-						return true
-					}
-				}
-				return false
-			}())))
-}
-
 // Test exit code constants
 func TestExitCodes(t *testing.T) {
 	if types.ExitSuccess != 0 {
@@ -164,6 +164,158 @@ func TestExitCodes(t *testing.T) {
 
 	if types.ExitSystemError != 50 {
 		t.Errorf("Expected ExitSystemError to be 50, got %d", types.ExitSystemError)
+	}
+}
+
+func TestVerifyAPIProdConfigPass(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = "127.0.0.1:8080"
+	cfg.DBPath = "baseline_api.db"
+	cfg.APIKeys = map[string]api.Role{
+		"admin-key": api.RoleAdmin,
+	}
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.MaxBodyBytes = 1 << 20
+	cfg.ShutdownTimeout = 10 * time.Second
+	cfg.ReadTimeout = 5 * time.Second
+	cfg.WriteTimeout = 5 * time.Second
+	cfg.IdleTimeout = 30 * time.Second
+
+	result := verifyAPIProdConfig(cfg, func(_ string) string { return "" })
+	if len(result.Errors) != 0 {
+		t.Fatalf("expected no errors, got %v", result.Errors)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", result.Warnings)
+	}
+}
+
+func TestVerifyAPIProdConfigDetectsBlockingIssues(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = ":8080"
+	cfg.DBPath = ":memory:"
+	cfg.APIKeys = map[string]api.Role{}
+	cfg.CORSAllowedOrigins = []string{"*", "http://dashboard.example.com"}
+	cfg.MaxBodyBytes = 0
+	cfg.ShutdownTimeout = 0
+	cfg.ReadTimeout = 0
+	cfg.WriteTimeout = 0
+	cfg.IdleTimeout = 0
+
+	result := verifyAPIProdConfig(cfg, func(key string) string {
+		if key == "BASELINE_API_KEY" {
+			return "replace-with-admin-key"
+		}
+		return ""
+	})
+
+	if len(result.Errors) == 0 {
+		t.Fatal("expected blocking errors, got none")
+	}
+	joined := strings.Join(result.Errors, "\n")
+	expected := []string{
+		"persistent file path",
+		"CORS wildcard",
+		"must use HTTPS",
+		"MAX_BODY_BYTES",
+		"SHUTDOWN_TIMEOUT",
+		"placeholder",
+	}
+	for _, token := range expected {
+		if !strings.Contains(joined, token) {
+			t.Fatalf("expected error output to contain %q, got:\n%s", token, joined)
+		}
+	}
+}
+
+func TestVerifyAPIProdConfigWarnings(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = "127.0.0.1:8080"
+	cfg.DBPath = "baseline_api.db"
+	cfg.SelfServiceEnabled = true
+	cfg.EnrollmentTokens = map[string]api.Role{
+		"token-1": api.RoleViewer,
+	}
+	cfg.EnrollmentMaxUses = 3
+	cfg.EnrollmentTokenTTL = 48 * time.Hour
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.TrustProxyHeaders = false
+	cfg.AIEnabled = true
+	cfg.APIKeys = map[string]api.Role{}
+
+	result := verifyAPIProdConfig(cfg, func(_ string) string { return "" })
+	if len(result.Errors) != 0 {
+		t.Fatalf("expected no blocking errors, got %v", result.Errors)
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected warnings, got none")
+	}
+	joined := strings.Join(result.Warnings, "\n")
+	expected := []string{
+		"Enrollment max uses",
+		"Enrollment token TTL",
+		"No admin API key",
+		"AI advisory endpoints are enabled",
+	}
+	for _, token := range expected {
+		if !strings.Contains(joined, token) {
+			t.Fatalf("expected warning output to contain %q, got:\n%s", token, joined)
+		}
+	}
+}
+
+func TestLoadEnvFileIfPresent(t *testing.T) {
+	tempDir := t.TempDir()
+	envPath := filepath.Join(tempDir, "api.env")
+	content := strings.Join([]string{
+		"# comment",
+		"BASELINE_API_ADDR=:9090",
+		"export BASELINE_API_DB_PATH=prod.db",
+		"BASELINE_API_CORS_ALLOWED_ORIGINS=\"https://dashboard.local\"",
+	}, "\n")
+	if err := os.WriteFile(envPath, []byte(content), 0600); err != nil {
+		t.Fatalf("write env file failed: %v", err)
+	}
+
+	_ = os.Unsetenv("BASELINE_API_ADDR")
+	_ = os.Unsetenv("BASELINE_API_DB_PATH")
+	_ = os.Unsetenv("BASELINE_API_CORS_ALLOWED_ORIGINS")
+	defer os.Unsetenv("BASELINE_API_ADDR")
+	defer os.Unsetenv("BASELINE_API_DB_PATH")
+	defer os.Unsetenv("BASELINE_API_CORS_ALLOWED_ORIGINS")
+
+	if err := loadEnvFileIfPresent(envPath); err != nil {
+		t.Fatalf("loadEnvFileIfPresent failed: %v", err)
+	}
+
+	if got := os.Getenv("BASELINE_API_ADDR"); got != ":9090" {
+		t.Fatalf("expected BASELINE_API_ADDR=:9090, got %q", got)
+	}
+	if got := os.Getenv("BASELINE_API_DB_PATH"); got != "prod.db" {
+		t.Fatalf("expected BASELINE_API_DB_PATH=prod.db, got %q", got)
+	}
+	if got := os.Getenv("BASELINE_API_CORS_ALLOWED_ORIGINS"); got != "https://dashboard.local" {
+		t.Fatalf("expected CORS origin to load, got %q", got)
+	}
+}
+
+func TestLoadEnvFileDoesNotOverrideExistingEnv(t *testing.T) {
+	tempDir := t.TempDir()
+	envPath := filepath.Join(tempDir, "api.env")
+	if err := os.WriteFile(envPath, []byte("BASELINE_API_ADDR=:7000\n"), 0600); err != nil {
+		t.Fatalf("write env file failed: %v", err)
+	}
+
+	if err := os.Setenv("BASELINE_API_ADDR", ":8000"); err != nil {
+		t.Fatalf("set env failed: %v", err)
+	}
+	defer os.Unsetenv("BASELINE_API_ADDR")
+
+	if err := loadEnvFileIfPresent(envPath); err != nil {
+		t.Fatalf("loadEnvFileIfPresent failed: %v", err)
+	}
+	if got := os.Getenv("BASELINE_API_ADDR"); got != ":8000" {
+		t.Fatalf("expected existing env to remain :8000, got %q", got)
 	}
 }
 

@@ -49,6 +49,10 @@ func main() {
 		cli.HandlePR()
 	case "explain":
 		cli.HandleExplain(os.Args[2:])
+	case "api":
+		cli.HandleAPI(os.Args[2:])
+	case "dashboard":
+		cli.HandleDashboard(os.Args[2:])
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)
 		printUsage()
@@ -72,6 +76,8 @@ func printUsage() {
 	fmt.Println("  generate   Generate missing infrastructure using AI")
 	fmt.Println("  pr         Create pull requests with AI-generated scaffolds")
 	fmt.Println("  explain    Get explanation for policy violations")
+	fmt.Println("  api        Serve Baseline API endpoints")
+	fmt.Println("  dashboard  Launch local web dashboard for Baseline API")
 	fmt.Println()
 	fmt.Println("Flags:")
 	fmt.Println("  --help, -h  Show this help message")
