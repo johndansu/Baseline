@@ -1,0 +1,257 @@
+# Baseline — API Specification (MVP)
+
+This document defines the **Baseline API (MVP)**.  
+The API is optional, deterministic, and designed to support dashboards, policy distribution, and audit logging.
+
+Baseline CLI remains the primary interface.  
+The API **must never introduce autonomous behavior**.
+
+---
+
+# 1. Core Principles
+
+1. API is **supportive**, not authoritative.
+2. Policy enforcement remains deterministic and CLI-driven.
+3. No endpoint may auto-merge, auto-deploy, or override rules.
+4. AI endpoints (if enabled) are advisory only.
+5. All actions must be auditable.
+
+---
+
+# 2. Authentication
+
+## MVP Authentication
+- API Key based
+- Key passed via header:
+
+```
+Authorization: Bearer <BASELINE_API_KEY>
+```
+
+## Roles
+
+| Role     | Permissions |
+|-----------|------------|
+| viewer    | Read-only access to scans & reports |
+| operator  | Can trigger scans & PR suggestions |
+| admin     | Can manage policies & rule versions |
+
+---
+
+# 3. Projects
+
+## Register Project
+```
+POST /v1/projects
+```
+
+**Body:**
+```
+{
+  "name": "repo-name",
+  "repository_url": "https://github.com/org/repo",
+  "default_branch": "main",
+  "policy_set": "baseline:prod"
+}
+```
+
+## List Projects
+```
+GET /v1/projects
+```
+
+## Get Project
+```
+GET /v1/projects/{project_id}
+```
+
+---
+
+# 4. Scans & Reports
+
+## Upload Scan Result
+```
+POST /v1/scans
+```
+
+**Body:**
+```
+{
+  "project_id": "abc123",
+  "commit_sha": "def456",
+  "status": "fail",
+  "violations": [
+    {
+      "policy_id": "G1",
+      "severity": "block",
+      "message": "Plaintext secret detected"
+    }
+  ]
+}
+```
+
+## List Scans
+```
+GET /v1/scans?project_id=abc123
+```
+
+## Get Scan Report
+```
+GET /v1/scans/{scan_id}/report
+```
+
+Supported formats:
+- JSON
+- SARIF
+- Text
+
+---
+
+# 5. Policy Distribution
+
+## List Policies
+```
+GET /v1/policies
+```
+
+## Get Policy Version
+```
+GET /v1/policies/{name}/versions
+```
+
+## Get Latest Policy
+```
+GET /v1/policies/{name}/latest
+```
+
+Policies are:
+- Versioned
+- Immutable once published
+- Deterministic
+
+---
+
+# 6. Rule Updates
+
+## Get Latest Ruleset
+```
+GET /v1/rulesets/latest
+```
+
+## Get Specific Ruleset Version
+```
+GET /v1/rulesets/{version}
+```
+
+Ruleset updates must:
+- Be versioned
+- Be auditable
+- Never change silently
+
+---
+
+# 7. Audit Log
+
+## List Events
+```
+GET /v1/audit/events
+```
+
+Events include:
+- scan_uploaded
+- enforcement_failed
+- policy_updated
+- ruleset_updated
+
+Audit logs must be:
+- Append-only
+- Immutable
+- Queryable by project
+
+---
+
+# 8. AI Advisory Endpoints (Optional)
+
+AI endpoints are **disabled by default**.
+
+## Explain Policy Failure
+```
+POST /v1/ai/explain
+```
+
+**Input:** structured violation JSON  
+**Output:** human-readable explanation
+
+AI must:
+- Not decide severity
+- Not return pass/fail
+- Not modify repository state
+
+## Suggest Fix (Staging Only)
+```
+POST /v1/ai/suggest
+```
+
+**Output:**
+- Diff format only
+- No direct repository modification
+
+Human approval required before merge.
+
+---
+
+# 9. CLI Configuration
+
+Example `baseline.yaml`:
+
+```
+api:
+  mode: optional        # optional | required | offline
+  base_url: "https://api.baseline.dev"
+  timeout_ms: 5000
+  retries: 0
+  auth:
+    type: api_key
+    env: BASELINE_API_KEY
+  tls:
+    verify: true
+  telemetry:
+    enabled: false
+```
+
+`--offline` flag disables all network calls.
+
+---
+
+# 10. Explicitly Forbidden API Behavior
+
+The API must never:
+- Auto-merge pull requests
+- Auto-deploy infrastructure
+- Override policy severity
+- Modify production environments
+- Execute shell commands
+- Perform AI-based enforcement
+
+Baseline remains deterministic and human-governed.
+
+---
+
+# 11. MVP Scope Summary
+
+The Baseline API MVP supports:
+- Project registration
+- Scan ingestion
+- Policy distribution
+- Rule updates
+- Audit logging
+- Optional AI advisory endpoints
+
+It does NOT support:
+- Autonomous execution
+- Infrastructure orchestration
+- Deployment automation
+
+---
+
+End of API Specification (MVP)
