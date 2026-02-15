@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Baseline - Dashboard</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <a class="brand" href="./index.html">
+        <img src="../img/baseline logo.png" alt="Baseline logo">
+        <div>
+          <strong>Baseline</strong>
+          <span>Development Dashboard</span>
+        </div>
+      </a>
+
+      <nav class="menu">
+        <a href="#overview" data-tab="overview" class="active">Overview</a>
+        <a href="#product" data-tab="product">What Baseline Does</a>
+        <a href="#workflow" data-tab="workflow">How It Works</a>
+        <a href="#access" data-tab="access">Access Model</a>
+      </nav>
+
+      <p class="small-note">Static mode: no backend required.</p>
+    </aside>
+
+    <main class="content">
+      <header class="hero panel">
+        <p class="kicker">Dashboard</p>
+        <h1>Baseline governance workspace</h1>
+        <p>
+          This is a pure frontend development dashboard. You can iterate on content,
+          layout, and flows without running any API server.
+        </p>
+      </header>
+
+      <section id="overview" class="panel tab active">
+        <h2>Overview</h2>
+        <div class="metrics">
+          <article class="metric"><span>Active Projects</span><strong>12</strong></article>
+          <article class="metric"><span>Recent Scans</span><strong>46</strong></article>
+          <article class="metric"><span>Blocking Issues</span><strong>3</strong></article>
+          <article class="metric"><span>Pass Rate</span><strong>93%</strong></article>
+        </div>
+      </section>
+
+      <section id="product" class="panel tab">
+        <h2>What Baseline Does</h2>
+        <ul>
+          <li>Defines governance policies for AI and software delivery.</li>
+          <li>Surfaces violations and trends before production deployment.</li>
+          <li>Improves audit readiness with clear operational records.</li>
+        </ul>
+      </section>
+
+      <section id="workflow" class="panel tab">
+        <h2>How It Works</h2>
+        <ol>
+          <li>Configure governance standards for your team and repos.</li>
+          <li>Run checks/scans and review risk by severity.</li>
+          <li>Remediate issues and approve changes with confidence.</li>
+        </ol>
+      </section>
+
+      <section id="access" class="panel tab">
+        <h2>Access Model</h2>
+        <p>
+          Typical roles:
+          <code>viewer</code> (read-only),
+          <code>operator</code> (execute workflows),
+          <code>admin</code> (manage keys, policies, and lifecycle).
+        </p>
+        <p id="clock" class="muted">Ready.</p>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CSS Path Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    .test-result { margin: 10px 0; padding: 10px; border-radius: 4px; }
+    .success { background: #4caf50; color: white; }
+    .error { background: #f44336; color: white; }
+  </style>
+</head>
+<body>
+  <div class="test-result">
+    <div>Testing CSS file path...</div>
+    <div id="path-result"></div>
+  </div>
+
+  <script>
+    // Test if CSS file exists and is accessible
+    fetch('./styles.css')
+      .then(response => {
+        if (response.ok) {
+          document.getElementById('path-result').innerHTML = '<span class="success">✅ CSS file found and accessible</span>';
+          document.getElementById('path-result').className = 'test-result success';
+        } else {
+          document.getElementById('path-result').innerHTML = '<span class="error">❌ CSS file not found or not accessible</span>';
+          document.getElementById('path-result').className = 'test-result error';
+        }
+      })
+      .catch(error => {
+        document.getElementById('path-result').innerHTML = '<span class="error">❌ Error testing CSS file: ' + error.message + '</span>';
+        document.getElementById('path-result').className = 'test-result error';
+      });
+  </script>
+</body>
+</html>
