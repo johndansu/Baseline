@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CSS Test - Baseline</title>
+  <link rel="stylesheet" href="./styles.css">
+  <style>
+    .test-box {
+      background: var(--brand);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px;
+      text-align: center;
+    }
+    .test-result {
+      font-size: 1.2rem;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-box">
+    <div>CSS Variables Test</div>
+    <div class="test-result" id="brand-color">Brand Color: <span id="brand-value"></span></div>
+    <div class="test-result" id="bg-color">Background Color: <span id="bg-value"></span></div>
+  </div>
+  
+  <script>
+    // Test if CSS variables are working
+    const root = getComputedStyle(document.documentElement);
+    const brandColor = root.getPropertyValue('--brand').trim();
+    const bgColor = root.getPropertyValue('--bg').trim();
+    
+    document.getElementById('brand-value').textContent = brandColor || 'NOT FOUND';
+    document.getElementById('bg-value').textContent = bgColor || 'NOT FOUND';
+    
+    // Test if orange theme is applied
+    if (brandColor.includes('ea580c') && bgColor.includes('fff5f0')) {
+      document.body.style.background = 'linear-gradient(135deg, #4caf50, #ff9800)';
+      document.querySelector('.test-box').innerHTML += '<div style="margin-top: 20px; color: white;">✅ ORANGE THEME DETECTED</div>';
+    } else {
+      document.querySelector('.test-box').innerHTML += '<div style="margin-top: 20px; color: #ff5722;">❌ ORANGE THEME NOT DETECTED</div>';
+    }
+  </script>
+</body>
+</html>

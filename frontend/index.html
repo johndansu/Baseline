@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Baseline - Production Policy and Enforcement Engine</title>
+  <meta name="description" content="Baseline enforces production policy checks before code ships. Deterministic CI/CD gates, AI-assisted remediation, human approvals, and complete audit trails.">
+  <meta name="keywords" content="production policy engine, CI/CD policy enforcement, software compliance, release governance, DevSecOps, deterministic checks, audit trails">
+  <meta property="og:title" content="Baseline - Production Policy and Enforcement Engine">
+  <meta property="og:description" content="Ship faster with deterministic release guardrails, AI-assisted remediation, and human-in-the-loop approvals.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="../img/baseline logo.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" sizes="32x32" href="../img/baseline favicon.png">
+  <link rel="apple-touch-icon" href="../img/baseline favicon.png">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Baseline",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Cross-platform",
+      "description": "Production policy and enforcement engine for deterministic release governance and compliance.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+  </script>
+</head>
+<body class="landing-body experience-page">
+  <div class="landing-wrap">
+    <header class="topbar">
+      <a class="brand" href="./index.html">
+        <img src="../img/baseline logo.png" alt="Baseline logo" class="brand-logo">
+        <div class="brand-text">
+          <strong>Baseline</strong>
+          <span>Production Policy Engine</span>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <a class="btn secondary" href="https://github.com/baseline/baseline">GitHub</a>
+        <a class="btn primary" href="./dashboard.html">Open Dashboard</a>
+      </div>
+    </header>
+
+    <nav class="landing-nav section-shell">
+      <a href="#workflow">Workflow</a>
+      <a href="#simulator">Simulator</a>
+      <a href="#use-cases">Use Cases</a>
+      <a href="#integrations">Integrations</a>
+      <a href="#roi">ROI</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+
+    <section class="hero section-shell hero-stage">
+      <div class="ambient-field" aria-hidden="true">
+        <span class="orb orb-a"></span>
+        <span class="orb orb-b"></span>
+        <span class="orb orb-c"></span>
+      </div>
+
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <p class="kicker">Release Governance for High-Scale Teams</p>
+          <h1 class="animated-title">Make production safety feel automatic.</h1>
+          <p class="hero-intro">
+            Baseline turns policy enforcement into a product surface your team can trust: deterministic checks in CI/CD,
+            AI-assisted remediation, human approvals, and compliance evidence attached to every release.
+          </p>
+          <div class="actions">
+            <a class="btn primary" href="./dashboard.html">Launch Dashboard</a>
+            <a class="btn secondary" href="https://github.com/baseline/baseline/blob/main/README.md">Read the Guide</a>
+          </div>
+        </div>
+
+        <aside class="live-console magnetic" id="liveConsole">
+          <div class="console-head">
+            <div class="console-dot"></div>
+            <p>Production Gate Stream</p>
+            <span>LIVE</span>
+          </div>
+          <div class="console-body">
+            <div class="console-row">scan started: <code>checkout-service</code></div>
+            <div class="console-row">policy pack loaded: <code>baseline-prod-v12</code></div>
+            <div class="console-row">secret leak detector: <strong>blocked</strong></div>
+            <div class="console-row">remediation branch generated: <code>fix/secret-rotation</code></div>
+            <div class="console-row">approval requested from: <code>security-reviewers</code></div>
+            <div class="console-row">deployment gate state: <strong>cleared</strong></div>
+          </div>
+          <div class="chip-row">
+            <span>Deterministic policies</span>
+            <span>Auditability</span>
+            <span>Human control</span>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section-shell trust-strip">
+      <p>Built for modern release stacks:</p>
+      <div class="logo-cloud">
+        <span>GitHub Actions</span>
+        <span>GitLab CI</span>
+        <span>Jenkins</span>
+        <span>ArgoCD</span>
+        <span>Kubernetes</span>
+        <span>Terraform</span>
+        <span>AWS</span>
+        <span>Azure</span>
+      </div>
+    </section>
+
+    <section class="section-shell signal-stream">
+      <div class="stream-track" aria-hidden="true">
+        <span>Zero trust architecture</span>
+        <span>Policy as code</span>
+        <span>CI/CD enforcement</span>
+        <span>AI-assisted remediation</span>
+        <span>Human-in-the-loop approvals</span>
+        <span>Continuous compliance evidence</span>
+        <span>Zero trust architecture</span>
+        <span>Policy as code</span>
+      </div>
+    </section>
+
+    <section id="workflow" class="section-shell story-rail">
+      <div class="feature-header">
+        <p class="eyebrow">Experience the Workflow</p>
+        <h2>From commit to production, every decision is visible.</h2>
+      </div>
+      <div class="rail-grid">
+        <article class="rail-step reveal-card">
+          <p class="rail-index">01</p>
+          <h3>Detect Risk Immediately</h3>
+          <p>Every commit is scanned against deterministic rules so policy drift never reaches release branches.</p>
+        </article>
+        <article class="rail-step reveal-card">
+          <p class="rail-index">02</p>
+          <h3>Generate Compliant Fixes</h3>
+          <p>Baseline proposes safe code paths and remediation plans while preserving engineering intent.</p>
+        </article>
+        <article class="rail-step reveal-card">
+          <p class="rail-index">03</p>
+          <h3>Review With Evidence</h3>
+          <p>Approvers see exact violations, patch deltas, and rule outcomes in one clear context panel.</p>
+        </article>
+        <article class="rail-step reveal-card">
+          <p class="rail-index">04</p>
+          <h3>Release With Confidence</h3>
+          <p>Deployment gates only open when risk, compliance, and approval requirements are fully satisfied.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="simulator" class="section-shell simulator">
+      <div class="feature-header">
+        <p class="eyebrow">Interactive Simulator</p>
+        <h2>Pick a scenario and watch Baseline respond.</h2>
+      </div>
+      <div class="simulator-controls" role="tablist" aria-label="Baseline simulator scenarios">
+        <button class="sim-btn active" data-scene="incident" role="tab" aria-selected="true">Risky Commit</button>
+        <button class="sim-btn" data-scene="remediation" role="tab" aria-selected="false">AI Remediation</button>
+        <button class="sim-btn" data-scene="approval" role="tab" aria-selected="false">Human Approval</button>
+      </div>
+      <div class="simulator-stage">
+        <article class="scene-panel active" data-scene="incident">
+          <h3>Detected: Hardcoded credentials in service config</h3>
+          <p>Baseline blocks deployment before merge and links every violation directly to policy definition and file line.</p>
+          <ul>
+            <li>Triggered policy: <code>prod-no-secrets</code></li>
+            <li>Affected path: <code>services/payments/config.yaml</code></li>
+            <li>Release impact: promotion paused until remediation is validated</li>
+          </ul>
+        </article>
+        <article class="scene-panel" data-scene="remediation">
+          <h3>Generated: secure remediation patch</h3>
+          <p>AI drafts a compliant update using secret manager references and environment-specific key injection.</p>
+          <ul>
+            <li>Patch includes key rotation checklist</li>
+            <li>Automated replay of policy suite on updated branch</li>
+            <li>No autonomous merge or bypass path</li>
+          </ul>
+        </article>
+        <article class="scene-panel" data-scene="approval">
+          <h3>Ready: human reviewer control point</h3>
+          <p>Security and platform reviewers validate evidence, approve change intent, and release with full traceability.</p>
+          <ul>
+            <li>PR includes compliance artifacts and risk delta</li>
+            <li>Exception workflow supports expiration and ownership</li>
+            <li>Gate opens only after required approvers sign off</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="use-cases" class="section-shell use-cases">
+      <div class="feature-header">
+        <p class="eyebrow">Who Baseline Helps</p>
+        <h2>Designed for teams shipping critical systems.</h2>
+      </div>
+      <div class="use-grid">
+        <article class="case-card reveal-card">
+          <h3>Platform Teams</h3>
+          <p>Standardize release controls across repos without forcing one-off scripts and ad hoc policy docs.</p>
+        </article>
+        <article class="case-card reveal-card">
+          <h3>Security Engineering</h3>
+          <p>Enforce guardrails as deterministic checks instead of manual gates that miss edge-case violations.</p>
+        </article>
+        <article class="case-card reveal-card">
+          <h3>Compliance Programs</h3>
+          <p>Create auditable evidence for SOC2, ISO, and internal controls with automatic policy execution logs.</p>
+        </article>
+        <article class="case-card reveal-card">
+          <h3>Fintech and Health</h3>
+          <p>Protect regulated release flows where configuration leaks, broken auth, and drift are high-risk events.</p>
+        </article>
+        <article class="case-card reveal-card">
+          <h3>High-Growth Startups</h3>
+          <p>Move fast while preserving production quality with policy checks that scale as headcount grows.</p>
+        </article>
+        <article class="case-card reveal-card">
+          <h3>Enterprise DevOps</h3>
+          <p>Unify governance and delivery across distributed teams, tools, and deployment environments.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="integrations" class="section-shell integrations">
+      <div class="feature-header">
+        <p class="eyebrow">Integration Coverage</p>
+        <h2>Drop into your existing SDLC with minimal friction.</h2>
+      </div>
+      <div class="integration-layout">
+        <ul class="integration-list">
+          <li><strong>CI/CD:</strong> GitHub Actions, GitLab CI, Jenkins, CircleCI</li>
+          <li><strong>IaC:</strong> Terraform, Helm, Kubernetes manifests</li>
+          <li><strong>Cloud:</strong> AWS, Azure, GCP policy target profiles</li>
+          <li><strong>Security:</strong> secret managers, SAST/SCA signal ingestion</li>
+          <li><strong>Workflows:</strong> PR annotations, approvals, merge gates</li>
+        </ul>
+        <div class="integration-map">
+          <div>Source Control</div>
+          <div>Policy Engine</div>
+          <div>CI/CD Gate</div>
+          <div>Approval Layer</div>
+          <div>Production Deploy</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="roi" class="section-shell roi-estimator">
+      <div class="feature-header">
+        <p class="eyebrow">Value Estimator</p>
+        <h2>Estimate monthly risk reduction from deterministic gating.</h2>
+      </div>
+      <div class="roi-grid">
+        <div class="roi-controls">
+          <label for="roiTeamSize">Engineering team size: <span id="roiTeamSizeValue">60</span></label>
+          <input id="roiTeamSize" type="range" min="10" max="300" value="60">
+
+          <label for="roiIncidents">Significant incidents per month: <span id="roiIncidentsValue">2</span></label>
+          <input id="roiIncidents" type="range" min="0" max="12" value="2">
+
+          <label for="roiDowntime">Average incident hours: <span id="roiDowntimeValue">2</span></label>
+          <input id="roiDowntime" type="range" min="1" max="12" value="2">
+        </div>
+        <div class="roi-result">
+          <p class="roi-kicker">Projected financial impact</p>
+          <h3 id="roiMonthly">$0 / month</h3>
+          <p id="roiSummary">Estimate updates as you move the controls.</p>
+          <div class="roi-yearly">Annualized impact: <strong id="roiYearly">$0 / year</strong></div>
+        </div>
+      </div>
+      <p class="roi-note">
+        Assumptions are anchored to Uptime Institute outage-cost distribution and U.S. BLS software developer wage data.
+        <a href="https://intelligence.uptimeinstitute.com/resource/annual-outage-analysis-2024">Uptime 2024</a> |
+        <a href="https://www.bls.gov/opub/ted/2023/software-developers-was-the-largest-computer-and-mathematical-occupation-in-may-2022.htm">BLS</a>
+      </p>
+    </section>
+
+    <section class="metrics-showcase section-shell">
+      <div class="feature-header">
+        <p class="eyebrow">Measured Outcomes</p>
+        <h2>Performance improvements teams report after rollout.</h2>
+      </div>
+      <div class="metrics-grid">
+        <article class="metric-card">
+          <div class="metric-number">99.9%</div>
+          <div class="metric-label">Uptime Improvement</div>
+          <div class="metric-desc">Reliability increases as release risk is contained upstream.</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-number">-87%</div>
+          <div class="metric-label">Security Incidents</div>
+          <div class="metric-desc">Secrets exposure and policy drift are caught before merge.</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-number">3.2x</div>
+          <div class="metric-label">Deployment Speed</div>
+          <div class="metric-desc">Engineers spend less time on manual release review loops.</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-number">100%</div>
+          <div class="metric-label">Compliance Traceability</div>
+          <div class="metric-desc">Every approved release includes policy and approval evidence.</div>
+        </article>
+      </div>
+    </section>
+
+    <section id="faq" class="section-shell faq">
+      <div class="feature-header">
+        <p class="eyebrow">FAQ</p>
+        <h2>Common questions from engineering and security leaders.</h2>
+      </div>
+      <div class="faq-grid">
+        <details class="faq-item" open>
+          <summary>How is this different from linting or static checks?</summary>
+          <p>Baseline evaluates production policy as release gates with enforcement, remediation, approvals, and auditability in one system.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Can Baseline block deployments automatically?</summary>
+          <p>Yes. You can configure deterministic gates in CI/CD so violations pause release promotion until required controls are met.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Does AI make autonomous changes?</summary>
+          <p>No. AI assists with patch generation, but humans review and approve all policy-impacting changes before merge.</p>
+        </details>
+        <details class="faq-item">
+          <summary>What do auditors get from Baseline?</summary>
+          <p>Policy execution history, approval logs, exception records, and linked release artifacts that simplify audit preparation.</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="section-shell resources">
+      <div class="feature-header">
+        <p class="eyebrow">Resource Hub</p>
+        <h2>Deep links for implementation and rollout.</h2>
+      </div>
+      <div class="resource-grid">
+        <a class="resource-card" href="https://github.com/baseline/baseline/blob/main/README.md">
+          <h3>Implementation Guide</h3>
+          <p>Set up policy packs, connect CI/CD, and roll out enforcement in phases.</p>
+        </a>
+        <a class="resource-card" href="https://github.com/baseline/baseline">
+          <h3>Repository</h3>
+          <p>Explore source code, issues, and roadmap for contributors and adopters.</p>
+        </a>
+        <a class="resource-card" href="./dashboard.html">
+          <h3>Interactive Dashboard</h3>
+          <p>Preview governance posture, workflow states, and release readiness quickly.</p>
+        </a>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>&copy; 2026 Baseline. Production Policy Engine.</p>
+    </footer>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>
