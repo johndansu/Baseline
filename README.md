@@ -1,202 +1,220 @@
 # Baseline
 
-A Production Policy & Enforcement Engine that enforces software fundamentals before code reaches production.
+Baseline is a Go CLI and optional API/dashboard layer for enforcing deterministic production-readiness checks before code ships.
 
-## Status
+This README reflects what is currently implemented in this repository.
 
-✅ **Production Ready - MVP Complete**
-- Core CLI commands implemented and tested
-- Full security compliance with 12 deterministic rules
-- Comprehensive test coverage (unit + integration)
-- AI-assisted scaffolding with human review workflow
-- Automated CI/CD pipeline with security scanning
-- GitHub integration with PR-based workflow
-- Version management with build-time injection
+## What You Have In This Repo
 
-## Installation
+- A CLI in `cmd/baseline` with policy checks, scan/report output, and init/explain flows.
+- Deterministic policy enforcement in `internal/policy`.
+- AI-assisted scaffolding commands in `internal/ai` (Ollama-backed, human review required).
+- An HTTP API server with auth/session support in `internal/api`.
+- Two dashboard paths:
+  - Embedded dashboard at `/dashboard` from `baseline api serve`.
+  - Separate dashboard proxy from `baseline dashboard`.
+- Static frontend pages in `frontend/` for local browser preview.
 
-### From Source
+## Requirements
+
+- Go `1.24+` (see `go.mod`)
+- Git installed and available in PATH
+- Optional:
+  - Ollama (for `baseline generate` and `baseline pr`)
+  - GitHub CLI (`gh`) for `baseline pr`
+
+## Build
+
 ```bash
 go build -o baseline.exe ./cmd/baseline
 ```
 
-### From Release
-Download the latest release from [GitHub Releases](https://github.com/baseline/baseline/releases).
+## CLI Commands
 
-## Usage
+- `baseline version` - print version/build information.
+- `baseline check` - run all policy checks and exit non-zero on violations.
+- `baseline enforce` - enforcement-focused output; blocks on violations.
+- `baseline scan` - run comprehensive scan summary (files/security/violations).
+- `baseline init` - create `.baseline/config.yaml`.
+- `baseline report` - output scan results (`--json` supported).
+- `baseline explain <policy_id>` - explain current status + remediation for one policy.
+- `baseline generate` - generate scaffolded fixes for certain violations via Ollama.
+- `baseline pr` - generate fixes, commit/push branch, and try `gh pr create`.
+- `baseline api serve` - run API server.
+- `baseline api keygen` - generate a random API key.
+- `baseline api verify-prod [--strict]` - validate production API env configuration.
+- `baseline dashboard` - run separate local dashboard proxy service.
 
-### Commands
+## Exit Codes
 
-- `baseline version` - Show version information
-- `baseline check` - Run repository policy checks
-- `baseline enforce` - Enforce policies and block on violations  
-- `baseline scan` - Deep scan of repository state
-- `baseline init` - Initialize Baseline configuration
-- `baseline report` - Output scan results in machine-readable formats
-- `baseline generate` - Generate missing infrastructure using AI
-- `baseline pr` - Create pull requests with AI-generated scaffolds
-- `baseline explain` - Get explanation for policy violations
-- `baseline api serve` - Run the Baseline API server
-- `baseline api keygen` - Generate a strong API key
-- `baseline api verify-prod` - Validate production API environment and TLS/proxy safeguards
-- `baseline dashboard` - Launch local web dashboard backed by the Baseline API
+- `0` success
+- `20` blocking violations
+- `50` system/runtime error
 
-### Dashboard
+## Policy Checks Enforced
 
-Run the API server, then open the built-in web dashboard:
+Baseline currently runs these checks (IDs from `internal/types/types.go`):
+
+- `A1` protected primary branch exists (`main` or `master` present).
+- `B1` CI pipeline config exists.
+- `C1` automated tests exist.
+- `D1` no plaintext secrets/token patterns in scannable files.
+- `E1` dependency management files exist.
+- `F1` README + license requirements are met.
+- `G1` risky code patterns are blocked (unsafe pointer, unsafe exec/eval/system, SQL string building).
+- `H1` deployment config exists; Dockerfile rules include non-root `USER`.
+- `I1` infrastructure-as-code artifacts exist.
+- `J1` environment variable template exists (`.env.example`/`.env.template` style).
+- `K1` backup/recovery docs or scripts exist.
+- `L1` logging/monitoring config or docs exist.
+- `R1` rollback documentation exists.
+
+Notes:
+- Most violations are `block`.
+- Dockerfile use of `:latest` is currently reported as `warn`.
+
+## API Server
+
+Start:
 
 ```bash
 baseline api serve --addr :8080
 ```
 
-Then open `http://127.0.0.1:8080/dashboard`, use an API key (or self-service enrollment token), and view projects, scans, policies, and audit events.
+Other API subcommands:
 
-Windows shortcut flow (no manual env/process management):
+```bash
+baseline api keygen
+baseline api verify-prod
+baseline api verify-prod --strict
+```
+
+### Auth Model (Current)
+
+- API key auth via `Authorization: Bearer <key>`.
+- Optional dashboard cookie sessions via `/v1/auth/session` when `BASELINE_API_DASHBOARD_SESSION_ENABLED=true`.
+- Optional self-service API key registration via `/v1/auth/register` when enabled.
+
+### Implemented API Routes (Current)
+
+- `GET /`
+- `GET /dashboard`
+- `GET /assets/baseline-logo.png`
+- `GET /assets/dashboard.css`
+- `GET /assets/dashboard.js`
+- `GET /healthz` and `GET /livez`
+- `GET /readyz`
+- `POST|GET|DELETE /v1/auth/session`
+- `POST /v1/auth/register`
+- `GET /v1/dashboard`
+- `GET|POST /v1/projects`
+- `GET /v1/projects/{project_id}`
+- `GET|POST /v1/scans`
+- `GET /v1/scans/{scan_id}`
+- `GET /v1/scans/{scan_id}/report?format=json|text|sarif`
+- `GET /v1/policies`
+- `GET|POST /v1/policies/{name}/versions`
+- `GET /v1/policies/{name}/latest`
+- `POST /v1/rulesets`
+- `GET /v1/rulesets/latest`
+- `GET /v1/rulesets/{version}`
+- `GET /v1/audit/events`
+
+### API Environment Variables
+
+- `BASELINE_API_ENV_FILE`
+- `BASELINE_API_ADDR`
+- `BASELINE_API_DB_PATH`
+- `BASELINE_API_KEY`
+- `BASELINE_API_KEYS`
+- `BASELINE_API_SELF_SERVICE_ENABLED`
+- `BASELINE_API_ENROLLMENT_TOKENS`
+- `BASELINE_API_ENROLLMENT_TOKEN_TTL_MINUTES`
+- `BASELINE_API_ENROLLMENT_TOKEN_MAX_USES`
+- `BASELINE_API_TIMEOUT_MS`
+- `BASELINE_API_IDLE_TIMEOUT_MS`
+- `BASELINE_API_MAX_BODY_BYTES`
+- `BASELINE_API_SHUTDOWN_TIMEOUT_MS`
+- `BASELINE_API_CORS_ALLOWED_ORIGINS`
+- `BASELINE_API_TRUST_PROXY_HEADERS`
+- `BASELINE_API_DASHBOARD_SESSION_ENABLED`
+- `BASELINE_API_DASHBOARD_SESSION_ROLE`
+- `BASELINE_API_DASHBOARD_SESSION_TTL_MINUTES`
+- `BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED`
+- `BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER`
+- `BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER`
+- `BASELINE_API_AI_ENABLED`
+
+Env files are auto-loaded in this order:
+`BASELINE_API_ENV_FILE` (if set), `.env.production`, `.env`, `api.env`.
+
+## Dashboard Options
+
+### 1) Embedded Dashboard (API-hosted)
+
+Run:
+
+```bash
+baseline api serve --addr :8080
+```
+
+Open:
+
+`http://127.0.0.1:8080/dashboard`
+
+Windows shortcut:
 
 ```bat
 run-dashboard.bat
-```
-
-This starts the API in the background with dashboard sessions enabled and opens the dashboard URL.
-To stop it:
-
-```bat
 stop-dashboard.bat
 ```
 
-### API Runtime Endpoints
+### 2) Proxy Dashboard Service
 
-- `GET /dashboard` - Built-in web dashboard (no auth to load page; API key required for protected data calls)
-- `GET /healthz` - Liveness health check (no auth required)
-- `GET /readyz` - Readiness check with datastore ping (no auth required)
-- `GET /v1/...` - Baseline API business endpoints (API key required)
-- `POST /v1/policies/{name}/versions` - Publish immutable policy versions (admin)
-- `POST /v1/rulesets` - Publish immutable rulesets and mark latest (admin)
+Run API first, then:
 
-### API Production Environment
+```bash
+baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
+```
 
-- `BASELINE_API_ADDR` (default `:8080`)
-- `BASELINE_API_DB_PATH` (default `baseline_api.db`)
-- `BASELINE_API_MAX_BODY_BYTES` (default `1048576`)
-- `BASELINE_API_SHUTDOWN_TIMEOUT_MS` (default `10000`)
-- `BASELINE_API_CORS_ALLOWED_ORIGINS` (comma-separated allowlist)
-- `BASELINE_API_TRUST_PROXY_HEADERS` (`true` only behind trusted proxy)
-- `BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED` (`true` to issue dashboard sessions from trusted upstream identity headers)
-- `BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER` (default `X-Forwarded-User`)
-- `BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER` (default `X-Forwarded-Role`)
+Open:
 
-Baseline API commands auto-load env files in this order:
-`BASELINE_API_ENV_FILE` (if set), `.env.production`, `.env`, `api.env`.
+`http://127.0.0.1:8091/`
 
-### Flags
+This dashboard proxies selected GET endpoints under `/proxy/...`.
 
-- `--help, -h` - Show help message
+## Frontend Static Mode
 
-### Exit Codes
+For static page preview (no API required):
 
-- `0` - Success (no violations)
-- `20` - Blocking violations found
-- `50` - System error
+- Open `frontend/index.html`
+- Open `frontend/dashboard.html`
 
-## Policy Rules
+Assets used:
 
-Baseline enforces the following production safety rules:
+- `frontend/styles.css`
+- `frontend/app.js`
+- `img/baseline logo.png`
 
-### Security (D1, G1)
-- No plaintext secrets in code
-- No unsafe functions (exec, eval, system)
-- SQL injection protection
+## AI Scaffolding
 
-### CI/CD (B1)
-- CI pipeline required
-- Tests must run in CI
-- Automated builds
+Baseline uses AI for scaffolding only:
 
-### Testing (C1)
-- Unit tests required
-- Integration tests recommended
-- Coverage reporting
+- `baseline generate` can create CI/test/README/Dockerfile/env-template scaffolds based on violations.
+- `baseline pr` can generate files, commit, push branch, and attempt PR creation.
 
-### Documentation (F1)
-- README.md required
-- License required
-- Proper documentation
+AI is not used to decide enforcement outcomes. Review generated content before merge.
 
-### Deployment (H1)
-- Deployment configuration required
-- Container security
-- Non-root execution
+## Test
 
-### Infrastructure (I1)
-- Infrastructure as code
-- Security groups
-- Version control
-
-### Environment (J1)
-- Environment variables documented
-- No hardcoded secrets
-- Example configurations
-
-### Backup & Recovery (K1, R1)
-- Backup procedures documented
-- Rollback plans defined
-- Recovery steps
-
-### Monitoring (L1)
-- Logging configuration
-- Monitoring setup
-- Security event tracking
+```bash
+go test ./...
+```
 
 ## Security
 
-Baseline follows security best practices:
-- No secrets committed to repository
-- Input validation and sanitization
-- Minimal dependencies
-- Regular security audits
-
-See [SECURITY.md](SECURITY.md) for vulnerability reporting.
-
-## AI Integration
-
-Baseline uses AI **only for scaffolding**:
-- Generates CI configuration templates
-- Creates test file skeletons
-- Produces documentation drafts
-- **Never** makes enforcement decisions
-- **Never** auto-applies fixes
-
-All AI-generated content requires **human review** before use.
-
-## CI/CD Pipeline
-
-Baseline includes a comprehensive GitHub Actions workflow that:
-
-- **Multi-platform builds** (Ubuntu, Windows, macOS)
-- **Automated testing** with race condition detection
-- **Security scanning** using Gosec static analysis
-- **Code coverage** reporting via Codecov
-- **Dependency updates** via Dependabot
-- **Branch protection** requiring reviews and status checks
-
-### Workflow Triggers
-- Push to main/master branches
-- Pull requests
-- Release publications
-
-### Code Style
-- Follow Go idiomatic patterns
-- Use structured logging with log/slog
-- Handle errors explicitly
-- No TODO comments in production code
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Ensure all policies pass: `baseline check`
-4. Add tests for new features
-5. Submit a pull request
+See `SECURITY.md` for vulnerability reporting.
 
 ## License
-This project is licensed under the MIT License.
+
+MIT License (`LICENSE`).

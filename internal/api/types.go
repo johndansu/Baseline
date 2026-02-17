@@ -25,16 +25,26 @@ func isValidRole(role Role) bool {
 type Project struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
+	RepositoryURL string `json:"repository_url,omitempty"`
 	DefaultBranch string `json:"default_branch"`
 	PolicySet     string `json:"policy_set"`
 }
 
-// ScanSummary is a compact dashboard scan model.
+// ScanViolation captures one policy violation in a scan report.
+type ScanViolation struct {
+	PolicyID string `json:"policy_id"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
+// ScanSummary is the API scan model.
 type ScanSummary struct {
-	ID         string    `json:"id"`
-	Status     string    `json:"status"`
-	Violations []string  `json:"violations"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string          `json:"id"`
+	ProjectID  string          `json:"project_id,omitempty"`
+	CommitSHA  string          `json:"commit_sha,omitempty"`
+	Status     string          `json:"status"`
+	Violations []ScanViolation `json:"violations"`
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 // DashboardMetrics contains top-level dashboard counters.
@@ -51,8 +61,37 @@ type DashboardViolationCount struct {
 	Count    int    `json:"count"`
 }
 
+// PolicyVersion is an immutable policy version payload.
+type PolicyVersion struct {
+	Name        string                 `json:"name"`
+	Version     string                 `json:"version"`
+	Description string                 `json:"description,omitempty"`
+	Content     map[string]any         `json:"content,omitempty"`
+	PublishedAt time.Time              `json:"published_at"`
+	PublishedBy string                 `json:"published_by,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// PolicySummary is a compact policy listing model.
+type PolicySummary struct {
+	Name          string    `json:"name"`
+	LatestVersion string    `json:"latest_version"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// RulesetVersion is an immutable ruleset version payload.
+type RulesetVersion struct {
+	Version     string    `json:"version"`
+	Description string    `json:"description,omitempty"`
+	PolicyNames []string  `json:"policy_names,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	CreatedBy   string    `json:"created_by,omitempty"`
+}
+
 // AuditEvent is a compact audit event view.
 type AuditEvent struct {
 	EventType string    `json:"event_type"`
+	ProjectID string    `json:"project_id,omitempty"`
+	ScanID    string    `json:"scan_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }

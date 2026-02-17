@@ -6,7 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +37,8 @@ type Server struct {
 	dataMu   sync.RWMutex
 	projects []Project
 	scans    []ScanSummary
+	policies map[string][]PolicyVersion
+	rulesets []RulesetVersion
 	events   []AuditEvent
 }
 
@@ -61,6 +66,8 @@ func NewServer(config Config, _ *Store) (*Server, error) {
 		sessions: map[string]dashboardSession{},
 		projects: []Project{},
 		scans:    []ScanSummary{},
+		policies: map[string][]PolicyVersion{},
+		rulesets: []RulesetVersion{},
 		events: []AuditEvent{
 			{EventType: "dashboard_initialized", CreatedAt: now},
 		},
@@ -120,6 +127,12 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleProjects(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/scans"):
 		s.handleScans(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/policies"):
+		s.handlePolicies(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/rulesets"):
+		s.handleRulesets(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/audit/events"):
+		s.handleAuditEvents(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 	}
@@ -277,6 +290,7 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 	projects := append([]Project(nil), s.projects...)
 	scans := append([]ScanSummary(nil), s.scans...)
 	events := append([]AuditEvent(nil), s.events...)
+	policies := clonePoliciesLocked(s.policies)
 	s.dataMu.RUnlock()
 
 	violations := map[string]int{}
@@ -287,8 +301,14 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 			failingScans++
 		}
 		for _, v := range scan.Violations {
-			violations[v]++
-			blocking++
+			policyID := strings.TrimSpace(v.PolicyID)
+			if policyID == "" {
+				policyID = "unknown"
+			}
+			violations[policyID]++
+			if strings.EqualFold(strings.TrimSpace(v.Severity), "block") {
+				blocking++
+			}
 		}
 	}
 	top := make([]DashboardViolationCount, 0, len(violations))
@@ -306,10 +326,14 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 		"recent_scans":   scans,
 		"top_violations": top,
 		"recent_events":  events,
+		"policies":       summarizePolicies(policies),
 	})
 }
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/projects"))
+	projectID = strings.TrimPrefix(projectID, "/")
+
 	switch r.Method {
 	case http.MethodGet:
 		if _, err := s.authenticate(r); err != nil {
@@ -319,8 +343,24 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		s.dataMu.RLock()
 		projects := append([]Project(nil), s.projects...)
 		s.dataMu.RUnlock()
+
+		if projectID != "" {
+			for _, project := range projects {
+				if project.ID == projectID {
+					writeJSON(w, http.StatusOK, project)
+					return
+				}
+			}
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			return
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
 	case http.MethodPost:
+		if projectID != "" {
+			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			return
+		}
 		role, err := s.authenticate(r)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
@@ -333,6 +373,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ID            string `json:"id"`
 			Name          string `json:"name"`
+			RepositoryURL string `json:"repository_url"`
 			DefaultBranch string `json:"default_branch"`
 			PolicySet     string `json:"policy_set"`
 		}
@@ -347,6 +388,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		project := Project{
 			ID:            strings.TrimSpace(req.ID),
 			Name:          strings.TrimSpace(req.Name),
+			RepositoryURL: strings.TrimSpace(req.RepositoryURL),
 			DefaultBranch: strings.TrimSpace(req.DefaultBranch),
 			PolicySet:     strings.TrimSpace(req.PolicySet),
 		}
@@ -361,7 +403,11 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		s.dataMu.Lock()
 		s.projects = append(s.projects, project)
-		s.events = append([]AuditEvent{{EventType: "project_created", CreatedAt: time.Now().UTC()}}, s.events...)
+		s.appendEventLocked(AuditEvent{
+			EventType: "project_registered",
+			ProjectID: project.ID,
+			CreatedAt: time.Now().UTC(),
+		})
 		s.dataMu.Unlock()
 		writeJSON(w, http.StatusCreated, project)
 	default:
@@ -370,6 +416,372 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
+	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/scans")
+	pathSuffix = strings.Trim(pathSuffix, "/")
+
+	switch r.Method {
+	case http.MethodGet:
+		if _, err := s.authenticate(r); err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+			return
+		}
+
+		if strings.HasSuffix(pathSuffix, "/report") {
+			scanID := strings.TrimSuffix(pathSuffix, "/report")
+			scanID = strings.TrimSuffix(scanID, "/")
+			if strings.TrimSpace(scanID) == "" {
+				writeError(w, http.StatusNotFound, "not_found", "scan not found")
+				return
+			}
+			s.handleScanReport(w, r, scanID)
+			return
+		}
+
+		s.dataMu.RLock()
+		scans := append([]ScanSummary(nil), s.scans...)
+		s.dataMu.RUnlock()
+
+		if strings.TrimSpace(pathSuffix) != "" {
+			for _, scan := range scans {
+				if scan.ID == pathSuffix {
+					writeJSON(w, http.StatusOK, scan)
+					return
+				}
+			}
+			writeError(w, http.StatusNotFound, "not_found", "scan not found")
+			return
+		}
+
+		projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
+		if projectID != "" {
+			filtered := make([]ScanSummary, 0, len(scans))
+			for _, scan := range scans {
+				if scan.ProjectID == projectID {
+					filtered = append(filtered, scan)
+				}
+			}
+			scans = filtered
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{"scans": scans})
+	case http.MethodPost:
+		if strings.TrimSpace(pathSuffix) != "" {
+			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			return
+		}
+		role, err := s.authenticate(r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+			return
+		}
+		if role == RoleViewer {
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+			return
+		}
+
+		var req struct {
+			ID         string          `json:"id"`
+			ProjectID  string          `json:"project_id"`
+			CommitSHA  string          `json:"commit_sha"`
+			Status     string          `json:"status"`
+			Violations []ScanViolation `json:"violations"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+			return
+		}
+		if strings.TrimSpace(req.ProjectID) == "" {
+			writeError(w, http.StatusBadRequest, "bad_request", "project_id is required")
+			return
+		}
+		projectExists := false
+		s.dataMu.RLock()
+		for _, project := range s.projects {
+			if project.ID == strings.TrimSpace(req.ProjectID) {
+				projectExists = true
+				break
+			}
+		}
+		s.dataMu.RUnlock()
+		if !projectExists {
+			writeError(w, http.StatusBadRequest, "bad_request", "project_id does not exist")
+			return
+		}
+		status := strings.ToLower(strings.TrimSpace(req.Status))
+		if status == "" {
+			status = "pass"
+		}
+		if status != "pass" && status != "fail" && status != "warn" {
+			writeError(w, http.StatusBadRequest, "bad_request", "status must be one of pass|fail|warn")
+			return
+		}
+
+		scan := ScanSummary{
+			ID:         strings.TrimSpace(req.ID),
+			ProjectID:  strings.TrimSpace(req.ProjectID),
+			CommitSHA:  strings.TrimSpace(req.CommitSHA),
+			Status:     status,
+			Violations: normalizeViolations(req.Violations),
+			CreatedAt:  time.Now().UTC(),
+		}
+		if scan.ID == "" {
+			scan.ID = randomToken(8)
+		}
+
+		s.dataMu.Lock()
+		s.scans = append([]ScanSummary{scan}, s.scans...)
+		s.appendEventLocked(AuditEvent{
+			EventType: "scan_uploaded",
+			ProjectID: scan.ProjectID,
+			ScanID:    scan.ID,
+			CreatedAt: time.Now().UTC(),
+		})
+		if strings.EqualFold(scan.Status, "fail") {
+			s.appendEventLocked(AuditEvent{
+				EventType: "enforcement_failed",
+				ProjectID: scan.ProjectID,
+				ScanID:    scan.ID,
+				CreatedAt: time.Now().UTC(),
+			})
+		}
+		s.dataMu.Unlock()
+
+		writeJSON(w, http.StatusCreated, scan)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+	}
+}
+
+func (s *Server) handleScanReport(w http.ResponseWriter, r *http.Request, scanID string) {
+	s.dataMu.RLock()
+	scans := append([]ScanSummary(nil), s.scans...)
+	s.dataMu.RUnlock()
+
+	var scan *ScanSummary
+	for i := range scans {
+		if scans[i].ID == scanID {
+			scan = &scans[i]
+			break
+		}
+	}
+	if scan == nil {
+		writeError(w, http.StatusNotFound, "not_found", "scan not found")
+		return
+	}
+
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "" {
+		format = "json"
+	}
+
+	switch format {
+	case "json":
+		writeJSON(w, http.StatusOK, map[string]any{"scan": scan})
+	case "text":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(renderScanTextReport(*scan)))
+	case "sarif":
+		writeJSON(w, http.StatusOK, renderScanSARIF(*scan))
+	default:
+		writeError(w, http.StatusBadRequest, "bad_request", "unsupported report format; use json|text|sarif")
+	}
+}
+
+func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
+	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/policies")
+	pathSuffix = strings.Trim(pathSuffix, "/")
+
+	role, err := s.authenticate(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		return
+	}
+
+	if pathSuffix == "" {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		s.dataMu.RLock()
+		policies := clonePoliciesLocked(s.policies)
+		s.dataMu.RUnlock()
+		writeJSON(w, http.StatusOK, map[string]any{"policies": summarizePolicies(policies)})
+		return
+	}
+
+	parts := strings.Split(pathSuffix, "/")
+	if len(parts) != 2 {
+		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
+	}
+	policyName := strings.TrimSpace(parts[0])
+	action := strings.TrimSpace(parts[1])
+	if policyName == "" {
+		writeError(w, http.StatusNotFound, "not_found", "policy not found")
+		return
+	}
+
+	switch action {
+	case "versions":
+		switch r.Method {
+		case http.MethodGet:
+			s.dataMu.RLock()
+			versions := append([]PolicyVersion(nil), s.policies[policyName]...)
+			s.dataMu.RUnlock()
+			writeJSON(w, http.StatusOK, map[string]any{"name": policyName, "versions": versions})
+		case http.MethodPost:
+			if role != RoleAdmin {
+				writeError(w, http.StatusForbidden, "forbidden", "admin role required")
+				return
+			}
+			var req struct {
+				Version     string                 `json:"version"`
+				Description string                 `json:"description"`
+				Content     map[string]any         `json:"content"`
+				Metadata    map[string]interface{} `json:"metadata"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+				return
+			}
+			version := strings.TrimSpace(req.Version)
+			if version == "" {
+				version = "v" + time.Now().UTC().Format("20060102150405")
+			}
+
+			s.dataMu.Lock()
+			existing := s.policies[policyName]
+			for _, item := range existing {
+				if item.Version == version {
+					s.dataMu.Unlock()
+					writeError(w, http.StatusConflict, "conflict", "policy version already exists")
+					return
+				}
+			}
+			item := PolicyVersion{
+				Name:        policyName,
+				Version:     version,
+				Description: strings.TrimSpace(req.Description),
+				Content:     req.Content,
+				Metadata:    req.Metadata,
+				PublishedAt: time.Now().UTC(),
+				PublishedBy: "api",
+			}
+			s.policies[policyName] = append(existing, item)
+			s.appendEventLocked(AuditEvent{
+				EventType: "policy_updated",
+				CreatedAt: time.Now().UTC(),
+			})
+			s.dataMu.Unlock()
+			writeJSON(w, http.StatusCreated, item)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	case "latest":
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		s.dataMu.RLock()
+		versions := append([]PolicyVersion(nil), s.policies[policyName]...)
+		s.dataMu.RUnlock()
+		if len(versions) == 0 {
+			writeError(w, http.StatusNotFound, "not_found", "policy not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, versions[len(versions)-1])
+	default:
+		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+	}
+}
+
+func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
+	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/rulesets")
+	pathSuffix = strings.Trim(pathSuffix, "/")
+
+	role, err := s.authenticate(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		return
+	}
+
+	if pathSuffix == "" {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		if role != RoleAdmin {
+			writeError(w, http.StatusForbidden, "forbidden", "admin role required")
+			return
+		}
+		var req struct {
+			Version     string   `json:"version"`
+			Description string   `json:"description"`
+			PolicyNames []string `json:"policy_names"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+			return
+		}
+		version := strings.TrimSpace(req.Version)
+		if version == "" {
+			version = "v" + time.Now().UTC().Format("20060102150405")
+		}
+
+		s.dataMu.Lock()
+		for _, existing := range s.rulesets {
+			if existing.Version == version {
+				s.dataMu.Unlock()
+				writeError(w, http.StatusConflict, "conflict", "ruleset version already exists")
+				return
+			}
+		}
+		item := RulesetVersion{
+			Version:     version,
+			Description: strings.TrimSpace(req.Description),
+			PolicyNames: dedupeNonEmpty(req.PolicyNames),
+			CreatedAt:   time.Now().UTC(),
+			CreatedBy:   "api",
+		}
+		s.rulesets = append(s.rulesets, item)
+		s.appendEventLocked(AuditEvent{
+			EventType: "ruleset_updated",
+			CreatedAt: time.Now().UTC(),
+		})
+		s.dataMu.Unlock()
+		writeJSON(w, http.StatusCreated, item)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	s.dataMu.RLock()
+	rulesets := append([]RulesetVersion(nil), s.rulesets...)
+	s.dataMu.RUnlock()
+
+	if pathSuffix == "latest" {
+		if len(rulesets) == 0 {
+			writeError(w, http.StatusNotFound, "not_found", "ruleset not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, rulesets[len(rulesets)-1])
+		return
+	}
+
+	for _, item := range rulesets {
+		if item.Version == pathSuffix {
+			writeJSON(w, http.StatusOK, item)
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "not_found", "ruleset not found")
+}
+
+func (s *Server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
@@ -378,10 +790,176 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
 		return
 	}
+
+	projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
+	limitRaw := strings.TrimSpace(r.URL.Query().Get("limit"))
+
 	s.dataMu.RLock()
-	scans := append([]ScanSummary(nil), s.scans...)
+	events := append([]AuditEvent(nil), s.events...)
 	s.dataMu.RUnlock()
-	writeJSON(w, http.StatusOK, map[string]any{"scans": scans})
+
+	if projectID != "" {
+		filtered := make([]AuditEvent, 0, len(events))
+		for _, event := range events {
+			if event.ProjectID == projectID {
+				filtered = append(filtered, event)
+			}
+		}
+		events = filtered
+	}
+
+	if limitRaw != "" {
+		if limit, err := strconv.Atoi(limitRaw); err == nil && limit > 0 && len(events) > limit {
+			events = events[:limit]
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
+}
+
+func (s *Server) appendEventLocked(event AuditEvent) {
+	s.events = append([]AuditEvent{event}, s.events...)
+	if len(s.events) > 500 {
+		s.events = s.events[:500]
+	}
+}
+
+func clonePoliciesLocked(src map[string][]PolicyVersion) map[string][]PolicyVersion {
+	out := make(map[string][]PolicyVersion, len(src))
+	for name, versions := range src {
+		out[name] = append([]PolicyVersion(nil), versions...)
+	}
+	return out
+}
+
+func summarizePolicies(policies map[string][]PolicyVersion) []PolicySummary {
+	out := make([]PolicySummary, 0, len(policies))
+	for name, versions := range policies {
+		if len(versions) == 0 {
+			continue
+		}
+		latest := versions[len(versions)-1]
+		out = append(out, PolicySummary{
+			Name:          name,
+			LatestVersion: latest.Version,
+			UpdatedAt:     latest.PublishedAt,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func normalizeViolations(in []ScanViolation) []ScanViolation {
+	out := make([]ScanViolation, 0, len(in))
+	for _, item := range in {
+		policyID := strings.TrimSpace(item.PolicyID)
+		if policyID == "" {
+			continue
+		}
+		severity := strings.ToLower(strings.TrimSpace(item.Severity))
+		if severity == "" {
+			severity = "block"
+		}
+		out = append(out, ScanViolation{
+			PolicyID: policyID,
+			Severity: severity,
+			Message:  strings.TrimSpace(item.Message),
+		})
+	}
+	return out
+}
+
+func dedupeNonEmpty(items []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func renderScanTextReport(scan ScanSummary) string {
+	lines := []string{
+		fmt.Sprintf("scan_id: %s", scan.ID),
+		fmt.Sprintf("project_id: %s", scan.ProjectID),
+		fmt.Sprintf("commit_sha: %s", scan.CommitSHA),
+		fmt.Sprintf("status: %s", scan.Status),
+		fmt.Sprintf("created_at: %s", scan.CreatedAt.Format(time.RFC3339)),
+		fmt.Sprintf("violations: %d", len(scan.Violations)),
+	}
+	for _, violation := range scan.Violations {
+		lines = append(lines,
+			fmt.Sprintf("- [%s] %s (%s)", violation.PolicyID, violation.Message, violation.Severity),
+		)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func renderScanSARIF(scan ScanSummary) map[string]any {
+	results := make([]map[string]any, 0, len(scan.Violations))
+	rules := make([]map[string]any, 0, len(scan.Violations))
+	ruleSeen := map[string]struct{}{}
+
+	for _, violation := range scan.Violations {
+		if _, ok := ruleSeen[violation.PolicyID]; !ok {
+			ruleSeen[violation.PolicyID] = struct{}{}
+			rules = append(rules, map[string]any{
+				"id": violation.PolicyID,
+				"shortDescription": map[string]any{
+					"text": violation.PolicyID + " policy violation",
+				},
+				"properties": map[string]any{
+					"severity": violation.Severity,
+				},
+			})
+		}
+
+		results = append(results, map[string]any{
+			"ruleId": violation.PolicyID,
+			"level":  sarifLevelFromSeverity(violation.Severity),
+			"message": map[string]any{
+				"text": violation.Message,
+			},
+		})
+	}
+
+	return map[string]any{
+		"version": "2.1.0",
+		"$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+		"runs": []any{
+			map[string]any{
+				"tool": map[string]any{
+					"driver": map[string]any{
+						"name":           "Baseline API",
+						"informationUri": "https://github.com/baseline/baseline",
+						"rules":          rules,
+					},
+				},
+				"results": results,
+			},
+		},
+	}
+}
+
+func sarifLevelFromSeverity(severity string) string {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "block":
+		return "error"
+	case "warn":
+		return "warning"
+	default:
+		return "note"
+	}
 }
 
 func (s *Server) authenticate(r *http.Request) (Role, error) {

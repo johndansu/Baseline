@@ -282,6 +282,7 @@ func isAllowedDashboardProxyPath(path string) bool {
 	allowedPrefixes := []string{
 		"/healthz",
 		"/readyz",
+		"/v1/dashboard",
 		"/v1/projects",
 		"/v1/scans",
 		"/v1/policies",
@@ -626,8 +627,8 @@ const dashboardHTMLTemplate = `<!doctype html>
       <article class="metric"><div class="label">Scans</div><div class="value" id="metricScans">-</div></article>
       <article class="metric"><div class="label">Failing Scans</div><div class="value" id="metricFailingScans">-</div></article>
       <article class="metric"><div class="label">Blocking Violations</div><div class="value" id="metricBlockingViolations">-</div></article>
-      <article class="metric"><div class="label">Policies</div><div class="value" id="metricPolicies">-</div></article>
-      <article class="metric"><div class="label">Audit Events</div><div class="value" id="metricAuditEvents">-</div></article>
+      <article class="metric"><div class="label">Tracked Policies</div><div class="value" id="metricPolicies">-</div></article>
+      <article class="metric"><div class="label">Recent Events</div><div class="value" id="metricAuditEvents">-</div></article>
     </section>
 
     <section class="panel-grid">
@@ -639,12 +640,11 @@ const dashboardHTMLTemplate = `<!doctype html>
               <th>Scan ID</th>
               <th>Status</th>
               <th>Violations</th>
-              <th>Commit</th>
               <th>Created</th>
             </tr>
           </thead>
           <tbody id="scansBody">
-            <tr><td colspan="5">Waiting for data...</td></tr>
+            <tr><td colspan="4">Waiting for data...</td></tr>
           </tbody>
         </table>
       </article>
@@ -653,7 +653,7 @@ const dashboardHTMLTemplate = `<!doctype html>
         <ul class="list" id="violationsList">
           <li><span>No violation data yet.</span></li>
         </ul>
-        <p class="note">Computed from scan payloads returned by <span class="mono">GET /v1/scans</span>.</p>
+        <p class="note">Computed from aggregate payloads returned by <span class="mono">GET /v1/dashboard</span>.</p>
       </article>
       <article class="panel full">
         <h2>Latest Audit Events</h2>
@@ -661,13 +661,11 @@ const dashboardHTMLTemplate = `<!doctype html>
           <thead>
             <tr>
               <th>Event</th>
-              <th>Project</th>
-              <th>Scan</th>
               <th>Created</th>
             </tr>
           </thead>
           <tbody id="eventsBody">
-            <tr><td colspan="4">Waiting for data...</td></tr>
+            <tr><td colspan="2">Waiting for data...</td></tr>
           </tbody>
         </table>
       </article>
@@ -771,7 +769,7 @@ const dashboardHTMLTemplate = `<!doctype html>
 
       function renderScans(scans) {
         if (!Array.isArray(scans) || scans.length === 0) {
-          scansBody.innerHTML = "<tr><td colspan='5'>No scans found.</td></tr>";
+          scansBody.innerHTML = "<tr><td colspan='4'>No scans found.</td></tr>";
           return;
         }
 
@@ -782,7 +780,6 @@ const dashboardHTMLTemplate = `<!doctype html>
         scansBody.innerHTML = sorted.slice(0, 12).map(function (scan) {
           var status = String(scan.status || "unknown").toLowerCase();
           var statusClass = ["pass", "fail", "warn"].indexOf(status) >= 0 ? status : "unknown";
-          var commit = escapeHTML(short(String(scan.commit_sha || "-"), 12));
           var id = escapeHTML(short(String(scan.id || "-"), 16));
           var violationCount = Array.isArray(scan.violations) ? scan.violations.length : 0;
 
@@ -791,32 +788,21 @@ const dashboardHTMLTemplate = `<!doctype html>
               "<td class='mono'>", id, "</td>",
               "<td class='status ", statusClass, "'>", escapeHTML(status), "</td>",
               "<td>", String(violationCount), "</td>",
-              "<td class='mono'>", commit, "</td>",
               "<td>", escapeHTML(formatTime(scan.created_at)), "</td>",
             "</tr>"
           ].join("");
         }).join("");
       }
 
-      function renderTopViolations(scans) {
-        if (!Array.isArray(scans) || scans.length === 0) {
+      function renderTopViolations(topViolations) {
+        if (!Array.isArray(topViolations) || topViolations.length === 0) {
           violationsList.innerHTML = "<li><span>No violation data yet.</span></li>";
           return;
         }
 
-        var counts = {};
-        scans.forEach(function (scan) {
-          var violations = Array.isArray(scan.violations) ? scan.violations : [];
-          violations.forEach(function (violation) {
-            var policy = violation && violation.policy_id ? String(violation.policy_id) : "unknown";
-            counts[policy] = (counts[policy] || 0) + 1;
-          });
+        var entries = topViolations.slice().sort(function (a, b) {
+          return Number(b.count || 0) - Number(a.count || 0);
         });
-
-        var entries = Object.keys(counts).map(function (policyID) {
-          return { policyID: policyID, count: counts[policyID] };
-        });
-        entries.sort(function (a, b) { return b.count - a.count; });
 
         if (entries.length === 0) {
           violationsList.innerHTML = "<li><span>No violation data yet.</span></li>";
@@ -835,7 +821,7 @@ const dashboardHTMLTemplate = `<!doctype html>
 
       function renderEvents(events) {
         if (!Array.isArray(events) || events.length === 0) {
-          eventsBody.innerHTML = "<tr><td colspan='4'>No audit events found.</td></tr>";
+          eventsBody.innerHTML = "<tr><td colspan='2'>No audit events found.</td></tr>";
           return;
         }
 
@@ -847,8 +833,6 @@ const dashboardHTMLTemplate = `<!doctype html>
           return [
             "<tr>",
               "<td>", escapeHTML(String(event.event_type || "-")), "</td>",
-              "<td class='mono'>", escapeHTML(short(String(event.project_id || "-"), 14)), "</td>",
-              "<td class='mono'>", escapeHTML(short(String(event.scan_id || "-"), 14)), "</td>",
               "<td>", escapeHTML(formatTime(event.created_at)), "</td>",
             "</tr>"
           ].join("");
@@ -866,8 +850,8 @@ const dashboardHTMLTemplate = `<!doctype html>
         setMetric("metricBlockingViolations", "-");
         setMetric("metricPolicies", "-");
         setMetric("metricAuditEvents", "-");
-        scansBody.innerHTML = "<tr><td colspan='5'>API key required to load scan history.</td></tr>";
-        eventsBody.innerHTML = "<tr><td colspan='4'>API key required to load audit events.</td></tr>";
+        scansBody.innerHTML = "<tr><td colspan='4'>API key required to load scan history.</td></tr>";
+        eventsBody.innerHTML = "<tr><td colspan='2'>API key required to load audit events.</td></tr>";
         violationsList.innerHTML = "<li><span>API key required to load violation stats.</span></li>";
       }
 
@@ -907,40 +891,24 @@ const dashboardHTMLTemplate = `<!doctype html>
         }
 
         try {
+          var dashboardResp = await apiGet("/v1/dashboard", true);
           var projectsResp = await apiGet("/v1/projects", true);
-          var scansResp = await apiGet("/v1/scans", true);
-          var policiesResp = await apiGet("/v1/policies", true);
-          var eventsResp = await apiGet("/v1/audit/events", true);
 
+          var metrics = dashboardResp.metrics || {};
+          var scans = Array.isArray(dashboardResp.recent_scans) ? dashboardResp.recent_scans : [];
+          var topViolations = Array.isArray(dashboardResp.top_violations) ? dashboardResp.top_violations : [];
+          var events = Array.isArray(dashboardResp.recent_events) ? dashboardResp.recent_events : [];
           var projects = Array.isArray(projectsResp.projects) ? projectsResp.projects : [];
-          var scans = Array.isArray(scansResp.scans) ? scansResp.scans : [];
-          var policies = Array.isArray(policiesResp.policies) ? policiesResp.policies : [];
-          var events = Array.isArray(eventsResp.events) ? eventsResp.events : [];
 
-          var failingScans = 0;
-          var blockingViolations = 0;
-          scans.forEach(function (scan) {
-            var status = String(scan.status || "").toLowerCase();
-            if (status === "fail") {
-              failingScans++;
-            }
-            var violations = Array.isArray(scan.violations) ? scan.violations : [];
-            violations.forEach(function (violation) {
-              if (String(violation.severity || "").toLowerCase() === "block") {
-                blockingViolations++;
-              }
-            });
-          });
-
-          setMetric("metricProjects", projects.length);
-          setMetric("metricScans", scans.length);
-          setMetric("metricFailingScans", failingScans);
-          setMetric("metricBlockingViolations", blockingViolations);
-          setMetric("metricPolicies", policies.length);
+          setMetric("metricProjects", metrics.projects || projects.length);
+          setMetric("metricScans", metrics.scans || scans.length);
+          setMetric("metricFailingScans", metrics.failing_scans || 0);
+          setMetric("metricBlockingViolations", metrics.blocking_violations || 0);
+          setMetric("metricPolicies", topViolations.length);
           setMetric("metricAuditEvents", events.length);
 
           renderScans(scans);
-          renderTopViolations(scans);
+          renderTopViolations(topViolations);
           renderEvents(events);
         } catch (err) {
           errorText.textContent = err.message;
