@@ -139,6 +139,36 @@ func TestDashboardProxyForwardsAuthAndPath(t *testing.T) {
 	}
 }
 
+func TestDashboardProxyAllowsDashboardSummaryPath(t *testing.T) {
+	var capturedPath string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"metrics":{"projects":0}}`)
+	}))
+	defer upstream.Close()
+
+	handler, err := newDashboardHandler(
+		dashboardConfig{Addr: "127.0.0.1:8091", APIBaseURL: upstream.URL},
+		upstream.Client(),
+	)
+	if err != nil {
+		t.Fatalf("newDashboardHandler returned error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/proxy/v1/dashboard", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if capturedPath != "/v1/dashboard" {
+		t.Fatalf("expected forwarded path /v1/dashboard, got %q", capturedPath)
+	}
+}
+
 func TestDashboardProxyRejectsDisallowedPath(t *testing.T) {
 	handler, err := newDashboardHandler(
 		dashboardConfig{Addr: "127.0.0.1:8091", APIBaseURL: "http://127.0.0.1:8080"},

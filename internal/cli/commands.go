@@ -187,26 +187,56 @@ func HandleReport(args []string) {
 		os.Exit(types.ExitSystemError)
 	}
 
-	outputFormat := "text"
-	for _, arg := range args {
-		if arg == "--json" {
-			outputFormat = "json"
-			break
-		}
+	outputFormat, err := parseReportFormat(args)
+	if err != nil {
+		fmt.Printf("REPORT FAILED: %v\n", err)
+		os.Exit(types.ExitSystemError)
 	}
 
 	results := scan.RunComprehensiveScan()
 
-	if outputFormat == "json" {
+	switch outputFormat {
+	case "json":
 		if err := report.OutputJSON(results); err != nil {
 			fmt.Printf("REPORT FAILED: %v\n", err)
 			os.Exit(types.ExitSystemError)
 		}
-	} else {
+	case "sarif":
+		if err := report.OutputSARIF(results); err != nil {
+			fmt.Printf("REPORT FAILED: %v\n", err)
+			os.Exit(types.ExitSystemError)
+		}
+	default:
 		report.OutputText(results)
 	}
 
 	os.Exit(types.ExitSuccess)
+}
+
+func parseReportFormat(args []string) (string, error) {
+	selected := "text"
+	explicit := false
+	for _, arg := range args {
+		var candidate string
+		switch arg {
+		case "--text":
+			candidate = "text"
+		case "--json":
+			candidate = "json"
+		case "--sarif":
+			candidate = "sarif"
+		default:
+			return "", fmt.Errorf("unknown flag %s", arg)
+		}
+
+		if explicit && candidate != selected {
+			return "", fmt.Errorf("multiple report formats specified (%s and %s)", selected, candidate)
+		}
+		selected = candidate
+		explicit = true
+	}
+
+	return selected, nil
 }
 
 // HandleGenerate generates missing infrastructure using AI.
@@ -366,7 +396,7 @@ func HandleExplain(args []string) {
 	if len(args) < 1 {
 		fmt.Printf("Usage: baseline explain <policy_id>\n")
 		fmt.Printf("Example: baseline explain G1\n")
-		os.Exit(1)
+		os.Exit(types.ExitSystemError)
 	}
 
 	policyID := args[0]
@@ -430,7 +460,7 @@ func HandleAPI(args []string) {
 		fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER=X-Forwarded-Role")
 		fmt.Println("  BASELINE_API_AI_ENABLED=false")
 		fmt.Println("Config file auto-load order: BASELINE_API_ENV_FILE, .env.production, .env, api.env")
-		os.Exit(1)
+		os.Exit(types.ExitSystemError)
 	}
 
 	if args[0] == "keygen" {

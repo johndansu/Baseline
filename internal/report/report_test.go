@@ -77,7 +77,7 @@ func TestJSONReportFormat(t *testing.T) {
 	}
 
 	err := OutputJSON(results)
-	
+
 	w.Close()
 	os.Stdout = oldStdout
 
@@ -130,5 +130,54 @@ func TestViolationReport(t *testing.T) {
 
 	if unmarshaled.PolicyID != vr.PolicyID {
 		t.Errorf("PolicyID mismatch: got %s, want %s", unmarshaled.PolicyID, vr.PolicyID)
+	}
+}
+
+func TestSARIFReportFormat(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	results := types.ScanResults{
+		Violations: []types.PolicyViolation{
+			{
+				PolicyID: "G1",
+				Message:  "Potential SQL injection in internal/policy/checks.go:123. Use parameterized queries.",
+				Severity: types.SeverityBlock,
+			},
+		},
+	}
+
+	err := OutputSARIF(results)
+	w.Close()
+	os.Stdout = oldStdout
+
+	if err != nil {
+		t.Fatalf("OutputSARIF returned error: %v", err)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	var report sarifReport
+	if err := json.Unmarshal([]byte(output), &report); err != nil {
+		t.Fatalf("OutputSARIF produced invalid JSON: %v\nOutput: %s", err, output)
+	}
+
+	if report.Version != "2.1.0" {
+		t.Fatalf("expected SARIF version 2.1.0, got %q", report.Version)
+	}
+	if len(report.Runs) != 1 {
+		t.Fatalf("expected exactly one run, got %d", len(report.Runs))
+	}
+	if len(report.Runs[0].Results) != 1 {
+		t.Fatalf("expected exactly one result, got %d", len(report.Runs[0].Results))
+	}
+	if report.Runs[0].Results[0].RuleID != "G1" {
+		t.Fatalf("expected ruleId G1, got %q", report.Runs[0].Results[0].RuleID)
+	}
+	if len(report.Runs[0].Results[0].Locations) == 0 {
+		t.Fatal("expected location metadata in SARIF output")
 	}
 }

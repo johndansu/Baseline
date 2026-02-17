@@ -57,7 +57,7 @@ func TestCheckDocumentation(t *testing.T) {
 
 	// Create minimal README
 	os.WriteFile("README.md", []byte("# Test\n## Section"), 0644)
-	
+
 	// Test: No LICENSE
 	violation = CheckDocumentation()
 	if violation == nil {
@@ -66,7 +66,7 @@ func TestCheckDocumentation(t *testing.T) {
 
 	// Create LICENSE
 	os.WriteFile("LICENSE", []byte("MIT License"), 0644)
-	
+
 	// Test: Should pass now
 	violation = CheckDocumentation()
 	if violation != nil {
@@ -97,14 +97,71 @@ func TestCheckCIPipeline(t *testing.T) {
 		t.Errorf("Expected PolicyID %s, got %s", types.PolicyCIPipeline, violation.PolicyID)
 	}
 
-	// Create GitHub Actions workflow
+	// Create GitHub Actions workflow with PR trigger and test execution
 	os.MkdirAll(".github/workflows", 0755)
-	os.WriteFile(".github/workflows/ci.yml", []byte("name: CI"), 0644)
+	workflow := `name: CI
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: go test ./...
+`
+	os.WriteFile(".github/workflows/ci.yml", []byte(workflow), 0644)
 
 	// Test: Should pass with CI file
 	violation = CheckCIPipeline()
 	if violation != nil {
 		t.Errorf("Expected no violation with CI file, got: %v", violation)
+	}
+}
+
+func TestCheckCIPipelineRequiresPullRequestAndTests(t *testing.T) {
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+
+	tempDir, err := os.MkdirTemp("", "baseline-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	os.Chdir(tempDir)
+	os.MkdirAll(".github/workflows", 0755)
+
+	missingPR := `name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: go test ./...
+`
+	os.WriteFile(".github/workflows/ci.yml", []byte(missingPR), 0644)
+
+	violation := CheckCIPipeline()
+	if violation == nil {
+		t.Fatal("Expected violation when pull_request trigger is missing")
+	}
+
+	withPRNoTests := `name: CI
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: go build ./...
+`
+	os.WriteFile(".github/workflows/ci.yml", []byte(withPRNoTests), 0644)
+	violation = CheckCIPipeline()
+	if violation == nil {
+		t.Fatal("Expected violation when CI tests are missing")
 	}
 }
 
@@ -232,13 +289,13 @@ func TestRunAllChecks(t *testing.T) {
 	// This is an integration test - just verify it doesn't panic
 	// In a proper test environment, we'd mock the file system
 	violations := RunAllChecks()
-	
+
 	// Verify we get back a slice (even if empty)
 	if violations == nil {
 		// This is actually fine - nil slice is valid
 		violations = []types.PolicyViolation{}
 	}
-	
+
 	// Just verify the function completes without panic
 	t.Logf("RunAllChecks returned %d violations", len(violations))
 }

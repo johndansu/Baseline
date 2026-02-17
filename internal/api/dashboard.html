@@ -7,80 +7,117 @@
   <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <a class="brand" href="#overview">
+  <main class="shell">
+    <header class="hero">
+      <div class="hero-title">
         <img src="/assets/baseline-logo.png" alt="Baseline logo">
         <div>
-          <strong>Baseline</strong>
-          <span>Customer Dashboard</span>
+          <p class="kicker">Baseline API</p>
+          <h1>Operational Dashboard</h1>
         </div>
-      </a>
-      <nav>
-        <a href="#overview" data-tab="overview" class="active">Overview</a>
-        <a href="#product" data-tab="product">What Baseline Does</a>
-        <a href="#workflow" data-tab="workflow">How It Works</a>
-        <a href="#next" data-tab="next">Next Steps</a>
-      </nav>
-      <p class="footnote">Pure frontend mode. No required API calls.</p>
-    </aside>
+      </div>
+      <div class="status-strip">
+        <span id="healthPill" class="pill pending">Health: pending</span>
+        <span id="readyPill" class="pill pending">Ready: pending</span>
+        <span id="authPill" class="pill pending">Auth: unknown</span>
+        <span id="lastUpdated" class="pill">Last updated: never</span>
+      </div>
+    </header>
 
-    <main class="main">
-      <header class="hero">
-        <p class="kicker">Baseline Platform</p>
-        <h1>AI governance with policy enforcement, audit visibility, and access control.</h1>
-        <p>
-          This dashboard is now pure HTML, CSS, and JavaScript.
-          It loads instantly and works without backend authentication dependencies.
-        </p>
-      </header>
+    <section class="auth-card">
+      <h2>Access</h2>
+      <p class="muted">
+        Use an API key for direct access, or create a dashboard session if sessions are enabled.
+      </p>
+      <div class="auth-grid">
+        <input id="apiKeyInput" type="password" class="input" placeholder="API key (stored in this browser)">
+        <button id="saveKeyBtn" class="btn primary" type="button">Save Key</button>
+        <button id="clearKeyBtn" class="btn ghost" type="button">Clear Key</button>
+        <button id="startSessionBtn" class="btn accent" type="button">Start Session</button>
+        <button id="endSessionBtn" class="btn ghost" type="button">End Session</button>
+      </div>
+      <p id="sessionInfo" class="muted">Session: unknown</p>
+      <p id="errorText" class="error"></p>
+    </section>
 
-      <section id="overview" class="panel active">
-        <h2>Overview</h2>
-        <div class="grid">
-          <article class="card">
-            <h3>Policy Guardrails</h3>
-            <p>Define rules for repositories and AI workflows so unsafe changes are caught early.</p>
-          </article>
-          <article class="card">
-            <h3>Compliance Evidence</h3>
-            <p>Track decisions and scan outcomes to make reviews and audits faster.</p>
-          </article>
-          <article class="card">
-            <h3>Team Access</h3>
-            <p>Control who can operate the platform and who can only view governance status.</p>
-          </article>
-        </div>
-      </section>
+    <section class="metrics-grid">
+      <article class="metric"><span>Projects</span><strong id="metricProjects">-</strong></article>
+      <article class="metric"><span>Scans</span><strong id="metricScans">-</strong></article>
+      <article class="metric"><span>Failing Scans</span><strong id="metricFailing">-</strong></article>
+      <article class="metric"><span>Blocking Violations</span><strong id="metricBlocking">-</strong></article>
+    </section>
 
-      <section id="product" class="panel">
-        <h2>What Baseline Does</h2>
-        <ul>
-          <li>Runs policy checks against your software delivery workflows.</li>
-          <li>Highlights policy violations before production release.</li>
-          <li>Gives teams a clear compliance and risk picture in one interface.</li>
+    <section class="panel-grid">
+      <article class="panel">
+        <h2>Recent Scans</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Violations</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="scansBody">
+            <tr><td colspan="4">Waiting for data...</td></tr>
+          </tbody>
+        </table>
+      </article>
+
+      <article class="panel">
+        <h2>Top Violations</h2>
+        <ul id="violationsList" class="list">
+          <li>No data.</li>
         </ul>
-      </section>
+      </article>
 
-      <section id="workflow" class="panel">
-        <h2>How It Works</h2>
-        <ol>
-          <li>Connect projects and define governance rules.</li>
-          <li>Run scans and review violations by severity.</li>
-          <li>Use results to enforce standards and improve release confidence.</li>
-        </ol>
-      </section>
+      <article class="panel">
+        <h2>Recent Events</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody">
+            <tr><td colspan="2">Waiting for data...</td></tr>
+          </tbody>
+        </table>
+      </article>
 
-      <section id="next" class="panel">
-        <h2>Next Steps</h2>
-        <p id="clock">Ready.</p>
-        <div class="actions">
-          <a href="/dashboard">Reload Dashboard</a>
-          <a href="/healthz">Check Server Health</a>
+      <article class="panel">
+        <h2>Projects</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Branch</th>
+              <th>Policy Set</th>
+            </tr>
+          </thead>
+          <tbody id="projectsBody">
+            <tr><td colspan="3">Waiting for data...</td></tr>
+          </tbody>
+        </table>
+      </article>
+    </section>
+
+    <section class="panel project-form">
+      <h2>Create Project</h2>
+      <p class="muted">Requires operator/admin role.</p>
+      <form id="projectForm">
+        <div class="form-grid">
+          <input id="projectName" type="text" class="input" placeholder="Project name" required>
+          <input id="projectBranch" type="text" class="input" placeholder="Default branch (main)">
+          <input id="projectPolicySet" type="text" class="input" placeholder="Policy set (baseline:prod)">
+          <button class="btn primary" type="submit">Create</button>
         </div>
-      </section>
-    </main>
-  </div>
+      </form>
+    </section>
+  </main>
+
   <script src="/assets/dashboard.js"></script>
 </body>
 </html>

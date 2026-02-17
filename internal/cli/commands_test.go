@@ -113,6 +113,7 @@ func TestHandleReportArgs(t *testing.T) {
 		name     string
 		args     []string
 		expected string
+		wantErr  bool
 	}{
 		{
 			name:     "default format",
@@ -125,28 +126,36 @@ func TestHandleReportArgs(t *testing.T) {
 			expected: "json",
 		},
 		{
-			name:     "mixed args with json",
-			args:     []string{"--json", "other"},
-			expected: "json",
+			name:     "sarif format",
+			args:     []string{"--sarif"},
+			expected: "sarif",
+		},
+		{
+			name:    "unknown flag",
+			args:    []string{"--bad"},
+			wantErr: true,
+		},
+		{
+			name:    "multiple formats",
+			args:    []string{"--json", "--sarif"},
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// This is a simplified test since we can't easily mock the full functionality
-			// In a real scenario, we'd need to mock the git repo and scan functions
-			if len(tt.args) > 0 && tt.args[0] == "--json" {
-				// Verify that --json is detected
-				outputFormat := "text"
-				for _, arg := range tt.args {
-					if arg == "--json" {
-						outputFormat = "json"
-						break
-					}
+			format, err := parseReportFormat(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for args %v", tt.args)
 				}
-				if outputFormat != tt.expected {
-					t.Errorf("Expected format '%s', got '%s'", tt.expected, outputFormat)
-				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseReportFormat returned error: %v", err)
+			}
+			if format != tt.expected {
+				t.Fatalf("expected format %q, got %q", tt.expected, format)
 			}
 		})
 	}

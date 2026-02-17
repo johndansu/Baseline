@@ -108,8 +108,7 @@ func CheckProtectedMainBranch() *types.PolicyViolation {
 }
 
 func checkProtectedMainBranch(_ repoSnapshot) *types.PolicyViolation {
-	cmd := exec.Command("git", "branch", "-a", "--format=%(refname:short)")
-	output, err := cmd.Output()
+	branches, err := listGitBranches()
 	if err != nil {
 		return &types.PolicyViolation{
 			PolicyID: types.PolicySystemError,
@@ -118,7 +117,8 @@ func checkProtectedMainBranch(_ repoSnapshot) *types.PolicyViolation {
 		}
 	}
 
-	for _, branch := range strings.Split(string(output), "\n") {
+	primaryBranch := ""
+	for _, branch := range branches {
 		normalized := strings.ToLower(strings.TrimSpace(branch))
 		normalized = strings.TrimPrefix(normalized, "* ")
 		if normalized == "" {
@@ -127,15 +127,40 @@ func checkProtectedMainBranch(_ repoSnapshot) *types.PolicyViolation {
 
 		if normalized == "main" || normalized == "master" ||
 			strings.HasSuffix(normalized, "/main") || strings.HasSuffix(normalized, "/master") {
-			return nil
+			if strings.Contains(normalized, "master") {
+				primaryBranch = "master"
+			} else {
+				primaryBranch = "main"
+			}
+			break
 		}
 	}
 
-	return &types.PolicyViolation{
-		PolicyID: types.PolicyProtectedBranch,
-		Message:  "No main or master branch found - repository must include a protected primary branch",
-		Severity: types.SeverityBlock,
+	if primaryBranch == "" {
+		return &types.PolicyViolation{
+			PolicyID: types.PolicyProtectedBranch,
+			Message:  "No main or master branch found - repository must include a protected primary branch",
+			Severity: types.SeverityBlock,
+		}
 	}
+
+	protected, err := verifyProtectedBranchRequirement(primaryBranch)
+	if err != nil {
+		return &types.PolicyViolation{
+			PolicyID: types.PolicySystemError,
+			Message:  fmt.Sprintf("Unable to verify branch protection requirements: %v", err),
+			Severity: types.SeverityBlock,
+		}
+	}
+	if !protected {
+		return &types.PolicyViolation{
+			PolicyID: types.PolicyProtectedBranch,
+			Message:  fmt.Sprintf("Primary branch '%s' is not verified as PR-only/protected. Add branch protection evidence (e.g. branch-protection-setup.md with pull request + restrict pushes) or repository settings config.", primaryBranch),
+			Severity: types.SeverityBlock,
+		}
+	}
+
+	return nil
 }
 
 // CheckCIPipeline verifies the repository has CI/CD configuration.
@@ -144,27 +169,86 @@ func CheckCIPipeline() *types.PolicyViolation {
 }
 
 func checkCIPipeline(snapshot repoSnapshot) *types.PolicyViolation {
-	if snapshot.hasAnyGlob(
-		".github/workflows/*.yml",
-		".github/workflows/*.yaml",
-		".circleci/*.yml",
-		".circleci/*.yaml",
-	) || snapshot.hasAny(
+	workflowFiles := matchingFiles(snapshot, ".github/workflows/*.yml", ".github/workflows/*.yaml")
+	circleFiles := matchingFiles(snapshot, ".circleci/*.yml", ".circleci/*.yaml")
+	otherPipelineFiles := []string{
 		".gitlab-ci.yml",
 		".travis.yml",
 		"jenkinsfile",
 		"azure-pipelines.yml",
 		".circleci/config.yml",
 		".circleci/config.yaml",
-	) {
+	}
+
+	hasPipeline := len(workflowFiles) > 0 || len(circleFiles) > 0 || snapshot.hasAny(otherPipelineFiles...)
+	if !hasPipeline {
+		return &types.PolicyViolation{
+			PolicyID: types.PolicyCIPipeline,
+			Message:  "No CI pipeline configuration found. Repository must define a CI pipeline.",
+			Severity: types.SeverityBlock,
+		}
+	}
+
+	// Validate stronger CI obligations where config is parseable locally.
+	if len(workflowFiles) > 0 {
+		hasPRTrigger := false
+		hasTestExecution := false
+		for _, workflow := range workflowFiles {
+			fullPath := filepath.Join(snapshot.root, filepath.FromSlash(workflow))
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				continue
+			}
+			lower := strings.ToLower(string(content))
+			if containsPRTrigger(lower) {
+				hasPRTrigger = true
+			}
+			if containsCITestExecution(lower) {
+				hasTestExecution = true
+			}
+		}
+
+		if !hasPRTrigger {
+			return &types.PolicyViolation{
+				PolicyID: types.PolicyCIPipeline,
+				Message:  "CI workflows must run on pull_request for protected branches.",
+				Severity: types.SeverityBlock,
+			}
+		}
+		if !hasTestExecution {
+			return &types.PolicyViolation{
+				PolicyID: types.PolicyCIPipeline,
+				Message:  "CI workflows are present but do not appear to run automated tests.",
+				Severity: types.SeverityBlock,
+			}
+		}
+
 		return nil
 	}
 
-	return &types.PolicyViolation{
-		PolicyID: types.PolicyCIPipeline,
-		Message:  "No CI pipeline configuration found. Repository must define a CI pipeline.",
-		Severity: types.SeverityBlock,
+	if len(circleFiles) > 0 {
+		hasTestExecution := false
+		for _, file := range circleFiles {
+			fullPath := filepath.Join(snapshot.root, filepath.FromSlash(file))
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				continue
+			}
+			if containsCITestExecution(strings.ToLower(string(content))) {
+				hasTestExecution = true
+				break
+			}
+		}
+		if !hasTestExecution {
+			return &types.PolicyViolation{
+				PolicyID: types.PolicyCIPipeline,
+				Message:  "CI configuration found but test execution could not be verified.",
+				Severity: types.SeverityBlock,
+			}
+		}
 	}
+
+	return nil
 }
 
 // CheckTestSuite verifies the repository has automated tests.
@@ -560,6 +644,20 @@ func (s repoSnapshot) hasAnyGlob(patterns ...string) bool {
 	return false
 }
 
+func matchingFiles(snapshot repoSnapshot, patterns ...string) []string {
+	out := make([]string, 0)
+	for _, pattern := range patterns {
+		normalizedPattern := strings.ToLower(filepath.ToSlash(pattern))
+		for _, file := range snapshot.files {
+			matched, err := path.Match(normalizedPattern, strings.ToLower(file))
+			if err == nil && matched {
+				out = append(out, file)
+			}
+		}
+	}
+	return out
+}
+
 func (s repoSnapshot) hasDir(dirs ...string) bool {
 	for _, dir := range dirs {
 		prefix := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(dir), "/")) + "/"
@@ -648,8 +746,27 @@ func findSecretInFile(root, file string) *types.PolicyViolation {
 			continue
 		}
 
-		if match := secretAssignmentPattern.FindStringSubmatch(line); match != nil {
-			value := strings.Trim(match[2], `"'`)
+		matches := secretAssignmentPattern.FindAllStringSubmatchIndex(line, -1)
+		for _, match := range matches {
+			// Match indexes are: fullStart, fullEnd, keyStart, keyEnd, valueStart, valueEnd.
+			if len(match) < 6 || match[2] < 0 || match[4] < 0 {
+				continue
+			}
+			keyStart := match[2]
+			valueStart := match[4]
+			valueEnd := match[5]
+
+			// Skip placeholder fragments such as "<token:role>" in docs/help text.
+			if keyStart > 0 && line[keyStart-1] == '<' {
+				continue
+			}
+
+			rawValue := strings.TrimSpace(line[valueStart:valueEnd])
+			if isDynamicSecretExpression(rawValue) {
+				continue
+			}
+
+			value := strings.Trim(rawValue, `"'`)
 			if valueLooksPlaceholder(value) {
 				continue
 			}
@@ -704,6 +821,10 @@ func findSecurityIssueInFile(root, file string) *types.PolicyViolation {
 		lower := strings.ToLower(line)
 
 		if strings.Contains(line, "unsafe.Pointer") {
+			// Ignore references to the literal pattern in detector code/docs.
+			if strings.Contains(line, "\"unsafe.Pointer\"") || strings.Contains(line, "`unsafe.Pointer`") {
+				continue
+			}
 			return &types.PolicyViolation{
 				PolicyID: types.PolicySecurityScanning,
 				Message:  fmt.Sprintf("Unsafe pointer usage detected in %s:%d.", file, lineNumber),
@@ -722,6 +843,10 @@ func findSecurityIssueInFile(root, file string) *types.PolicyViolation {
 		}
 
 		if strings.Contains(lower, "eval(") || strings.Contains(lower, "system(") {
+			if strings.Contains(line, "\"eval(\"") || strings.Contains(line, "`eval(`") ||
+				strings.Contains(line, "\"system(\"") || strings.Contains(line, "`system(`") {
+				continue
+			}
 			return &types.PolicyViolation{
 				PolicyID: types.PolicySecurityScanning,
 				Message:  fmt.Sprintf("Potentially unsafe runtime execution pattern detected in %s:%d.", file, lineNumber),
@@ -729,8 +854,8 @@ func findSecurityIssueInFile(root, file string) *types.PolicyViolation {
 			}
 		}
 
-		if sqlKeywordPattern.MatchString(line) &&
-			(strings.Contains(line, "+") || strings.Contains(line, "fmt.Sprintf")) {
+		if (strings.Contains(line, "+") || strings.Contains(line, "fmt.Sprintf")) &&
+			isLikelySQLStatement(lower) {
 			return &types.PolicyViolation{
 				PolicyID: types.PolicySecurityScanning,
 				Message:  fmt.Sprintf("Potential SQL injection in %s:%d. Use parameterized queries.", file, lineNumber),
@@ -824,6 +949,10 @@ func valueLooksPlaceholder(value string) bool {
 		return true
 	}
 
+	if strings.Contains(value, "<") || strings.Contains(value, ">") {
+		return true
+	}
+
 	if strings.HasPrefix(value, "$") || strings.HasPrefix(value, "${") {
 		return true
 	}
@@ -848,6 +977,130 @@ func valueLooksPlaceholder(value string) bool {
 	}
 
 	return len(lower) < 8
+}
+
+func listGitBranches() ([]string, error) {
+	cmd := exec.Command("git", "branch", "-a", "--format=%(refname:short)")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(string(output), "\n"), nil
+}
+
+func verifyProtectedBranchRequirement(primaryBranch string) (bool, error) {
+	docCandidates := []string{
+		"branch-protection-setup.md",
+		"docs/branch-protection.md",
+		".github/branch-protection.md",
+	}
+	for _, candidate := range docCandidates {
+		content, err := os.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+		lower := strings.ToLower(string(content))
+		if strings.Contains(lower, primaryBranch) &&
+			strings.Contains(lower, "pull request") &&
+			(strings.Contains(lower, "restrict pushes") || strings.Contains(lower, "require pull request reviews before merging")) {
+			return true, nil
+		}
+	}
+
+	// Support repository settings manifests managed as code.
+	settingsCandidates := []string{
+		".github/settings.yml",
+		".github/settings.yaml",
+		".github/branch-protection.yml",
+		".github/branch-protection.yaml",
+	}
+	for _, candidate := range settingsCandidates {
+		content, err := os.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+		lower := strings.ToLower(string(content))
+		if strings.Contains(lower, primaryBranch) &&
+			(strings.Contains(lower, "required_pull_request_reviews") || strings.Contains(lower, "require_pull_request")) &&
+			(strings.Contains(lower, "restrict_pushes") || strings.Contains(lower, "enforce_admins")) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func containsPRTrigger(contentLower string) bool {
+	return strings.Contains(contentLower, "pull_request:") ||
+		strings.Contains(contentLower, "pull_request\n") ||
+		strings.Contains(contentLower, "on: [pull_request") ||
+		strings.Contains(contentLower, "on:[pull_request")
+}
+
+func containsCITestExecution(contentLower string) bool {
+	testIndicators := []string{
+		"go test",
+		"npm test",
+		"pnpm test",
+		"yarn test",
+		"pytest",
+		"tox",
+		"mvn test",
+		"gradle test",
+		"cargo test",
+		"dotnet test",
+		"phpunit",
+		"make test",
+	}
+	for _, indicator := range testIndicators {
+		if strings.Contains(contentLower, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDynamicSecretExpression(rawValue string) bool {
+	trimmed := strings.TrimSpace(rawValue)
+	if trimmed == "" {
+		return true
+	}
+
+	quoted := (strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"")) ||
+		(strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'"))
+	if quoted {
+		return false
+	}
+
+	// Skip expressions and function calls; D1 should flag hardcoded literal values.
+	return strings.ContainsAny(trimmed, "()[]{}|&")
+}
+
+func isLikelySQLStatement(lowerLine string) bool {
+	line := strings.ToLower(strings.TrimSpace(lowerLine))
+	if line == "" {
+		return false
+	}
+
+	if strings.Contains(line, "select ") && strings.Contains(line, " from ") {
+		return true
+	}
+	if strings.Contains(line, "insert ") && strings.Contains(line, " into ") {
+		return true
+	}
+	if strings.Contains(line, "update ") && strings.Contains(line, " set ") {
+		return true
+	}
+	if strings.Contains(line, "delete ") && strings.Contains(line, " from ") {
+		return true
+	}
+	if strings.Contains(line, "drop ") && strings.Contains(line, " table ") {
+		return true
+	}
+
+	// Fallback for common SQL in format strings.
+	return sqlKeywordPattern.MatchString(line) &&
+		(strings.Contains(line, " where ") || strings.Contains(line, " values ") || strings.Contains(line, " join "))
 }
 
 // containsAny checks if str contains any of the patterns.

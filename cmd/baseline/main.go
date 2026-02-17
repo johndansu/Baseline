@@ -13,12 +13,13 @@ import (
 	"os"
 
 	"github.com/baseline/baseline/internal/cli"
+	"github.com/baseline/baseline/internal/types"
 )
 
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
-		os.Exit(1)
+		os.Exit(types.ExitSystemError)
 	}
 
 	command := os.Args[1]
@@ -56,7 +57,7 @@ func main() {
 	default:
 		fmt.Printf("Unknown command: %s\n\n", command)
 		printUsage()
-		os.Exit(1)
+		os.Exit(types.ExitSystemError)
 	}
 }
 
