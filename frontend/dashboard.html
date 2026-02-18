@@ -3,81 +3,299 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Baseline - Dashboard</title>
-  <link rel="stylesheet" href="./styles.css">
+  <title>Baseline - Operations Dashboard Template</title>
+  <meta name="description" content="Baseline dashboard template for policy status, scans, API key operations, and monitoring.">
+  <link rel="icon" type="image/png" sizes="32x32" href="../img/baseline favicon.png">
+  <link rel="apple-touch-icon" href="../img/baseline favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./dashboard.css">
 </head>
-<body>
-  <div class="app">
-    <aside class="sidebar">
-      <a class="brand" href="./index.html">
+<body class="dashboard-page">
+  <div class="dashboard-shell">
+    <aside class="dashboard-sidebar">
+      <a class="dashboard-brand" href="./index.html">
         <img src="../img/baseline logo.png" alt="Baseline logo">
         <div>
           <strong>Baseline</strong>
-          <span>Development Dashboard</span>
+          <span>Operations Dashboard</span>
         </div>
       </a>
 
-      <nav class="menu">
-        <a href="#overview" data-tab="overview" class="active">Overview</a>
-        <a href="#product" data-tab="product">What Baseline Does</a>
-        <a href="#workflow" data-tab="workflow">How It Works</a>
-        <a href="#access" data-tab="access">Access Model</a>
+      <nav class="dashboard-nav" aria-label="Dashboard sections">
+        <button class="dashboard-nav-item active" type="button" data-section="overview">Overview</button>
+        <button class="dashboard-nav-item" type="button" data-section="policies">Policies</button>
+        <button class="dashboard-nav-item" type="button" data-section="scans">Scans</button>
+        <button class="dashboard-nav-item" type="button" data-section="api-keys">API Keys</button>
+        <button class="dashboard-nav-item" type="button" data-section="monitoring">Monitoring</button>
       </nav>
 
-      <p class="small-note">Static mode: no backend required.</p>
+      <p class="dashboard-note">Template only. Backend integration is not enabled yet.</p>
     </aside>
 
-    <main class="content">
-      <header class="hero panel">
-        <p class="kicker">Dashboard</p>
-        <h1>Baseline governance workspace</h1>
-        <p>
-          This is a pure frontend development dashboard. You can iterate on content,
-          layout, and flows without running any API server.
-        </p>
+    <main class="dashboard-main">
+      <header class="dashboard-header panel">
+        <div>
+          <p class="eyebrow">Release Governance</p>
+        </div>
+        <div class="header-actions">
+          <span class="pill">Environment: Production</span>
+          <button type="button">Run Scan</button>
+        </div>
       </header>
 
-      <section id="overview" class="panel tab active">
-        <h2>Overview</h2>
-        <div class="metrics">
-          <article class="metric"><span>Active Projects</span><strong>12</strong></article>
-          <article class="metric"><span>Recent Scans</span><strong>46</strong></article>
-          <article class="metric"><span>Blocking Issues</span><strong>3</strong></article>
-          <article class="metric"><span>Pass Rate</span><strong>93%</strong></article>
+      <section class="dashboard-section active" id="overview">
+        <div class="kpi-grid">
+          <article class="kpi-card"><span>Policy Pass Rate</span><strong>96%</strong></article>
+          <article class="kpi-card"><span>Blocking Violations</span><strong>1</strong></article>
+          <article class="kpi-card"><span>Scans (24h)</span><strong>42</strong></article>
+          <article class="kpi-card"><span>Audit Events</span><strong>1,247</strong></article>
         </div>
+
+        <div class="split-grid">
+          <article class="panel">
+            <h2>Current Release Status</h2>
+            <ul class="status-list">
+              <li><span class="ok">Passed</span><span>CI and security checks</span></li>
+              <li><span class="warn">Pending</span><span>One rollback documentation review</span></li>
+              <li><span class="ok">Passed</span><span>Signed release artifacts</span></li>
+            </ul>
+          </article>
+          <article class="panel">
+            <h2>Recent Activity</h2>
+            <ul class="status-list">
+              <li><span class="ok">16:42</span><span>Policy check completed</span></li>
+              <li><span class="ok">16:36</span><span>SARIF uploaded</span></li>
+              <li><span class="ok">16:28</span><span>API health check passed</span></li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="split-grid">
+          <article class="panel">
+            <h2>Today Checklist</h2>
+            <ul class="plain-list">
+              <li>Run `baseline check` before merge window.</li>
+              <li>Review blocking policy queue.</li>
+              <li>Confirm release artifacts are signed.</li>
+            </ul>
+          </article>
+          <article class="panel">
+            <h2>Quick Links</h2>
+            <ul class="plain-list">
+              <li>Open latest CI run and inspect security job output.</li>
+              <li>Review `/v1/audit/events` for key lifecycle changes.</li>
+              <li>Run `baseline api verify-prod --strict` after config edits.</li>
+            </ul>
+          </article>
+        </div>
+
+        <article class="panel">
+          <h2>Open Items</h2>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Owner</th>
+                <th>Due</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Rollback doc review</td><td>Platform</td><td>Today</td><td class="warn-text">Pending</td></tr>
+              <tr><td>Key rotation confirmation</td><td>Security</td><td>Today</td><td class="ok-text">Done</td></tr>
+              <tr><td>Release notes verification</td><td>Release Manager</td><td>Tomorrow</td><td class="ok-text">In Progress</td></tr>
+            </tbody>
+          </table>
+        </article>
       </section>
 
-      <section id="product" class="panel tab">
-        <h2>What Baseline Does</h2>
-        <ul>
-          <li>Defines governance policies for AI and software delivery.</li>
-          <li>Surfaces violations and trends before production deployment.</li>
-          <li>Improves audit readiness with clear operational records.</li>
-        </ul>
+      <section class="dashboard-section" id="policies">
+        <article class="panel">
+          <h2>Policy Summary</h2>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Policy</th>
+                <th>Description</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>A1</td><td>Protected primary branch</td><td class="ok-text">Pass</td></tr>
+              <tr><td>B1</td><td>PR-triggered CI with tests</td><td class="ok-text">Pass</td></tr>
+              <tr><td>D1</td><td>No plaintext secrets</td><td class="ok-text">Pass</td></tr>
+              <tr><td>R1</td><td>Rollback plan required</td><td class="warn-text">Pending</td></tr>
+            </tbody>
+          </table>
+        </article>
       </section>
 
-      <section id="workflow" class="panel tab">
-        <h2>How It Works</h2>
-        <ol>
-          <li>Configure governance standards for your team and repos.</li>
-          <li>Run checks/scans and review risk by severity.</li>
-          <li>Remediate issues and approve changes with confidence.</li>
-        </ol>
+      <section class="dashboard-section" id="scans">
+        <article class="panel">
+          <h2>Scan Commands</h2>
+          <pre><code>baseline check
+baseline scan
+baseline report --json
+baseline report --sarif</code></pre>
+        </article>
+        <article class="panel">
+          <h2>Latest Scan Snapshot</h2>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Files</th>
+                <th>Violations</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>16:42</td><td>247</td><td>1</td><td class="warn-text">Blocked</td></tr>
+              <tr><td>14:10</td><td>247</td><td>0</td><td class="ok-text">Passed</td></tr>
+            </tbody>
+          </table>
+        </article>
       </section>
 
-      <section id="access" class="panel tab">
-        <h2>Access Model</h2>
-        <p>
-          Typical roles:
-          <code>viewer</code> (read-only),
-          <code>operator</code> (execute workflows),
-          <code>admin</code> (manage keys, policies, and lifecycle).
-        </p>
-        <p id="clock" class="muted">Ready.</p>
+      <section class="dashboard-section" id="api-keys">
+        <div class="split-grid">
+          <article class="panel">
+            <h2>Generate API Key (Dashboard Template)</h2>
+            <form class="keygen-form" id="keygenForm">
+              <label>
+                Key Name
+                <input id="keyName" type="text" value="dashboard-operator" required>
+              </label>
+              <label>
+                Role
+                <select id="keyRole">
+                  <option value="admin">admin</option>
+                  <option value="viewer">viewer</option>
+                </select>
+              </label>
+              <label>
+                Environment
+                <select id="keyEnv">
+                  <option value="production">production</option>
+                  <option value="staging">staging</option>
+                  <option value="development">development</option>
+                </select>
+              </label>
+              <button type="submit">Generate Template Key</button>
+            </form>
+            <p class="template-note">Template behavior only. This does not create real keys in backend.</p>
+            <pre class="keygen-result" id="keygenResult"><code>Generated key preview will appear here.</code></pre>
+          </article>
+
+          <article class="panel">
+            <h2>CLI / API Method (Real)</h2>
+            <pre><code># CLI
+baseline api keygen
+
+# configure single key
+BASELINE_API_KEY=&lt;your_generated_key&gt;
+baseline api serve --addr :8080
+
+# API key lifecycle (admin required)
+curl -X POST \
+  -H "Authorization: Bearer &lt;admin_key&gt;" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"ci-runner\",\"role\":\"viewer\"}" \
+  http://127.0.0.1:8080/v1/api-keys
+
+# list key metadata
+curl -H "Authorization: Bearer &lt;admin_key&gt;" \
+  http://127.0.0.1:8080/v1/api-keys
+
+# revoke managed key
+curl -X DELETE \
+  -H "Authorization: Bearer &lt;admin_key&gt;" \
+  http://127.0.0.1:8080/v1/api-keys/&lt;key_id&gt;</code></pre>
+          </article>
+        </div>
+
+        <article class="panel">
+          <h2>Operational Rules</h2>
+          <ul class="plain-list">
+            <li>Create separate keys per environment and workload.</li>
+            <li>Use `viewer` keys for read-only automation.</li>
+            <li>Use `admin` keys only for lifecycle operations.</li>
+            <li>Rotate keys on schedule and after any exposure event.</li>
+            <li>Prefer managed API keys for revoke/audit visibility.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="dashboard-section" id="monitoring">
+        <article class="panel">
+          <h2>Monitoring Commands</h2>
+          <pre><code>baseline api verify-prod --strict
+baseline check
+baseline report --json
+baseline report --sarif
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+curl -H "Authorization: Bearer &lt;api_key&gt;" \
+  http://127.0.0.1:8080/v1/audit/events</code></pre>
+        </article>
       </section>
     </main>
   </div>
 
-  <script src="./app.js"></script>
+  <script>
+    (function () {
+      var navItems = Array.prototype.slice.call(document.querySelectorAll(".dashboard-nav-item"));
+      var sections = Array.prototype.slice.call(document.querySelectorAll(".dashboard-section"));
+      var keygenForm = document.getElementById("keygenForm");
+      var keygenResult = document.getElementById("keygenResult");
+
+      function showSection(sectionId) {
+        navItems.forEach(function (item) {
+          item.classList.toggle("active", item.getAttribute("data-section") === sectionId);
+        });
+        sections.forEach(function (section) {
+          section.classList.toggle("active", section.id === sectionId);
+        });
+      }
+
+      navItems.forEach(function (item) {
+        item.addEventListener("click", function () {
+          showSection(item.getAttribute("data-section"));
+        });
+      });
+
+      function randomToken(length) {
+        var chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        var out = "";
+        for (var i = 0; i < length; i++) {
+          out += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return out;
+      }
+
+      if (keygenForm && keygenResult) {
+        keygenForm.addEventListener("submit", function (event) {
+          event.preventDefault();
+          var name = document.getElementById("keyName").value.trim() || "dashboard-operator";
+          var role = document.getElementById("keyRole").value;
+          var env = document.getElementById("keyEnv").value;
+          var key = "bl_" + role.slice(0, 3) + "_" + randomToken(24);
+          var lines = [
+            "# Template key generated from dashboard UI",
+            "name=" + name,
+            "role=" + role,
+            "environment=" + env,
+            "key=" + key,
+            "",
+            "# Example env setup",
+            "BASELINE_API_KEYS=" + key + ":" + role
+          ];
+          keygenResult.textContent = lines.join("\n");
+        });
+      }
+    })();
+  </script>
 </body>
 </html>
