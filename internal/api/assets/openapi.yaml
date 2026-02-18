@@ -1,0 +1,825 @@
+openapi: 3.0.3
+info:
+  title: Baseline API
+  version: "1.0.0"
+  description: Baseline policy and dashboard API contract for implemented /v1 endpoints.
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: API is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /readyz:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: API is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+  /v1/auth/session:
+    post:
+      summary: Create dashboard session cookie
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionState"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+    get:
+      summary: Get current dashboard session
+      responses:
+        "200":
+          description: Session active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionState"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    delete:
+      summary: End dashboard session
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: true
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: Session terminated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:
+                    type: boolean
+                    example: false
+  /v1/auth/register:
+    post:
+      summary: Register API key via enrollment token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enrollment_token]
+              properties:
+                enrollment_token:
+                  type: string
+      responses:
+        "201":
+          description: API key issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  role:
+                    $ref: "#/components/schemas/Role"
+                  api_key:
+                    type: string
+                  auth_mode:
+                    type: string
+                    example: api_key
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/api-keys:
+    get:
+      summary: List API keys (metadata only)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: API key inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APIKeyMetadata"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    post:
+      summary: Issue API key (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+      responses:
+        "201":
+          description: API key created (secret returned once)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/APIKeyMetadata"
+                  - type: object
+                    properties:
+                      api_key:
+                        type: string
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/api-keys/{id}:
+    delete:
+      summary: Revoke API key (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: API key revoked
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/integrations/github/webhook:
+    post:
+      summary: Receive GitHub webhook events (signed)
+      parameters:
+        - in: header
+          name: X-Hub-Signature-256
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-GitHub-Event
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "202":
+          description: Webhook accepted
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/integrations/gitlab/webhook:
+    post:
+      summary: Receive GitLab webhook events (token)
+      parameters:
+        - in: header
+          name: X-Gitlab-Token
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Gitlab-Event
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "202":
+          description: Webhook accepted
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/integrations/github/check-runs:
+    post:
+      summary: Publish GitHub check run status
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubCheckRunRequest"
+      responses:
+        "202":
+          description: Check run accepted by integration layer
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "502":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/integrations/gitlab/statuses:
+    post:
+      summary: Publish GitLab commit status
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitLabStatusRequest"
+      responses:
+        "202":
+          description: Commit status accepted by integration layer
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "502":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/dashboard:
+    get:
+      summary: Dashboard summary
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Dashboard metrics and recent activity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+  /v1/projects:
+    get:
+      summary: List projects
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Project list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Project"
+    post:
+      summary: Create project
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/projects/{project_id}:
+    get:
+      summary: Get project
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/scans:
+    get:
+      summary: List scans
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: project_id
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scan list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scans:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScanSummary"
+    post:
+      summary: Ingest scan
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScanRequest"
+      responses:
+        "201":
+          description: Scan accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanSummary"
+  /v1/scans/{scan_id}:
+    get:
+      summary: Get scan by id
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: scan_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanSummary"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/scans/{scan_id}/report:
+    get:
+      summary: Render scan report
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: scan_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: format
+          required: false
+          schema:
+            type: string
+            enum: [json, text, sarif]
+            default: json
+      responses:
+        "200":
+          description: Scan report
+  /v1/policies:
+    get:
+      summary: List policy summaries
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Policies
+  /v1/policies/{name}/versions:
+    get:
+      summary: List policy versions
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Policy versions
+    post:
+      summary: Publish policy version (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Version created
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/policies/{name}/latest:
+    get:
+      summary: Get latest policy version
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest policy
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/rulesets:
+    post:
+      summary: Publish ruleset (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Ruleset created
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/rulesets/latest:
+    get:
+      summary: Get latest ruleset
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Latest ruleset
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/rulesets/{version}:
+    get:
+      summary: Get ruleset by version
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: version
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ruleset
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/audit/events:
+    get:
+      summary: List audit events
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: project_id
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Event stream
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: APIKey
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: baseline_dashboard_session
+  responses:
+    ErrorResponse:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    UnauthorizedError:
+      description: Unauthorized
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    Role:
+      type: string
+      enum: [viewer, operator, admin]
+    SessionState:
+      type: object
+      properties:
+        user:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        auth_mode:
+          type: string
+        active:
+          type: boolean
+    CreateAPIKeyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+    APIKeyMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        prefix:
+          type: string
+        source:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        revoked:
+          type: boolean
+        revoked_at:
+          type: string
+          format: date-time
+    GitHubCheckRunRequest:
+      type: object
+      required: [owner, repository, head_sha, name]
+      properties:
+        owner:
+          type: string
+        repository:
+          type: string
+        head_sha:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [queued, in_progress, completed]
+        conclusion:
+          type: string
+        details_url:
+          type: string
+        external_id:
+          type: string
+        output:
+          type: object
+          properties:
+            title:
+              type: string
+            summary:
+              type: string
+    GitLabStatusRequest:
+      type: object
+      required: [project_id, sha, state]
+      properties:
+        project_id:
+          type: string
+        sha:
+          type: string
+        state:
+          type: string
+          enum: [pending, running, success, failed, canceled, skipped]
+        name:
+          type: string
+        target_url:
+          type: string
+        description:
+          type: string
+        ref:
+          type: string
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        repository_url:
+          type: string
+        default_branch:
+          type: string
+        policy_set:
+          type: string
+    CreateProjectRequest:
+      type: object
+      required: [name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        repository_url:
+          type: string
+        default_branch:
+          type: string
+        policy_set:
+          type: string
+    ScanViolation:
+      type: object
+      properties:
+        policy_id:
+          type: string
+        severity:
+          type: string
+        message:
+          type: string
+    ScanSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        commit_sha:
+          type: string
+        status:
+          type: string
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanViolation"
+        created_at:
+          type: string
+          format: date-time
+    CreateScanRequest:
+      type: object
+      required: [project_id]
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        commit_sha:
+          type: string
+        status:
+          type: string
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanViolation"
+    DashboardMetrics:
+      type: object
+      properties:
+        projects:
+          type: integer
+        scans:
+          type: integer
+        failing_scans:
+          type: integer
+        blocking_violations:
+          type: integer
+    DashboardSummary:
+      type: object
+      properties:
+        metrics:
+          $ref: "#/components/schemas/DashboardMetrics"
+        recent_scans:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanSummary"

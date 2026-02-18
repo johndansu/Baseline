@@ -1,22 +1,24 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
-
-// Store is a placeholder for persistence.
-type Store struct{}
 
 type dashboardSession struct {
 	Role      Role
@@ -25,12 +27,19 @@ type dashboardSession struct {
 }
 
 const dashboardSessionCookieName = "baseline_dashboard_session"
+const csrfHeaderName = "X-Baseline-CSRF"
+const csrfHeaderValue = "1"
 
 // Server provides a lightweight Baseline API for dashboard use.
 type Server struct {
 	config     Config
 	httpServer *http.Server
+	store      *Store
+	client     *http.Client
 
+	authMu    sync.RWMutex
+	keyIndex  map[string]string
+	keysByID  map[string]APIKeyMetadata
 	sessionMu sync.RWMutex
 	sessions  map[string]dashboardSession
 
@@ -43,7 +52,7 @@ type Server struct {
 }
 
 // NewServer creates a new API server.
-func NewServer(config Config, _ *Store) (*Server, error) {
+func NewServer(config Config, store *Store) (*Server, error) {
 	if !isValidRole(config.DashboardSessionRole) {
 		config.DashboardSessionRole = RoleViewer
 	}
@@ -59,10 +68,27 @@ func NewServer(config Config, _ *Store) (*Server, error) {
 	if config.DashboardAuthProxyEnabled && !config.TrustProxyHeaders {
 		return nil, errors.New("dashboard auth proxy requires BASELINE_API_TRUST_PROXY_HEADERS=true")
 	}
+	if config.APIKeys == nil {
+		config.APIKeys = map[string]Role{}
+	}
+	copiedAPIKeys := make(map[string]Role, len(config.APIKeys))
+	for key, role := range config.APIKeys {
+		copiedAPIKeys[key] = role
+	}
+	config.APIKeys = copiedAPIKeys
+	copiedEnrollments := make(map[string]Role, len(config.EnrollmentTokens))
+	for token, role := range config.EnrollmentTokens {
+		copiedEnrollments[token] = role
+	}
+	config.EnrollmentTokens = copiedEnrollments
 
 	now := time.Now().UTC()
 	s := &Server{
 		config:   config,
+		store:    store,
+		client:   &http.Client{Timeout: 10 * time.Second},
+		keyIndex: map[string]string{},
+		keysByID: map[string]APIKeyMetadata{},
 		sessions: map[string]dashboardSession{},
 		projects: []Project{},
 		scans:    []ScanSummary{},
@@ -71,6 +97,35 @@ func NewServer(config Config, _ *Store) (*Server, error) {
 		events: []AuditEvent{
 			{EventType: "dashboard_initialized", CreatedAt: now},
 		},
+	}
+	for key, role := range config.APIKeys {
+		id := nextKeyID()
+		if id == "" {
+			id = "key_bootstrap"
+		}
+		for {
+			if _, exists := s.keysByID[id]; !exists {
+				break
+			}
+			id = nextKeyID()
+			if id == "" {
+				id = fmt.Sprintf("key_bootstrap_%d", time.Now().UTC().UnixNano())
+				break
+			}
+		}
+		s.keyIndex[key] = id
+		s.keysByID[id] = APIKeyMetadata{
+			ID:        id,
+			Role:      role,
+			Prefix:    keyPrefix(key),
+			Source:    "bootstrap",
+			CreatedAt: now,
+			CreatedBy: "env",
+			Revoked:   false,
+		}
+	}
+	if err := s.loadPersistentState(); err != nil {
+		return nil, fmt.Errorf("unable to load persistent API state: %w", err)
 	}
 	s.httpServer = &http.Server{
 		Addr:         config.Addr,
@@ -87,6 +142,10 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.applySecurityHeaders(w, r)
 		if s.handleCORS(w, r) {
+			return
+		}
+		if s.config.RequireHTTPS && !s.isRequestSecure(r) {
+			writeError(w, http.StatusForbidden, "https_required", "HTTPS is required")
 			return
 		}
 		s.route(w, r)
@@ -108,6 +167,9 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	case "/", "/dashboard", "/dashboard/", "/assets/baseline-logo.png", "/assets/dashboard.css", "/assets/dashboard.js":
 		s.handleDashboard(w, r)
 		return
+	case "/openapi.yaml":
+		s.handleOpenAPI(w, r)
+		return
 	case "/healthz", "/livez":
 		s.handleHealth(w, r)
 		return
@@ -121,6 +183,16 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthSession(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/register"):
 		s.handleAuthRegister(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/api-keys"):
+		s.handleAPIKeys(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/github/webhook"):
+		s.handleGitHubWebhook(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/webhook"):
+		s.handleGitLabWebhook(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/github/check-runs"):
+		s.handleGitHubCheckRuns(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/statuses"):
+		s.handleGitLabStatuses(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/dashboard"):
 		s.handleDashboardSummary(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/projects"):
@@ -166,6 +238,9 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
+		if !s.requestBodyAllowed(w, r) {
+			return
+		}
 		user := "local_dashboard"
 		role := s.config.DashboardSessionRole
 		if s.config.DashboardAuthProxyEnabled && s.config.TrustProxyHeaders {
@@ -180,7 +255,16 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		secureCookie := s.shouldUseSecureSessionCookie(r)
+		if secureCookie && !s.isRequestSecure(r) {
+			writeError(w, http.StatusForbidden, "https_required", "secure dashboard sessions require HTTPS")
+			return
+		}
 		token := randomToken(32)
+		if token == "" {
+			writeError(w, http.StatusInternalServerError, "system_error", "unable to create dashboard session")
+			return
+		}
 		s.sessionMu.Lock()
 		s.sessions[token] = dashboardSession{
 			Role:      role,
@@ -194,8 +278,8 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 			Value:    token,
 			Path:     "/",
 			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-			Secure:   false,
+			SameSite: http.SameSiteStrictMode,
+			Secure:   secureCookie,
 			Expires:  time.Now().UTC().Add(s.config.DashboardSessionTTL),
 		})
 
@@ -208,7 +292,7 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		session, err := s.getDashboardSession(r)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+			writeUnauthorized(w, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -218,18 +302,24 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 			"active":    true,
 		})
 	case http.MethodDelete:
+		if !s.validCSRFSentinel(r) {
+			writeError(w, http.StatusForbidden, "csrf_failed", "missing required CSRF header")
+			return
+		}
 		cookie, _ := r.Cookie(dashboardSessionCookieName)
 		if cookie != nil && cookie.Value != "" {
 			s.sessionMu.Lock()
 			delete(s.sessions, cookie.Value)
 			s.sessionMu.Unlock()
 		}
+		secureCookie := s.shouldUseSecureSessionCookie(r)
 		http.SetCookie(w, &http.Cookie{
 			Name:     dashboardSessionCookieName,
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
+			SameSite: http.SameSiteStrictMode,
+			Secure:   secureCookie,
 			MaxAge:   -1,
 			Expires:  time.Unix(0, 0),
 		})
@@ -244,22 +334,23 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
 	if !s.config.SelfServiceEnabled {
 		writeError(w, http.StatusForbidden, "self_service_disabled", "self-service registration is disabled")
 		return
 	}
 	var req struct {
 		EnrollmentToken string `json:"enrollment_token"`
-		APIKey          string `json:"api_key"`
+		APIKey          string `json:"api_key,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+	if !s.decodeJSONBody(w, r, &req) {
 		return
 	}
 	token := strings.TrimSpace(req.EnrollmentToken)
-	key := strings.TrimSpace(req.APIKey)
-	if token == "" || key == "" {
-		writeError(w, http.StatusBadRequest, "bad_request", "enrollment_token and api_key are required")
+	if token == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "enrollment_token is required")
 		return
 	}
 	role, ok := s.config.EnrollmentTokens[token]
@@ -267,12 +358,543 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden", "invalid enrollment token")
 		return
 	}
-	if s.config.APIKeys == nil {
-		s.config.APIKeys = map[string]Role{}
+	key, metadata, err := s.issueAPIKey(role, "self-service", "self_service", "enrollment_token")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "unable to generate API key")
+		return
 	}
-	s.config.APIKeys[key] = role
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "api_key_issued",
+		CreatedAt: time.Now().UTC(),
+	})
+	s.dataMu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"role": role,
+		"id":        metadata.ID,
+		"name":      metadata.Name,
+		"role":      role,
+		"prefix":    metadata.Prefix,
+		"api_key":   key,
+		"auth_mode": "api_key",
+	})
+}
+
+func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
+	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/api-keys")
+	pathSuffix = strings.Trim(pathSuffix, "/")
+
+	switch r.Method {
+	case http.MethodGet:
+		if pathSuffix != "" {
+			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			return
+		}
+		if _, err := s.authenticate(r); err != nil {
+			writeUnauthorized(w, err.Error())
+			return
+		}
+		s.authMu.RLock()
+		keys := make([]APIKeyMetadata, 0, len(s.keysByID))
+		for _, item := range s.keysByID {
+			keys = append(keys, item)
+		}
+		s.authMu.RUnlock()
+		sort.Slice(keys, func(i, j int) bool {
+			return keys[i].CreatedAt.After(keys[j].CreatedAt)
+		})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"api_keys": keys,
+		})
+	case http.MethodPost:
+		if pathSuffix != "" {
+			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			return
+		}
+		if !s.requestBodyAllowed(w, r) {
+			return
+		}
+		role, authSource, err := s.authenticateWithSource(r)
+		if err != nil {
+			writeUnauthorized(w, err.Error())
+			return
+		}
+		if !s.enforceSessionCSRF(w, r, authSource) {
+			return
+		}
+		if role != RoleAdmin {
+			writeError(w, http.StatusForbidden, "forbidden", "admin role required")
+			return
+		}
+		var req struct {
+			Name string `json:"name"`
+			Role string `json:"role"`
+		}
+		if !s.decodeJSONBody(w, r, &req) {
+			return
+		}
+		targetRole := Role(strings.ToLower(strings.TrimSpace(req.Role)))
+		if targetRole == "" {
+			targetRole = RoleViewer
+		}
+		if !isValidRole(targetRole) {
+			writeError(w, http.StatusBadRequest, "bad_request", "role must be one of viewer|operator|admin")
+			return
+		}
+		key, metadata, err := s.issueAPIKey(targetRole, strings.TrimSpace(req.Name), "managed", string(role))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "system_error", "unable to generate API key")
+			return
+		}
+		s.dataMu.Lock()
+		s.appendEventLocked(AuditEvent{
+			EventType: "api_key_issued",
+			CreatedAt: time.Now().UTC(),
+		})
+		s.dataMu.Unlock()
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"id":         metadata.ID,
+			"name":       metadata.Name,
+			"role":       metadata.Role,
+			"prefix":     metadata.Prefix,
+			"source":     metadata.Source,
+			"created_at": metadata.CreatedAt,
+			"api_key":    key,
+		})
+	case http.MethodDelete:
+		if pathSuffix == "" {
+			writeError(w, http.StatusNotFound, "not_found", "api key id is required")
+			return
+		}
+		role, authSource, err := s.authenticateWithSource(r)
+		if err != nil {
+			writeUnauthorized(w, err.Error())
+			return
+		}
+		if !s.enforceSessionCSRF(w, r, authSource) {
+			return
+		}
+		if role != RoleAdmin {
+			writeError(w, http.StatusForbidden, "forbidden", "admin role required")
+			return
+		}
+
+		s.authMu.Lock()
+		metadata, exists := s.keysByID[pathSuffix]
+		if !exists {
+			s.authMu.Unlock()
+			writeError(w, http.StatusNotFound, "not_found", "api key not found")
+			return
+		}
+		if metadata.Source == "bootstrap" {
+			s.authMu.Unlock()
+			writeError(w, http.StatusConflict, "conflict", "bootstrap API key must be removed from environment and server restarted")
+			return
+		}
+		if metadata.Revoked {
+			s.authMu.Unlock()
+			writeJSON(w, http.StatusOK, map[string]any{
+				"id":      metadata.ID,
+				"revoked": true,
+			})
+			return
+		}
+		now := time.Now().UTC()
+		if s.store != nil {
+			if err := s.store.RevokeAPIKey(metadata.ID, now); err != nil {
+				s.authMu.Unlock()
+				writeError(w, http.StatusInternalServerError, "system_error", "unable to persist API key revocation")
+				return
+			}
+		}
+		metadata.Revoked = true
+		metadata.RevokedAt = &now
+		s.keysByID[pathSuffix] = metadata
+		for key, id := range s.keyIndex {
+			if id != pathSuffix {
+				continue
+			}
+			delete(s.keyIndex, key)
+			delete(s.config.APIKeys, key)
+			break
+		}
+		s.authMu.Unlock()
+
+		s.dataMu.Lock()
+		s.appendEventLocked(AuditEvent{
+			EventType: "api_key_revoked",
+			CreatedAt: now,
+		})
+		s.dataMu.Unlock()
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":      metadata.ID,
+			"revoked": true,
+		})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+	}
+}
+
+func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	secret := strings.TrimSpace(s.config.GitHubWebhookSecret)
+	if secret == "" {
+		writeError(w, http.StatusForbidden, "integration_disabled", "github webhook integration is disabled")
+		return
+	}
+
+	body, ok := s.readRequestBody(w, r)
+	if !ok {
+		return
+	}
+	signature := strings.TrimSpace(r.Header.Get("X-Hub-Signature-256"))
+	if !validGitHubSignature(body, secret, signature) {
+		writeError(w, http.StatusForbidden, "forbidden", "invalid github webhook signature")
+		return
+	}
+
+	var payload struct {
+		Action      string `json:"action"`
+		PullRequest struct {
+			Number int `json:"number"`
+		} `json:"pull_request"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+		return
+	}
+	eventName := sanitizeEventToken(r.Header.Get("X-GitHub-Event"), "unknown")
+	repository := strings.TrimSpace(payload.Repository.FullName)
+	action := sanitizeEventToken(payload.Action, "unknown")
+	prNumber := payload.PullRequest.Number
+
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "github_webhook_received",
+		ProjectID: repository,
+		ScanID:    integrationRef(prNumber),
+		CreatedAt: time.Now().UTC(),
+	})
+	s.dataMu.Unlock()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted":   true,
+		"provider":   "github",
+		"event":      eventName,
+		"action":     action,
+		"repository": repository,
+		"pr_number":  prNumber,
+	})
+}
+
+func (s *Server) handleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	token := strings.TrimSpace(s.config.GitLabWebhookToken)
+	if token == "" {
+		writeError(w, http.StatusForbidden, "integration_disabled", "gitlab webhook integration is disabled")
+		return
+	}
+	headerToken := strings.TrimSpace(r.Header.Get("X-Gitlab-Token"))
+	if !secureEquals(headerToken, token) {
+		writeError(w, http.StatusForbidden, "forbidden", "invalid gitlab webhook token")
+		return
+	}
+	body, ok := s.readRequestBody(w, r)
+	if !ok {
+		return
+	}
+
+	var payload struct {
+		ObjectKind       string `json:"object_kind"`
+		ObjectAttributes struct {
+			Action string `json:"action"`
+			IID    int    `json:"iid"`
+		} `json:"object_attributes"`
+		Project struct {
+			PathWithNamespace string `json:"path_with_namespace"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+		return
+	}
+	eventName := sanitizeEventToken(r.Header.Get("X-Gitlab-Event"), payload.ObjectKind)
+	repository := strings.TrimSpace(payload.Project.PathWithNamespace)
+	action := sanitizeEventToken(payload.ObjectAttributes.Action, "unknown")
+	mrIID := payload.ObjectAttributes.IID
+
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "gitlab_webhook_received",
+		ProjectID: repository,
+		ScanID:    integrationRef(mrIID),
+		CreatedAt: time.Now().UTC(),
+	})
+	s.dataMu.Unlock()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted":   true,
+		"provider":   "gitlab",
+		"event":      eventName,
+		"action":     action,
+		"repository": repository,
+		"mr_iid":     mrIID,
+	})
+}
+
+func (s *Server) handleGitHubCheckRuns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
+	role, authSource, err := s.authenticateWithSource(r)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+	if role == RoleViewer {
+		writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		return
+	}
+	if !s.enforceSessionCSRF(w, r, authSource) {
+		return
+	}
+
+	token := strings.TrimSpace(s.config.GitHubAPIToken)
+	baseURL := strings.TrimSpace(s.config.GitHubAPIBaseURL)
+	if token == "" || baseURL == "" {
+		writeError(w, http.StatusForbidden, "integration_disabled", "github status publishing is disabled")
+		return
+	}
+
+	var req struct {
+		Owner      string `json:"owner"`
+		Repository string `json:"repository"`
+		HeadSHA    string `json:"head_sha"`
+		Name       string `json:"name"`
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+		DetailsURL string `json:"details_url"`
+		ExternalID string `json:"external_id"`
+		Output     struct {
+			Title   string `json:"title"`
+			Summary string `json:"summary"`
+		} `json:"output"`
+	}
+	if !s.decodeJSONBody(w, r, &req) {
+		return
+	}
+	owner := strings.TrimSpace(req.Owner)
+	repo := strings.TrimSpace(req.Repository)
+	headSHA := strings.TrimSpace(req.HeadSHA)
+	name := strings.TrimSpace(req.Name)
+	if owner == "" || repo == "" || headSHA == "" || name == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "owner, repository, head_sha, and name are required")
+		return
+	}
+
+	status := strings.ToLower(strings.TrimSpace(req.Status))
+	if status == "" {
+		status = "completed"
+	}
+	switch status {
+	case "queued", "in_progress", "completed":
+	default:
+		writeError(w, http.StatusBadRequest, "bad_request", "status must be one of queued|in_progress|completed")
+		return
+	}
+
+	conclusion := strings.ToLower(strings.TrimSpace(req.Conclusion))
+	if status == "completed" && conclusion == "" {
+		conclusion = "neutral"
+	}
+
+	payload := map[string]any{
+		"name":     name,
+		"head_sha": headSHA,
+		"status":   status,
+	}
+	if conclusion != "" {
+		payload["conclusion"] = conclusion
+	}
+	if detailsURL := strings.TrimSpace(req.DetailsURL); detailsURL != "" {
+		payload["details_url"] = detailsURL
+	}
+	if externalID := strings.TrimSpace(req.ExternalID); externalID != "" {
+		payload["external_id"] = externalID
+	}
+	title := strings.TrimSpace(req.Output.Title)
+	summary := strings.TrimSpace(req.Output.Summary)
+	if title != "" || summary != "" {
+		payload["output"] = map[string]any{
+			"title":   title,
+			"summary": summary,
+		}
+	}
+
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "failed to encode github check run payload")
+		return
+	}
+	endpoint := strings.TrimRight(baseURL, "/") + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/check-runs"
+	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, endpoint, bytes.NewReader(rawPayload))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "failed to build github api request")
+		return
+	}
+	upstreamReq.Header.Set("Content-Type", "application/json")
+	upstreamReq.Header.Set("Accept", "application/vnd.github+json")
+	upstreamReq.Header.Set("Authorization", "Bearer "+token)
+	upstreamReq.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	upstreamResp, err := s.client.Do(upstreamReq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "integration_failed", "failed to call github api")
+		return
+	}
+	defer upstreamResp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(upstreamResp.Body, s.config.MaxBodyBytes))
+	if upstreamResp.StatusCode < 200 || upstreamResp.StatusCode >= 300 {
+		writeError(w, http.StatusBadGateway, "integration_failed", fmt.Sprintf("github api returned status %d", upstreamResp.StatusCode))
+		return
+	}
+
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "github_check_published",
+		ProjectID: owner + "/" + repo,
+		ScanID:    headSHA,
+		CreatedAt: time.Now().UTC(),
+	})
+	s.dataMu.Unlock()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted":        true,
+		"provider":        "github",
+		"repository":      owner + "/" + repo,
+		"head_sha":        headSHA,
+		"upstream_status": upstreamResp.StatusCode,
+	})
+}
+
+func (s *Server) handleGitLabStatuses(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
+	role, authSource, err := s.authenticateWithSource(r)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+	if role == RoleViewer {
+		writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		return
+	}
+	if !s.enforceSessionCSRF(w, r, authSource) {
+		return
+	}
+
+	token := strings.TrimSpace(s.config.GitLabAPIToken)
+	baseURL := strings.TrimSpace(s.config.GitLabAPIBaseURL)
+	if token == "" || baseURL == "" {
+		writeError(w, http.StatusForbidden, "integration_disabled", "gitlab status publishing is disabled")
+		return
+	}
+
+	var req struct {
+		ProjectID   string `json:"project_id"`
+		SHA         string `json:"sha"`
+		State       string `json:"state"`
+		Name        string `json:"name"`
+		TargetURL   string `json:"target_url"`
+		Description string `json:"description"`
+		Ref         string `json:"ref"`
+	}
+	if !s.decodeJSONBody(w, r, &req) {
+		return
+	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	sha := strings.TrimSpace(req.SHA)
+	state := strings.ToLower(strings.TrimSpace(req.State))
+	if projectID == "" || sha == "" || state == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "project_id, sha, and state are required")
+		return
+	}
+	switch state {
+	case "pending", "running", "success", "failed", "canceled", "skipped":
+	default:
+		writeError(w, http.StatusBadRequest, "bad_request", "state must be one of pending|running|success|failed|canceled|skipped")
+		return
+	}
+
+	params := url.Values{}
+	params.Set("state", state)
+	if value := strings.TrimSpace(req.Name); value != "" {
+		params.Set("name", value)
+	}
+	if value := strings.TrimSpace(req.TargetURL); value != "" {
+		params.Set("target_url", value)
+	}
+	if value := strings.TrimSpace(req.Description); value != "" {
+		params.Set("description", value)
+	}
+	if value := strings.TrimSpace(req.Ref); value != "" {
+		params.Set("ref", value)
+	}
+
+	endpoint := strings.TrimRight(baseURL, "/") + "/projects/" + url.PathEscape(projectID) + "/statuses/" + url.PathEscape(sha) + "?" + params.Encode()
+	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, endpoint, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "failed to build gitlab api request")
+		return
+	}
+	upstreamReq.Header.Set("Accept", "application/json")
+	upstreamReq.Header.Set("PRIVATE-TOKEN", token)
+
+	upstreamResp, err := s.client.Do(upstreamReq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "integration_failed", "failed to call gitlab api")
+		return
+	}
+	defer upstreamResp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(upstreamResp.Body, s.config.MaxBodyBytes))
+	if upstreamResp.StatusCode < 200 || upstreamResp.StatusCode >= 300 {
+		writeError(w, http.StatusBadGateway, "integration_failed", fmt.Sprintf("gitlab api returned status %d", upstreamResp.StatusCode))
+		return
+	}
+
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "gitlab_status_published",
+		ProjectID: projectID,
+		ScanID:    sha,
+		CreatedAt: time.Now().UTC(),
+	})
+	s.dataMu.Unlock()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted":        true,
+		"provider":        "gitlab",
+		"project_id":      projectID,
+		"sha":             sha,
+		"upstream_status": upstreamResp.StatusCode,
 	})
 }
 
@@ -282,7 +904,7 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if _, err := s.authenticate(r); err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		writeUnauthorized(w, err.Error())
 		return
 	}
 
@@ -337,7 +959,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		if _, err := s.authenticate(r); err != nil {
-			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+			writeUnauthorized(w, err.Error())
 			return
 		}
 		s.dataMu.RLock()
@@ -361,9 +983,15 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 			return
 		}
-		role, err := s.authenticate(r)
+		if !s.requestBodyAllowed(w, r) {
+			return
+		}
+		role, authSource, err := s.authenticateWithSource(r)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+			writeUnauthorized(w, err.Error())
+			return
+		}
+		if !s.enforceSessionCSRF(w, r, authSource) {
 			return
 		}
 		if role == RoleViewer {
@@ -377,8 +1005,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			DefaultBranch string `json:"default_branch"`
 			PolicySet     string `json:"policy_set"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+		if !s.decodeJSONBody(w, r, &req) {
 			return
 		}
 		if strings.TrimSpace(req.Name) == "" {
@@ -422,7 +1049,7 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		if _, err := s.authenticate(r); err != nil {
-			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+			writeUnauthorized(w, err.Error())
 			return
 		}
 
@@ -469,9 +1096,15 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 			return
 		}
-		role, err := s.authenticate(r)
+		if !s.requestBodyAllowed(w, r) {
+			return
+		}
+		role, authSource, err := s.authenticateWithSource(r)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+			writeUnauthorized(w, err.Error())
+			return
+		}
+		if !s.enforceSessionCSRF(w, r, authSource) {
 			return
 		}
 		if role == RoleViewer {
@@ -486,8 +1119,7 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 			Status     string          `json:"status"`
 			Violations []ScanViolation `json:"violations"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+		if !s.decodeJSONBody(w, r, &req) {
 			return
 		}
 		if strings.TrimSpace(req.ProjectID) == "" {
@@ -592,9 +1224,9 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/policies")
 	pathSuffix = strings.Trim(pathSuffix, "/")
 
-	role, err := s.authenticate(r)
+	role, authSource, err := s.authenticateWithSource(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		writeUnauthorized(w, err.Error())
 		return
 	}
 
@@ -635,14 +1267,19 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusForbidden, "forbidden", "admin role required")
 				return
 			}
+			if !s.requestBodyAllowed(w, r) {
+				return
+			}
+			if !s.enforceSessionCSRF(w, r, authSource) {
+				return
+			}
 			var req struct {
 				Version     string                 `json:"version"`
 				Description string                 `json:"description"`
 				Content     map[string]any         `json:"content"`
 				Metadata    map[string]interface{} `json:"metadata"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+			if !s.decodeJSONBody(w, r, &req) {
 				return
 			}
 			version := strings.TrimSpace(req.Version)
@@ -700,9 +1337,9 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/rulesets")
 	pathSuffix = strings.Trim(pathSuffix, "/")
 
-	role, err := s.authenticate(r)
+	role, authSource, err := s.authenticateWithSource(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		writeUnauthorized(w, err.Error())
 		return
 	}
 
@@ -715,13 +1352,18 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "forbidden", "admin role required")
 			return
 		}
+		if !s.requestBodyAllowed(w, r) {
+			return
+		}
+		if !s.enforceSessionCSRF(w, r, authSource) {
+			return
+		}
 		var req struct {
 			Version     string   `json:"version"`
 			Description string   `json:"description"`
 			PolicyNames []string `json:"policy_names"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+		if !s.decodeJSONBody(w, r, &req) {
 			return
 		}
 		version := strings.TrimSpace(req.Version)
@@ -787,7 +1429,7 @@ func (s *Server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.authenticate(r); err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+		writeUnauthorized(w, err.Error())
 		return
 	}
 
@@ -822,6 +1464,52 @@ func (s *Server) appendEventLocked(event AuditEvent) {
 	if len(s.events) > 500 {
 		s.events = s.events[:500]
 	}
+	if s.store != nil {
+		_ = s.store.AppendAuditEvent(event)
+	}
+}
+
+func (s *Server) loadPersistentState() error {
+	if s.store == nil {
+		return nil
+	}
+
+	// Persist bootstrap keys supplied via environment and then load full key state.
+	for key, id := range s.keyIndex {
+		meta, ok := s.keysByID[id]
+		if !ok {
+			continue
+		}
+		if err := s.store.EnsureBootstrapAPIKey(key, meta); err != nil {
+			return err
+		}
+	}
+
+	keys, err := s.store.LoadAPIKeys()
+	if err != nil {
+		return err
+	}
+	for _, item := range keys {
+		s.keysByID[item.Metadata.ID] = item.Metadata
+		if item.Metadata.Revoked {
+			continue
+		}
+		s.keyIndex[item.Key] = item.Metadata.ID
+		s.config.APIKeys[item.Key] = item.Metadata.Role
+	}
+
+	events, err := s.store.LoadAuditEvents(500)
+	if err != nil {
+		return err
+	}
+	if len(events) > 0 {
+		s.events = events
+		return nil
+	}
+	if len(s.events) > 0 {
+		_ = s.store.AppendAuditEvent(s.events[0])
+	}
+	return nil
 }
 
 func clonePoliciesLocked(src map[string][]PolicyVersion) map[string][]PolicyVersion {
@@ -963,21 +1651,29 @@ func sarifLevelFromSeverity(severity string) string {
 }
 
 func (s *Server) authenticate(r *http.Request) (Role, error) {
+	role, _, err := s.authenticateWithSource(r)
+	return role, err
+}
+
+func (s *Server) authenticateWithSource(r *http.Request) (Role, string, error) {
 	authz := strings.TrimSpace(r.Header.Get("Authorization"))
 	if authz != "" {
 		parts := strings.SplitN(authz, " ", 2)
 		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
 			token := strings.TrimSpace(parts[1])
+			s.authMu.RLock()
 			if role, ok := s.config.APIKeys[token]; ok {
-				return role, nil
+				s.authMu.RUnlock()
+				return role, "api_key", nil
 			}
+			s.authMu.RUnlock()
 		}
 	}
 	session, err := s.getDashboardSession(r)
 	if err == nil {
-		return session.Role, nil
+		return session.Role, "session", nil
 	}
-	return "", errors.New("missing or invalid credentials")
+	return "", "", errors.New("missing or invalid credentials")
 }
 
 func (s *Server) getDashboardSession(r *http.Request) (dashboardSession, error) {
@@ -1012,6 +1708,146 @@ func (s *Server) dashboardAuthMode() string {
 	return "session_cookie"
 }
 
+func (s *Server) shouldUseSecureSessionCookie(r *http.Request) bool {
+	return s.config.DashboardSessionCookieSecure || s.config.RequireHTTPS || s.isRequestSecure(r)
+}
+
+func (s *Server) isRequestSecure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if !s.config.TrustProxyHeaders {
+		return false
+	}
+	forwardedProto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if forwardedProto == "" {
+		return false
+	}
+	first := strings.TrimSpace(strings.Split(forwardedProto, ",")[0])
+	return strings.EqualFold(first, "https")
+}
+
+func (s *Server) validCSRFSentinel(r *http.Request) bool {
+	return strings.TrimSpace(r.Header.Get(csrfHeaderName)) == csrfHeaderValue
+}
+
+func (s *Server) enforceSessionCSRF(w http.ResponseWriter, r *http.Request, authSource string) bool {
+	if authSource != "session" {
+		return true
+	}
+	if s.validCSRFSentinel(r) {
+		return true
+	}
+	writeError(w, http.StatusForbidden, "csrf_failed", "missing required CSRF header")
+	return false
+}
+
+func (s *Server) readRequestBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	maxBytes := s.config.MaxBodyBytes
+	if maxBytes <= 0 {
+		maxBytes = 1 << 20
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds configured limit")
+		} else {
+			writeError(w, http.StatusBadRequest, "bad_request", "unable to read request body")
+		}
+		return nil, false
+	}
+	if len(body) == 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "empty JSON request")
+		return nil, false
+	}
+	return body, true
+}
+
+func (s *Server) requestBodyAllowed(w http.ResponseWriter, r *http.Request) bool {
+	if r.ContentLength > 0 && s.config.MaxBodyBytes > 0 && r.ContentLength > s.config.MaxBodyBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds configured limit")
+		return false
+	}
+	return true
+}
+
+func validGitHubSignature(body []byte, secret, signature string) bool {
+	sig := strings.TrimSpace(signature)
+	if !strings.HasPrefix(strings.ToLower(sig), "sha256=") {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(body)
+	expected := "sha256=" + fmt.Sprintf("%x", mac.Sum(nil))
+	return secureEquals(sig, expected)
+}
+
+func secureEquals(a, b string) bool {
+	left := []byte(strings.TrimSpace(a))
+	right := []byte(strings.TrimSpace(b))
+	return hmac.Equal(left, right)
+}
+
+func sanitizeEventToken(raw, fallback string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return fallback
+	}
+	out := strings.Builder{}
+	for _, ch := range value {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			out.WriteRune(ch)
+		case ch >= '0' && ch <= '9':
+			out.WriteRune(ch)
+		case ch == '_' || ch == '-' || ch == ':':
+			out.WriteRune(ch)
+		}
+	}
+	sanitized := strings.TrimSpace(out.String())
+	if sanitized == "" {
+		return fallback
+	}
+	return sanitized
+}
+
+func integrationRef(number int) string {
+	if number <= 0 {
+		return ""
+	}
+	return strconv.Itoa(number)
+}
+
+func (s *Server) decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	maxBytes := s.config.MaxBodyBytes
+	if maxBytes <= 0 {
+		maxBytes = 1 << 20
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		var maxErr *http.MaxBytesError
+		switch {
+		case errors.As(err, &maxErr):
+			writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds configured limit")
+		case errors.Is(err, io.EOF):
+			writeError(w, http.StatusBadRequest, "bad_request", "empty JSON request")
+		default:
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+		}
+		return false
+	}
+
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON request")
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 	if len(s.config.CORSAllowedOrigins) == 0 {
 		return false
@@ -1038,7 +1874,8 @@ func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID, X-Baseline-CSRF")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Add("Vary", "Origin")
 
 	if r.Method == http.MethodOptions && strings.TrimSpace(r.Header.Get("Access-Control-Request-Method")) != "" {
@@ -1073,6 +1910,103 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 			"message": message,
 		},
 	})
+}
+
+func writeUnauthorized(w http.ResponseWriter, message string) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="baseline-api", error="invalid_token"`)
+	writeError(w, http.StatusUnauthorized, "unauthorized", message)
+}
+
+func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string, APIKeyMetadata, error) {
+	if !isValidRole(role) {
+		return "", APIKeyMetadata{}, errors.New("invalid role")
+	}
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	if s.config.APIKeys == nil {
+		s.config.APIKeys = map[string]Role{}
+	}
+	if s.keyIndex == nil {
+		s.keyIndex = map[string]string{}
+	}
+	if s.keysByID == nil {
+		s.keysByID = map[string]APIKeyMetadata{}
+	}
+
+	key := ""
+	for attempts := 0; attempts < 10; attempts++ {
+		candidate := randomToken(32)
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		if _, exists := s.config.APIKeys[candidate]; exists {
+			continue
+		}
+		key = candidate
+		break
+	}
+	if key == "" {
+		return "", APIKeyMetadata{}, errors.New("unable to create unique key")
+	}
+
+	id := ""
+	for attempts := 0; attempts < 10; attempts++ {
+		candidate := nextKeyID()
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		if _, exists := s.keysByID[candidate]; exists {
+			continue
+		}
+		id = candidate
+		break
+	}
+	if id == "" {
+		return "", APIKeyMetadata{}, errors.New("unable to create unique key id")
+	}
+
+	now := time.Now().UTC()
+	metadata := APIKeyMetadata{
+		ID:        id,
+		Name:      strings.TrimSpace(name),
+		Role:      role,
+		Prefix:    keyPrefix(key),
+		Source:    strings.TrimSpace(source),
+		CreatedAt: now,
+		CreatedBy: strings.TrimSpace(createdBy),
+		Revoked:   false,
+	}
+	s.config.APIKeys[key] = role
+	s.keyIndex[key] = id
+	s.keysByID[id] = metadata
+	if s.store != nil {
+		if err := s.store.UpsertAPIKey(key, metadata); err != nil {
+			delete(s.config.APIKeys, key)
+			delete(s.keyIndex, key)
+			delete(s.keysByID, id)
+			return "", APIKeyMetadata{}, err
+		}
+	}
+	return key, metadata, nil
+}
+
+func nextKeyID() string {
+	fragment := randomToken(6)
+	if strings.TrimSpace(fragment) == "" {
+		return ""
+	}
+	return "key_" + fragment
+}
+
+func keyPrefix(key string) string {
+	k := strings.TrimSpace(key)
+	if k == "" {
+		return ""
+	}
+	if len(k) <= 6 {
+		return k
+	}
+	return k[:6] + "..."
 }
 
 func randomToken(size int) string {

@@ -8,13 +8,12 @@ import (
 )
 
 //go:embed dashboard*.html
-//go:embed assets/baseline-logo.png
-//go:embed assets/dashboard.css
-//go:embed assets/dashboard.js
+//go:embed assets/*
 var dashboardFS embed.FS
 
 var dashboardHTML = mustLoadDashboardHTML()
 var dashboardLogoPNG = mustLoadDashboardAsset("assets/baseline-logo.png")
+var openAPISpecYAML = mustLoadDashboardAsset("assets/openapi.yaml")
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -55,6 +54,20 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
+}
+
+func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if len(openAPISpecYAML) == 0 {
+		writeError(w, http.StatusNotFound, "not_found", "OpenAPI spec unavailable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(openAPISpecYAML)
 }
 
 func isDashboardPath(path string) bool {

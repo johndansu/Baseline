@@ -95,3 +95,16 @@ type AuditEvent struct {
 	ScanID    string    `json:"scan_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// APIKeyMetadata is a non-secret view of one API key.
+type APIKeyMetadata struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name,omitempty"`
+	Role      Role       `json:"role"`
+	Prefix    string     `json:"prefix"`
+	Source    string     `json:"source,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	CreatedBy string     `json:"created_by,omitempty"`
+	Revoked   bool       `json:"revoked"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+}

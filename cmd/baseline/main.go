@@ -18,6 +18,10 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
+		if cli.ShouldAutoStartAPI() {
+			cli.HandleAPI([]string{"serve"})
+			return
+		}
 		printUsage()
 		os.Exit(types.ExitSystemError)
 	}
