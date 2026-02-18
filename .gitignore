@@ -49,6 +49,14 @@ backups/
 .env.production
 .env.staging
 
+# Ignore markdown/text docs by default; keep README files.
+*.md
+*.txt
+!README
+!README.*
+!**/README
+!**/README.*
+
 # OS specific
 Thumbs.db
 Desktop.ini
