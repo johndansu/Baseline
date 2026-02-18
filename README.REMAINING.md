@@ -56,6 +56,51 @@ Compliance integrity status:
 - Closed: `B1` now parses GitHub Actions workflows semantically and requires tests in pull_request-triggered workflows.
 - Closed: `policy-manifest.yaml` severities are aligned to blocking enforcement and covered by regression test.
 
+## Future Compliance Programs (Planned)
+1. SOC 2 Type I and Type II.
+- Focus: security, availability, confidentiality, change management, access control evidence.
+- Evidence outputs: policy run history, control mapping, exceptions/waivers, approver trail, signed release artifacts.
+
+2. ISO/IEC 27001.
+- Focus: ISMS control coverage, risk treatment linkage, operational control evidence.
+- Evidence outputs: control-to-policy mappings, audit events, incident/rollback evidence, vulnerability management snapshots.
+
+3. ISO/IEC 27017 and 27018.
+- Focus: cloud security controls and privacy controls for cloud processing.
+- Evidence outputs: cloud configuration checks, tenancy/separation controls, privacy handling evidence.
+
+4. ISO/IEC 27701.
+- Focus: privacy information management controls and governance.
+- Evidence outputs: data handling control results, data-subject process evidence, retention/deletion audit trail.
+
+5. NIST CSF 2.0 alignment.
+- Focus: Identify, Protect, Detect, Respond, Recover coverage over engineering workflows.
+- Evidence outputs: framework mapping report from Baseline policies to NIST functions and categories.
+
+6. NIST 800-53 moderate baseline (select profile support).
+- Focus: technical and procedural controls needed for regulated environments.
+- Evidence outputs: machine-generated control evidence bundles with control IDs and timestamps.
+
+7. CIS Critical Security Controls mapping.
+- Focus: practical prioritized safeguards tied to CI/CD and code governance.
+- Evidence outputs: control status matrix and drift reports.
+
+8. PCI DSS 4.0 support profile.
+- Focus: secure software lifecycle, vulnerability management, access restrictions, logging.
+- Evidence outputs: release gate evidence, dependency/security scan attestations, immutable audit logs.
+
+9. HIPAA Security Rule support profile.
+- Focus: access controls, integrity, transmission security, audit controls.
+- Evidence outputs: access/auth evidence, API audit events, incident and recovery documentation traces.
+
+10. GDPR and CCPA privacy support profile.
+- Focus: lawful processing safeguards, minimization, deletion/retention controls, auditability.
+- Evidence outputs: privacy control checks, retention enforcement logs, DSAR process evidence exports.
+
+11. Internal control framework program.
+- Focus: custom enterprise controls, control owners, review cadence, exceptions.
+- Evidence outputs: internal controls catalog, policy-to-control traceability, recurring compliance snapshots.
+
 ## Future Rules Roadmap (Proposed)
 1. `M1` SAST required in CI.
 - Done when: CI config contains a blocking static analysis step for push and PR on protected branches.
