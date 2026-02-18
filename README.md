@@ -36,7 +36,7 @@ go build -o baseline.exe ./cmd/baseline
 - `baseline enforce` - enforcement-focused output; blocks on violations.
 - `baseline scan` - run comprehensive scan summary (files/security/violations).
 - `baseline init` - create `.baseline/config.yaml`.
-- `baseline report` - output scan results (`--json` supported).
+- `baseline report` - output scan results (`--text`, `--json`, `--sarif`).
 - `baseline explain <policy_id>` - explain current status + remediation for one policy.
 - `baseline generate` - generate scaffolded fixes for certain violations via configured AI provider.
 - `baseline pr` - generate fixes, commit/push branch, and try `gh pr create`.
@@ -55,8 +55,8 @@ go build -o baseline.exe ./cmd/baseline
 
 Baseline currently runs these checks (IDs from `internal/types/types.go`):
 
-- `A1` protected primary branch exists (`main` or `master` present).
-- `B1` CI pipeline config exists.
+- `A1` primary branch protection is verified (PR-required and direct push restrictions), using GitHub API when available and config fallback when needed.
+- `B1` CI workflows must run on pull requests and execute automated tests in PR-triggered jobs.
 - `C1` automated tests exist.
 - `D1` no plaintext secrets/token patterns in scannable files.
 - `E1` dependency management files exist.
@@ -72,6 +72,10 @@ Baseline currently runs these checks (IDs from `internal/types/types.go`):
 Notes:
 - Most violations are `block`.
 - Dockerfile use of `:latest` is currently reported as `warn`.
+
+## Command Reference
+
+For a concise day-to-day command list, see `command.md`.
 
 ## API Server
 
@@ -235,6 +239,14 @@ AI is not used to decide enforcement outcomes. Review generated content before m
 ```bash
 go test ./...
 ```
+
+## Release Integrity
+
+Release artifacts are hardened in CI:
+
+- `SHA256SUMS` is generated for release binaries.
+- Binaries and checksums are keylessly signed with Sigstore Cosign.
+- Signatures (`.sig`) and certificates (`.pem`) are uploaded with release assets.
 
 ## Security
 

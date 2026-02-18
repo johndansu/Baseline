@@ -52,13 +52,14 @@ backups/
 .env.production
 .env.staging
 
-# Ignore markdown/text docs by default; keep README files.
+# Ignore markdown/text docs by default; keep only useful docs.
 *.md
 *.txt
-!README
-!README.*
-!**/README
-!**/README.*
+!README.md
+!README.REMAINING.md
+!CHANGELOG.md
+!command.md
+!frontend/README.md
 
 # OS specific
 Thumbs.db
