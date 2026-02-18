@@ -21,6 +21,9 @@ All notable changes to this project are documented in this file.
 - Integration webhook routes:
   - `POST /v1/integrations/github/webhook`
   - `POST /v1/integrations/gitlab/webhook`
+- Integration status publishing routes:
+  - `POST /v1/integrations/github/check-runs`
+  - `POST /v1/integrations/gitlab/statuses`
 - SQLite persistence layer:
   - New persistent store implementation for API keys and audit events.
   - Database initialization/migrations on API startup.
@@ -32,6 +35,10 @@ All notable changes to this project are documented in this file.
   - `BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE`
   - `BASELINE_API_GITHUB_WEBHOOK_SECRET`
   - `BASELINE_API_GITLAB_WEBHOOK_TOKEN`
+  - `BASELINE_API_GITHUB_TOKEN`
+  - `BASELINE_API_GITHUB_API_URL`
+  - `BASELINE_API_GITLAB_TOKEN`
+  - `BASELINE_API_GITLAB_API_URL`
 
 ### Security
 - Added Bearer auth challenge headers:
@@ -49,6 +56,9 @@ All notable changes to this project are documented in this file.
   - HMAC SHA-256 via `X-Hub-Signature-256` validated against configured secret.
 - GitLab webhook token verification:
   - `X-Gitlab-Token` validated with constant-time compare.
+- Outbound provider publishing authorization:
+  - GitHub check-run publishing requires configured API token.
+  - GitLab status publishing requires configured API token.
 
 ### Changed
 - Self-service registration (`/v1/auth/register`) now issues server-generated API keys.
@@ -78,6 +88,7 @@ All notable changes to this project are documented in this file.
 ### API Contract and Runtime Behavior
 - Added explicit webhook contract entries to OpenAPI.
 - Added API key lifecycle contract entries to OpenAPI.
+- Added outbound GitHub/GitLab status publishing entries to OpenAPI.
 - Error behavior standardized across new endpoints:
   - `401 unauthorized`
   - `403 forbidden` / `integration_disabled`
@@ -98,6 +109,7 @@ All notable changes to this project are documented in this file.
   - API key lifecycle (create/list/revoke/blocked bootstrap revoke)
   - persistence across restart (key auth + revoke + audit events)
   - webhook validation (GitHub signature, GitLab token)
+  - outbound publish flow validation (GitHub check-run, GitLab commit status)
   - config parsing for new security/integration env variables
 - Full suite passing after these changes.
 

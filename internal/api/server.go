@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +35,7 @@ type Server struct {
 	config     Config
 	httpServer *http.Server
 	store      *Store
+	client     *http.Client
 
 	authMu    sync.RWMutex
 	keyIndex  map[string]string
@@ -83,6 +86,7 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	s := &Server{
 		config:   config,
 		store:    store,
+		client:   &http.Client{Timeout: 10 * time.Second},
 		keyIndex: map[string]string{},
 		keysByID: map[string]APIKeyMetadata{},
 		sessions: map[string]dashboardSession{},
@@ -185,6 +189,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleGitHubWebhook(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/webhook"):
 		s.handleGitLabWebhook(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/github/check-runs"):
+		s.handleGitHubCheckRuns(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/statuses"):
+		s.handleGitLabStatuses(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/dashboard"):
 		s.handleDashboardSummary(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/projects"):
@@ -640,6 +648,253 @@ func (s *Server) handleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 		"action":     action,
 		"repository": repository,
 		"mr_iid":     mrIID,
+	})
+}
+
+func (s *Server) handleGitHubCheckRuns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
+	role, authSource, err := s.authenticateWithSource(r)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+	if role == RoleViewer {
+		writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		return
+	}
+	if !s.enforceSessionCSRF(w, r, authSource) {
+		return
+	}
+
+	token := strings.TrimSpace(s.config.GitHubAPIToken)
+	baseURL := strings.TrimSpace(s.config.GitHubAPIBaseURL)
+	if token == "" || baseURL == "" {
+		writeError(w, http.StatusForbidden, "integration_disabled", "github status publishing is disabled")
+		return
+	}
+
+	var req struct {
+		Owner      string `json:"owner"`
+		Repository string `json:"repository"`
+		HeadSHA    string `json:"head_sha"`
+		Name       string `json:"name"`
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+		DetailsURL string `json:"details_url"`
+		ExternalID string `json:"external_id"`
+		Output     struct {
+			Title   string `json:"title"`
+			Summary string `json:"summary"`
+		} `json:"output"`
+	}
+	if !s.decodeJSONBody(w, r, &req) {
+		return
+	}
+	owner := strings.TrimSpace(req.Owner)
+	repo := strings.TrimSpace(req.Repository)
+	headSHA := strings.TrimSpace(req.HeadSHA)
+	name := strings.TrimSpace(req.Name)
+	if owner == "" || repo == "" || headSHA == "" || name == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "owner, repository, head_sha, and name are required")
+		return
+	}
+
+	status := strings.ToLower(strings.TrimSpace(req.Status))
+	if status == "" {
+		status = "completed"
+	}
+	switch status {
+	case "queued", "in_progress", "completed":
+	default:
+		writeError(w, http.StatusBadRequest, "bad_request", "status must be one of queued|in_progress|completed")
+		return
+	}
+
+	conclusion := strings.ToLower(strings.TrimSpace(req.Conclusion))
+	if status == "completed" && conclusion == "" {
+		conclusion = "neutral"
+	}
+
+	payload := map[string]any{
+		"name":     name,
+		"head_sha": headSHA,
+		"status":   status,
+	}
+	if conclusion != "" {
+		payload["conclusion"] = conclusion
+	}
+	if detailsURL := strings.TrimSpace(req.DetailsURL); detailsURL != "" {
+		payload["details_url"] = detailsURL
+	}
+	if externalID := strings.TrimSpace(req.ExternalID); externalID != "" {
+		payload["external_id"] = externalID
+	}
+	title := strings.TrimSpace(req.Output.Title)
+	summary := strings.TrimSpace(req.Output.Summary)
+	if title != "" || summary != "" {
+		payload["output"] = map[string]any{
+			"title":   title,
+			"summary": summary,
+		}
+	}
+
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "failed to encode github check run payload")
+		return
+	}
+	endpoint := strings.TrimRight(baseURL, "/") + "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/check-runs"
+	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, endpoint, bytes.NewReader(rawPayload))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "failed to build github api request")
+		return
+	}
+	upstreamReq.Header.Set("Content-Type", "application/json")
+	upstreamReq.Header.Set("Accept", "application/vnd.github+json")
+	upstreamReq.Header.Set("Authorization", "Bearer "+token)
+	upstreamReq.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	upstreamResp, err := s.client.Do(upstreamReq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "integration_failed", "failed to call github api")
+		return
+	}
+	defer upstreamResp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(upstreamResp.Body, s.config.MaxBodyBytes))
+	if upstreamResp.StatusCode < 200 || upstreamResp.StatusCode >= 300 {
+		writeError(w, http.StatusBadGateway, "integration_failed", fmt.Sprintf("github api returned status %d", upstreamResp.StatusCode))
+		return
+	}
+
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "github_check_published",
+		ProjectID: owner + "/" + repo,
+		ScanID:    headSHA,
+		CreatedAt: time.Now().UTC(),
+	})
+	s.dataMu.Unlock()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted":        true,
+		"provider":        "github",
+		"repository":      owner + "/" + repo,
+		"head_sha":        headSHA,
+		"upstream_status": upstreamResp.StatusCode,
+	})
+}
+
+func (s *Server) handleGitLabStatuses(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
+	role, authSource, err := s.authenticateWithSource(r)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+	if role == RoleViewer {
+		writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+		return
+	}
+	if !s.enforceSessionCSRF(w, r, authSource) {
+		return
+	}
+
+	token := strings.TrimSpace(s.config.GitLabAPIToken)
+	baseURL := strings.TrimSpace(s.config.GitLabAPIBaseURL)
+	if token == "" || baseURL == "" {
+		writeError(w, http.StatusForbidden, "integration_disabled", "gitlab status publishing is disabled")
+		return
+	}
+
+	var req struct {
+		ProjectID   string `json:"project_id"`
+		SHA         string `json:"sha"`
+		State       string `json:"state"`
+		Name        string `json:"name"`
+		TargetURL   string `json:"target_url"`
+		Description string `json:"description"`
+		Ref         string `json:"ref"`
+	}
+	if !s.decodeJSONBody(w, r, &req) {
+		return
+	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	sha := strings.TrimSpace(req.SHA)
+	state := strings.ToLower(strings.TrimSpace(req.State))
+	if projectID == "" || sha == "" || state == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "project_id, sha, and state are required")
+		return
+	}
+	switch state {
+	case "pending", "running", "success", "failed", "canceled", "skipped":
+	default:
+		writeError(w, http.StatusBadRequest, "bad_request", "state must be one of pending|running|success|failed|canceled|skipped")
+		return
+	}
+
+	params := url.Values{}
+	params.Set("state", state)
+	if value := strings.TrimSpace(req.Name); value != "" {
+		params.Set("name", value)
+	}
+	if value := strings.TrimSpace(req.TargetURL); value != "" {
+		params.Set("target_url", value)
+	}
+	if value := strings.TrimSpace(req.Description); value != "" {
+		params.Set("description", value)
+	}
+	if value := strings.TrimSpace(req.Ref); value != "" {
+		params.Set("ref", value)
+	}
+
+	endpoint := strings.TrimRight(baseURL, "/") + "/projects/" + url.PathEscape(projectID) + "/statuses/" + url.PathEscape(sha) + "?" + params.Encode()
+	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, endpoint, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "failed to build gitlab api request")
+		return
+	}
+	upstreamReq.Header.Set("Accept", "application/json")
+	upstreamReq.Header.Set("PRIVATE-TOKEN", token)
+
+	upstreamResp, err := s.client.Do(upstreamReq)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "integration_failed", "failed to call gitlab api")
+		return
+	}
+	defer upstreamResp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(upstreamResp.Body, s.config.MaxBodyBytes))
+	if upstreamResp.StatusCode < 200 || upstreamResp.StatusCode >= 300 {
+		writeError(w, http.StatusBadGateway, "integration_failed", fmt.Sprintf("gitlab api returned status %d", upstreamResp.StatusCode))
+		return
+	}
+
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "gitlab_status_published",
+		ProjectID: projectID,
+		ScanID:    sha,
+		CreatedAt: time.Now().UTC(),
+	})
+	s.dataMu.Unlock()
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted":        true,
+		"provider":        "gitlab",
+		"project_id":      projectID,
+		"sha":             sha,
+		"upstream_status": upstreamResp.StatusCode,
 	})
 }
 

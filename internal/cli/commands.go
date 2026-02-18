@@ -496,6 +496,10 @@ func HandleAPI(args []string) {
 		fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER=X-Forwarded-Role")
 		fmt.Println("  BASELINE_API_GITHUB_WEBHOOK_SECRET=<secret>")
 		fmt.Println("  BASELINE_API_GITLAB_WEBHOOK_TOKEN=<token>")
+		fmt.Println("  BASELINE_API_GITHUB_TOKEN=<token>")
+		fmt.Println("  BASELINE_API_GITHUB_API_URL=https://api.github.com")
+		fmt.Println("  BASELINE_API_GITLAB_TOKEN=<token>")
+		fmt.Println("  BASELINE_API_GITLAB_API_URL=https://gitlab.com/api/v4")
 		fmt.Println("  BASELINE_API_AI_ENABLED=false")
 		fmt.Println("Config file auto-load order: BASELINE_API_ENV_FILE, .env.production, .env, api.env")
 		os.Exit(types.ExitSystemError)
@@ -845,6 +849,12 @@ func verifyAPIProdConfig(cfg api.Config, getenv func(string) string) prodVerifyR
 	}
 	if secretLooksPlaceholder(getenv("BASELINE_API_GITLAB_WEBHOOK_TOKEN")) {
 		result.Errors = append(result.Errors, "GitLab webhook token looks like a placeholder value.")
+	}
+	if secretLooksPlaceholder(getenv("BASELINE_API_GITHUB_TOKEN")) {
+		result.Errors = append(result.Errors, "GitHub API token looks like a placeholder value.")
+	}
+	if secretLooksPlaceholder(getenv("BASELINE_API_GITLAB_TOKEN")) {
+		result.Errors = append(result.Errors, "GitLab API token looks like a placeholder value.")
 	}
 
 	return result

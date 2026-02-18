@@ -115,6 +115,8 @@ baseline api verify-prod --strict
 - `DELETE /v1/api-keys/{key_id}`
 - `POST /v1/integrations/github/webhook`
 - `POST /v1/integrations/gitlab/webhook`
+- `POST /v1/integrations/github/check-runs`
+- `POST /v1/integrations/gitlab/statuses`
 - `GET /v1/dashboard`
 - `GET|POST /v1/projects`
 - `GET /v1/projects/{project_id}`
@@ -156,6 +158,10 @@ baseline api verify-prod --strict
 - `BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER`
 - `BASELINE_API_GITHUB_WEBHOOK_SECRET`
 - `BASELINE_API_GITLAB_WEBHOOK_TOKEN`
+- `BASELINE_API_GITHUB_TOKEN`
+- `BASELINE_API_GITHUB_API_URL`
+- `BASELINE_API_GITLAB_TOKEN`
+- `BASELINE_API_GITLAB_API_URL`
 - `BASELINE_API_AI_ENABLED`
 
 Env files are auto-loaded in this order:

@@ -33,6 +33,10 @@ type Config struct {
 	DashboardAuthProxyRoleHeader string
 	GitHubWebhookSecret          string
 	GitLabWebhookToken           string
+	GitHubAPIToken               string
+	GitHubAPIBaseURL             string
+	GitLabAPIToken               string
+	GitLabAPIBaseURL             string
 	AIEnabled                    bool
 }
 
@@ -63,6 +67,10 @@ func DefaultConfig() Config {
 		DashboardAuthProxyRoleHeader: "X-Forwarded-Role",
 		GitHubWebhookSecret:          "",
 		GitLabWebhookToken:           "",
+		GitHubAPIToken:               "",
+		GitHubAPIBaseURL:             "https://api.github.com",
+		GitLabAPIToken:               "",
+		GitLabAPIBaseURL:             "https://gitlab.com/api/v4",
 		AIEnabled:                    false,
 	}
 }
@@ -164,6 +172,18 @@ func ConfigFromEnv() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITLAB_WEBHOOK_TOKEN")); v != "" {
 		cfg.GitLabWebhookToken = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITHUB_TOKEN")); v != "" {
+		cfg.GitHubAPIToken = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITHUB_API_URL")); v != "" {
+		cfg.GitHubAPIBaseURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITLAB_TOKEN")); v != "" {
+		cfg.GitLabAPIToken = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITLAB_API_URL")); v != "" {
+		cfg.GitLabAPIBaseURL = v
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AI_ENABLED")); v != "" {
 		cfg.AIEnabled = parseBool(v, cfg.AIEnabled)

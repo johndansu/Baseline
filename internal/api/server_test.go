@@ -801,6 +801,163 @@ func TestGitLabWebhookTokenValidation(t *testing.T) {
 	}
 }
 
+func TestGitHubCheckRunPublish(t *testing.T) {
+	var (
+		capturedPath   string
+		capturedAuth   string
+		capturedAccept string
+		capturedBody   string
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedAuth = r.Header.Get("Authorization")
+		capturedAccept = r.Header.Get("Accept")
+		var out bytes.Buffer
+		_, _ = out.ReadFrom(r.Body)
+		capturedBody = out.String()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1234}`))
+	}))
+	defer upstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"operator-key": RoleOperator,
+		"viewer-key":   RoleViewer,
+	}
+	cfg.GitHubAPIToken = "gh-api-token"
+	cfg.GitHubAPIBaseURL = upstream.URL
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	// Viewer cannot publish.
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/github/check-runs", map[string]any{
+		"owner":      "acme",
+		"repository": "payments",
+		"head_sha":   "abc123",
+		"name":       "baseline/enforce",
+	}, map[string]string{
+		"Authorization": "Bearer viewer-key",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer publish, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/github/check-runs", map[string]any{
+		"owner":      "acme",
+		"repository": "payments",
+		"head_sha":   "abc123",
+		"name":       "baseline/enforce",
+		"status":     "completed",
+		"conclusion": "success",
+		"output": map[string]any{
+			"title":   "Baseline scan",
+			"summary": "All checks passed",
+		},
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 for github publish, got %d body=%s", resp.StatusCode, body)
+	}
+	if capturedPath != "/repos/acme/payments/check-runs" {
+		t.Fatalf("expected github check-runs path, got %q", capturedPath)
+	}
+	if capturedAuth != "Bearer gh-api-token" {
+		t.Fatalf("expected github auth bearer token, got %q", capturedAuth)
+	}
+	if !strings.Contains(strings.ToLower(capturedAccept), "application/vnd.github+json") {
+		t.Fatalf("expected github accept header, got %q", capturedAccept)
+	}
+	if !strings.Contains(capturedBody, `"head_sha":"abc123"`) || !strings.Contains(capturedBody, `"name":"baseline/enforce"`) {
+		t.Fatalf("expected head_sha/name in upstream payload, got %s", capturedBody)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for audit list, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "github_check_published") {
+		t.Fatalf("expected github_check_published audit event, body=%s", body)
+	}
+}
+
+func TestGitLabStatusPublish(t *testing.T) {
+	var (
+		capturedPath  string
+		capturedQuery string
+		capturedToken string
+	)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.RawQuery
+		capturedToken = r.Header.Get("PRIVATE-TOKEN")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"operator-key": RoleOperator,
+	}
+	cfg.GitLabAPIToken = "gl-api-token"
+	cfg.GitLabAPIBaseURL = upstream.URL
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/gitlab/statuses", map[string]any{
+		"project_id":  "acme/platform",
+		"sha":         "def456",
+		"state":       "success",
+		"name":        "baseline/enforce",
+		"target_url":  "https://ci.example.test/runs/1",
+		"description": "checks passed",
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 for gitlab publish, got %d body=%s", resp.StatusCode, body)
+	}
+	if capturedPath != "/projects/acme/platform/statuses/def456" {
+		t.Fatalf("expected gitlab status path, got %q", capturedPath)
+	}
+	if capturedToken != "gl-api-token" {
+		t.Fatalf("expected gitlab private token, got %q", capturedToken)
+	}
+	if !strings.Contains(capturedQuery, "state=success") || !strings.Contains(capturedQuery, "name=baseline%2Fenforce") {
+		t.Fatalf("expected state/name in gitlab query, got %q", capturedQuery)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for audit list, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "gitlab_status_published") {
+		t.Fatalf("expected gitlab_status_published audit event, body=%s", body)
+	}
+}
+
 func mustRequest(t *testing.T, client *http.Client, method, url string, payload any, headers map[string]string) (*http.Response, string) {
 	t.Helper()
 

@@ -236,6 +236,58 @@ paths:
           description: Webhook accepted
         "403":
           $ref: "#/components/responses/ErrorResponse"
+  /v1/integrations/github/check-runs:
+    post:
+      summary: Publish GitHub check run status
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitHubCheckRunRequest"
+      responses:
+        "202":
+          description: Check run accepted by integration layer
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "502":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/integrations/gitlab/statuses:
+    post:
+      summary: Publish GitLab commit status
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitLabStatusRequest"
+      responses:
+        "202":
+          description: Commit status accepted by integration layer
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "502":
+          $ref: "#/components/responses/ErrorResponse"
   /v1/dashboard:
     get:
       summary: Dashboard summary
@@ -624,6 +676,53 @@ components:
         revoked_at:
           type: string
           format: date-time
+    GitHubCheckRunRequest:
+      type: object
+      required: [owner, repository, head_sha, name]
+      properties:
+        owner:
+          type: string
+        repository:
+          type: string
+        head_sha:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [queued, in_progress, completed]
+        conclusion:
+          type: string
+        details_url:
+          type: string
+        external_id:
+          type: string
+        output:
+          type: object
+          properties:
+            title:
+              type: string
+            summary:
+              type: string
+    GitLabStatusRequest:
+      type: object
+      required: [project_id, sha, state]
+      properties:
+        project_id:
+          type: string
+        sha:
+          type: string
+        state:
+          type: string
+          enum: [pending, running, success, failed, canceled, skipped]
+        name:
+          type: string
+        target_url:
+          type: string
+        description:
+          type: string
+        ref:
+          type: string
     ErrorEnvelope:
       type: object
       properties:
