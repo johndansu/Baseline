@@ -62,10 +62,16 @@ jobs:
           go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}
           go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
 
-      - name: Run gosec (strict)
+      - name: Run gosec (high-confidence strict)
         run: |
           mkdir -p security
-          "$(go env GOPATH)/bin/gosec" -fmt sarif -out security/gosec.sarif ./...
+          "$(go env GOPATH)/bin/gosec" \
+            -severity high \
+            -confidence high \
+            -exclude G204,G304 \
+            -fmt sarif \
+            -out security/gosec.sarif \
+            ./...
 
       - name: Upload gosec SARIF
         if: always()

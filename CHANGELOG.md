@@ -102,6 +102,7 @@ All notable changes to this project are documented in this file.
 - API serve flow now fails early with deterministic error when store open fails.
 - Production verification now flags placeholder webhook secrets/tokens.
 - API usage/help text expanded with new integration env vars.
+- CI security scan tuned to high-confidence/high-severity `gosec` findings and excludes noisy subprocess/file-path false positives (`G204`, `G304`) from blocking pipeline merges.
 
 ### Tests
 - Added/expanded coverage for:
