@@ -38,7 +38,7 @@ func HandleCheck() {
 	if err := requireGitRepo(); err != nil {
 		log.Error("Git repository check failed", "error", err)
 		fmt.Printf("Error: %v\n", err)
-		os.Exit(types.ExitBlockingViolation)
+		os.Exit(types.ExitSystemError)
 	}
 
 	cwd, err := os.Getwd()
@@ -246,6 +246,11 @@ func HandleGenerate() {
 		os.Exit(types.ExitSystemError)
 	}
 
+	if err := loadAIEnvFiles(); err != nil {
+		fmt.Printf("GENERATE FAILED: unable to load AI env file: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Printf("GENERATE FAILED: Unable to get current directory: %v\n", err)
@@ -257,14 +262,14 @@ func HandleGenerate() {
 	// Initialize AI generator
 	gen := ai.NewDefaultGenerator()
 
-	// Check Ollama availability
+	// Check AI provider availability.
 	if err := gen.CheckAvailability(); err != nil {
 		fmt.Printf("GENERATE FAILED: %v\n", err)
-		fmt.Printf("Please ensure Ollama is running with: ollama serve\n")
+		fmt.Printf("Configure AI provider environment (OLLAMA_* or OPENROUTER_*) and retry\n")
 		os.Exit(types.ExitSystemError)
 	}
 
-	fmt.Println("Ollama connected successfully")
+	fmt.Printf("AI provider connected: %s\n", gen.Provider())
 
 	// Run policy checks to identify violations
 	violations := policy.RunAllChecks()
@@ -280,27 +285,46 @@ func HandleGenerate() {
 	}
 	fmt.Println()
 
-	generatedFiles := generateFixes(gen, violations)
+	outcome := buildGenerationOutcome(violations, func(v types.PolicyViolation) string {
+		return generateFixForViolationWithFile(gen, v)
+	})
 
-	fmt.Printf("\nGeneration complete: %d files created\n", generatedFiles)
+	fmt.Printf("\nGeneration complete: %d files created\n", len(outcome.GeneratedFiles))
+	if len(outcome.Skipped) > 0 {
+		fmt.Printf("Skipped %d violation(s) that require manual remediation\n", len(outcome.Skipped))
+	}
 
-	if generatedFiles > 0 {
-		fmt.Println("\nNext steps:")
-		fmt.Println("1. Review the generated files")
-		fmt.Println("2. Run 'baseline check' to verify compliance")
-		fmt.Println("3. Commit the changes to your repository")
-		fmt.Println("4. Push and create a pull request for review")
-		os.Exit(types.ExitSuccess)
-	} else {
-		fmt.Println("No files were generated")
+	if len(outcome.Failed) > 0 {
+		fmt.Println("\nGeneration failed for auto-fixable violation(s):")
+		for _, v := range outcome.Failed {
+			fmt.Printf("  [%s] %s\n", v.PolicyID, v.Message)
+		}
+		fmt.Println("\nFix AI/provider issues and retry. Generated files (if any) were left in place for review.")
 		os.Exit(types.ExitSystemError)
 	}
+
+	if len(outcome.GeneratedFiles) == 0 {
+		fmt.Println("No auto-fixable violations were generated. Manual remediation is required.")
+		os.Exit(types.ExitSystemError)
+	}
+
+	fmt.Println("\nNext steps:")
+	fmt.Println("1. Review the generated files")
+	fmt.Println("2. Run 'baseline check' to verify compliance")
+	fmt.Println("3. Commit the changes to your repository")
+	fmt.Println("4. Push and create a pull request for review")
+	os.Exit(types.ExitSuccess)
 }
 
 // HandlePR creates a pull request with generated scaffolds.
 func HandlePR() {
 	if err := requireGitRepo(); err != nil {
 		fmt.Printf("PR FAILED: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+
+	if err := loadAIEnvFiles(); err != nil {
+		fmt.Printf("PR FAILED: unable to load AI env file: %v\n", err)
 		os.Exit(types.ExitSystemError)
 	}
 
@@ -325,11 +349,11 @@ func HandlePR() {
 
 	if err := gen.CheckAvailability(); err != nil {
 		fmt.Printf("PR FAILED: %v\n", err)
-		fmt.Printf("Please ensure Ollama is running with: ollama serve\n")
+		fmt.Printf("Configure AI provider environment (OLLAMA_* or OPENROUTER_*) and retry\n")
 		os.Exit(types.ExitSystemError)
 	}
 
-	fmt.Println("Ollama connected successfully")
+	fmt.Printf("AI provider connected: %s\n", gen.Provider())
 
 	violations := policy.RunAllChecks()
 
@@ -352,35 +376,45 @@ func HandlePR() {
 		os.Exit(types.ExitSystemError)
 	}
 
-	generatedFilesList := generateFixesWithList(gen, violations)
+	outcome := buildGenerationOutcome(violations, func(v types.PolicyViolation) string {
+		return generateFixForViolationWithFile(gen, v)
+	})
 
-	if len(generatedFilesList) == 0 {
-		fmt.Println("No files were generated")
+	if len(outcome.Failed) > 0 {
+		fmt.Println("PR FAILED: generation failed for auto-fixable violation(s):")
+		for _, v := range outcome.Failed {
+			fmt.Printf("  [%s] %s\n", v.PolicyID, v.Message)
+		}
 		os.Exit(types.ExitSystemError)
 	}
 
-	fmt.Printf("\nGeneration complete: %d files created\n", len(generatedFilesList))
+	if len(outcome.GeneratedFiles) == 0 {
+		fmt.Println("PR FAILED: no auto-fixable files were generated")
+		os.Exit(types.ExitSystemError)
+	}
+
+	fmt.Printf("\nGeneration complete: %d files created\n", len(outcome.GeneratedFiles))
 
 	// Stage, commit, and push
-	if err := commitAndPush(branchName, generatedFilesList); err != nil {
+	if err := commitAndPush(branchName, outcome.GeneratedFiles); err != nil {
 		fmt.Printf("PR FAILED: %v\n", err)
 		os.Exit(types.ExitSystemError)
 	}
 
 	// Create PR using GitHub CLI
-	prBody := report.GeneratePRBody(violations, generatedFilesList)
+	prBody := report.GeneratePRBody(violations, outcome.GeneratedFiles)
 	cmd = exec.Command("gh", "pr", "create",
 		"--title", "Add missing production infrastructure",
 		"--body", prBody,
 		"--head", branchName)
 
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Warning: Unable to create PR automatically: %v\n", err)
+		fmt.Printf("PR FAILED: unable to create PR automatically: %v\n", err)
 		fmt.Println("Please create a pull request manually:")
 		fmt.Printf("  Branch: %s\n", branchName)
 		fmt.Printf("  Title: Add missing production infrastructure\n")
 		fmt.Println("  Description: See generated files for details")
-		os.Exit(types.ExitSuccess)
+		os.Exit(types.ExitSystemError)
 	}
 
 	fmt.Println("✓ Pull request created successfully!")
@@ -609,6 +643,21 @@ func loadAPIEnvFiles() error {
 	return nil
 }
 
+func loadAIEnvFiles() error {
+	candidates := []string{}
+	if explicit := strings.TrimSpace(os.Getenv("BASELINE_AI_ENV_FILE")); explicit != "" {
+		candidates = append(candidates, explicit)
+	}
+	candidates = append(candidates, ".env.production", ".env", "ai.env", "api.env")
+
+	for _, path := range candidates {
+		if err := loadEnvFileIfPresent(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func loadEnvFileIfPresent(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -828,26 +877,50 @@ func requireGitRepo() error {
 	return nil
 }
 
-// generateFixes generates files for each violation and returns count.
-func generateFixes(gen *ai.Generator, violations []types.PolicyViolation) int {
-	count := 0
-	for _, v := range violations {
-		if generated := generateFixForViolation(gen, v); generated {
-			count++
-		}
-	}
-	return count
+type generationOutcome struct {
+	GeneratedFiles []string
+	Failed         []types.PolicyViolation
+	Skipped        []types.PolicyViolation
 }
 
-// generateFixesWithList generates files and returns the list of generated files.
-func generateFixesWithList(gen *ai.Generator, violations []types.PolicyViolation) []string {
-	var files []string
-	for _, v := range violations {
-		if file := generateFixForViolationWithFile(gen, v); file != "" {
-			files = append(files, file)
-		}
+func buildGenerationOutcome(
+	violations []types.PolicyViolation,
+	generate func(types.PolicyViolation) string,
+) generationOutcome {
+	outcome := generationOutcome{
+		GeneratedFiles: []string{},
+		Failed:         []types.PolicyViolation{},
+		Skipped:        []types.PolicyViolation{},
 	}
-	return files
+
+	for _, violation := range violations {
+		if !isAIFixSupported(violation.PolicyID) {
+			outcome.Skipped = append(outcome.Skipped, violation)
+			continue
+		}
+
+		file := strings.TrimSpace(generate(violation))
+		if file == "" {
+			outcome.Failed = append(outcome.Failed, violation)
+			continue
+		}
+		outcome.GeneratedFiles = append(outcome.GeneratedFiles, file)
+	}
+
+	return outcome
+}
+
+func isAIFixSupported(policyID string) bool {
+	switch policyID {
+	case types.PolicyCIPipeline,
+		types.PolicyTestSuite,
+		types.PolicyDocumentation,
+		types.PolicyDeploymentConfig,
+		types.PolicyEnvVariables:
+		return true
+	default:
+		return false
+	}
 }
 
 // generateFixForViolation generates a fix for a single violation.

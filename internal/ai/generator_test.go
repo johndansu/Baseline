@@ -1,65 +1,102 @@
 package ai
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/baseline/baseline/internal/types"
 )
 
 func TestDefaultConfig(t *testing.T) {
-	// Clear env vars for test
-	originalURL := os.Getenv("OLLAMA_URL")
-	originalModel := os.Getenv("OLLAMA_MODEL")
+	originalProvider := os.Getenv("AI_PROVIDER")
+	originalOpenRouterKey := os.Getenv("OPENROUTER_API_KEY")
+	originalOpenRouterModel := os.Getenv("OPENROUTER_MODEL")
+	originalOpenRouterURL := os.Getenv("OPENROUTER_URL")
+	originalOllamaURL := os.Getenv("OLLAMA_URL")
+	originalOllamaModel := os.Getenv("OLLAMA_MODEL")
 	defer func() {
-		if originalURL != "" {
-			os.Setenv("OLLAMA_URL", originalURL)
-		} else {
-			os.Unsetenv("OLLAMA_URL")
-		}
-		if originalModel != "" {
-			os.Setenv("OLLAMA_MODEL", originalModel)
-		} else {
-			os.Unsetenv("OLLAMA_MODEL")
-		}
+		restoreEnv("AI_PROVIDER", originalProvider)
+		restoreEnv("OPENROUTER_API_KEY", originalOpenRouterKey)
+		restoreEnv("OPENROUTER_MODEL", originalOpenRouterModel)
+		restoreEnv("OPENROUTER_URL", originalOpenRouterURL)
+		restoreEnv("OLLAMA_URL", originalOllamaURL)
+		restoreEnv("OLLAMA_MODEL", originalOllamaModel)
 	}()
 
+	os.Unsetenv("AI_PROVIDER")
+	os.Unsetenv("OPENROUTER_API_KEY")
+	os.Unsetenv("OPENROUTER_MODEL")
+	os.Unsetenv("OPENROUTER_URL")
 	os.Unsetenv("OLLAMA_URL")
 	os.Unsetenv("OLLAMA_MODEL")
 
 	config := DefaultConfig()
 
+	if config.Provider != "ollama" {
+		t.Errorf("Expected default provider 'ollama', got '%s'", config.Provider)
+	}
 	if config.OllamaURL != "http://localhost:11434" {
 		t.Errorf("Expected default OllamaURL 'http://localhost:11434', got '%s'", config.OllamaURL)
 	}
-
+	if config.OpenRouterURL != "https://openrouter.ai/api/v1" {
+		t.Errorf("Expected default OpenRouterURL 'https://openrouter.ai/api/v1', got '%s'", config.OpenRouterURL)
+	}
 	if config.Model != "tinyllama:latest" {
 		t.Errorf("Expected default Model 'tinyllama:latest', got '%s'", config.Model)
 	}
+	if config.OllamaModel != "tinyllama:latest" {
+		t.Errorf("Expected default OllamaModel 'tinyllama:latest', got '%s'", config.OllamaModel)
+	}
+	if config.OpenRouterModel != "openai/gpt-4o-mini" {
+		t.Errorf("Expected default OpenRouterModel 'openai/gpt-4o-mini', got '%s'", config.OpenRouterModel)
+	}
 }
 
-func TestDefaultConfigWithEnvVars(t *testing.T) {
-	// Set custom env vars
-	os.Setenv("OLLAMA_URL", "http://custom:8080")
-	os.Setenv("OLLAMA_MODEL", "llama2:7b")
+func TestDefaultConfigWithOpenRouterEnv(t *testing.T) {
+	os.Setenv("OPENROUTER_API_KEY", "test-key")
+	os.Setenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 	defer func() {
-		os.Unsetenv("OLLAMA_URL")
-		os.Unsetenv("OLLAMA_MODEL")
+		os.Unsetenv("OPENROUTER_API_KEY")
+		os.Unsetenv("OPENROUTER_MODEL")
 	}()
 
 	config := DefaultConfig()
 
-	if config.OllamaURL != "http://custom:8080" {
-		t.Errorf("Expected custom OllamaURL 'http://custom:8080', got '%s'", config.OllamaURL)
+	if config.Provider != "openrouter" {
+		t.Errorf("Expected provider 'openrouter', got '%s'", config.Provider)
 	}
+	if config.Model != "openai/gpt-4o-mini" {
+		t.Errorf("Expected OpenRouter model 'openai/gpt-4o-mini', got '%s'", config.Model)
+	}
+	if config.OpenRouterAPIKey != "test-key" {
+		t.Errorf("Expected OpenRouter API key to be loaded")
+	}
+	if config.OllamaModel != "tinyllama:latest" {
+		t.Errorf("Expected OllamaModel default to remain 'tinyllama:latest', got '%s'", config.OllamaModel)
+	}
+}
 
-	if config.Model != "llama2:7b" {
-		t.Errorf("Expected custom Model 'llama2:7b', got '%s'", config.Model)
+func TestDefaultConfigWithProviderOverride(t *testing.T) {
+	os.Setenv("AI_PROVIDER", "ollama")
+	os.Setenv("OPENROUTER_API_KEY", "test-key")
+	defer func() {
+		os.Unsetenv("AI_PROVIDER")
+		os.Unsetenv("OPENROUTER_API_KEY")
+	}()
+
+	config := DefaultConfig()
+	if config.Provider != "ollama" {
+		t.Errorf("Expected provider override to use 'ollama', got '%s'", config.Provider)
 	}
 }
 
 func TestNewGenerator(t *testing.T) {
 	config := Config{
+		Provider:  "ollama",
 		OllamaURL: "http://test:1234",
 		Model:     "test-model",
 	}
@@ -77,10 +114,149 @@ func TestNewGenerator(t *testing.T) {
 	}
 }
 
+func TestCheckAvailabilityOpenRouterMissingAPIKey(t *testing.T) {
+	gen := NewGenerator(Config{
+		Provider:      "openrouter",
+		OpenRouterURL: "https://openrouter.ai/api/v1",
+		Model:         "openai/gpt-4o-mini",
+	})
+
+	err := gen.CheckAvailability()
+	if err == nil {
+		t.Fatal("expected error when OpenRouter API key is missing")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "openrouter api key") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckAvailabilityOpenRouterSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("unexpected authorization header: %s", got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+
+	gen := NewGenerator(Config{
+		Provider:         "openrouter",
+		OpenRouterURL:    server.URL,
+		OpenRouterAPIKey: "test-key",
+		Model:            "openai/gpt-4o-mini",
+	})
+
+	if err := gen.CheckAvailability(); err != nil {
+		t.Fatalf("expected OpenRouter availability check to pass, got: %v", err)
+	}
+}
+
+func TestCheckAvailabilityOllamaFallbackToOpenRouter(t *testing.T) {
+	openRouterServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer openRouterServer.Close()
+
+	gen := NewGenerator(Config{
+		Provider:         "ollama",
+		OllamaURL:        "http://127.0.0.1:1",
+		OllamaModel:      "tinyllama:latest",
+		OpenRouterURL:    openRouterServer.URL,
+		OpenRouterModel:  "openai/gpt-4o-mini",
+		OpenRouterAPIKey: "test-key",
+	})
+
+	if err := gen.CheckAvailability(); err != nil {
+		t.Fatalf("expected fallback availability check to pass, got: %v", err)
+	}
+	if gen.Provider() != "openrouter" {
+		t.Fatalf("expected active provider to switch to openrouter, got: %s", gen.Provider())
+	}
+}
+
+func TestCallOpenRouterSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("unexpected authorization header: %s", got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"generated content"}}]}`))
+	}))
+	defer server.Close()
+
+	gen := NewGenerator(Config{
+		Provider:         "openrouter",
+		OpenRouterURL:    server.URL,
+		OpenRouterAPIKey: "test-key",
+		Model:            "openai/gpt-4o-mini",
+	})
+
+	got, err := gen.callOpenRouter("test prompt")
+	if err != nil {
+		t.Fatalf("expected callOpenRouter to succeed, got: %v", err)
+	}
+	if got != "generated content" {
+		t.Fatalf("unexpected generated content: %s", got)
+	}
+}
+
+func TestCallModelFallsBackFromOllamaToOpenRouter(t *testing.T) {
+	openRouterServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("unexpected authorization header: %s", got)
+		}
+
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+		if model, _ := payload["model"].(string); model != "openai/gpt-4o-mini" {
+			t.Fatalf("expected OpenRouter model in fallback request, got: %v", payload["model"])
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"fallback content"}}]}`))
+	}))
+	defer openRouterServer.Close()
+
+	gen := NewGenerator(Config{
+		Provider:         "ollama",
+		OllamaURL:        "http://127.0.0.1:1",
+		OllamaModel:      "tinyllama:latest",
+		OpenRouterURL:    openRouterServer.URL,
+		OpenRouterModel:  "openai/gpt-4o-mini",
+		OpenRouterAPIKey: "test-key",
+	})
+
+	got, err := gen.callModel("test prompt")
+	if err != nil {
+		t.Fatalf("expected callModel fallback to succeed, got: %v", err)
+	}
+	if got != "fallback content" {
+		t.Fatalf("unexpected fallback content: %s", got)
+	}
+	if gen.Provider() != "openrouter" {
+		t.Fatalf("expected provider to switch to openrouter after fallback, got: %s", gen.Provider())
+	}
+}
+
 func TestGenerateCIConfigNoViolation(t *testing.T) {
 	gen := NewDefaultGenerator()
 
-	// No CI violation in list
 	violations := []types.PolicyViolation{
 		{PolicyID: types.PolicyTestSuite, Message: "No tests", Severity: types.SeverityBlock},
 	}
@@ -94,7 +270,6 @@ func TestGenerateCIConfigNoViolation(t *testing.T) {
 func TestGenerateTestScaffoldNoViolation(t *testing.T) {
 	gen := NewDefaultGenerator()
 
-	// No test violation in list
 	violations := []types.PolicyViolation{
 		{PolicyID: types.PolicyCIPipeline, Message: "No CI", Severity: types.SeverityBlock},
 	}
@@ -141,14 +316,12 @@ func TestGenerateEnvExampleNoViolation(t *testing.T) {
 func TestWriteGeneratedFile(t *testing.T) {
 	gen := NewDefaultGenerator()
 
-	// Create temp directory
 	tempDir, err := os.MkdirTemp("", "baseline-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Test writing file
 	origDir, _ := os.Getwd()
 	defer os.Chdir(origDir)
 	os.Chdir(tempDir)
@@ -159,7 +332,6 @@ func TestWriteGeneratedFile(t *testing.T) {
 		t.Fatalf("WriteGeneratedFile failed: %v", err)
 	}
 
-	// Verify file exists and has correct content
 	content, err := os.ReadFile("test.txt")
 	if err != nil {
 		t.Fatalf("Failed to read generated file: %v", err)
@@ -173,14 +345,12 @@ func TestWriteGeneratedFile(t *testing.T) {
 func TestWriteGeneratedFileWithSubdirectory(t *testing.T) {
 	gen := NewDefaultGenerator()
 
-	// Create temp directory
 	tempDir, err := os.MkdirTemp("", "baseline-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Test writing file in subdirectory
 	origDir, _ := os.Getwd()
 	defer os.Chdir(origDir)
 	os.Chdir(tempDir)
@@ -190,7 +360,6 @@ func TestWriteGeneratedFileWithSubdirectory(t *testing.T) {
 		t.Fatalf("WriteGeneratedFile with subdirectory failed: %v", err)
 	}
 
-	// Verify file exists
 	if _, err := os.Stat("subdir/nested/test.txt"); os.IsNotExist(err) {
 		t.Error("Generated file with subdirectory does not exist")
 	}
@@ -217,4 +386,12 @@ func TestHasViolation(t *testing.T) {
 	if hasViolation([]types.PolicyViolation{}, types.PolicyCIPipeline) {
 		t.Error("Should not find violation in empty list")
 	}
+}
+
+func restoreEnv(key, value string) {
+	if value == "" {
+		os.Unsetenv(key)
+		return
+	}
+	os.Setenv(key, value)
 }

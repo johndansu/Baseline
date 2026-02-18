@@ -8,7 +8,7 @@ This README reflects what is currently implemented in this repository.
 
 - A CLI in `cmd/baseline` with policy checks, scan/report output, and init/explain flows.
 - Deterministic policy enforcement in `internal/policy`.
-- AI-assisted scaffolding commands in `internal/ai` (Ollama-backed, human review required).
+- AI-assisted scaffolding commands in `internal/ai` (Ollama or OpenRouter, human review required).
 - An HTTP API server with auth/session support in `internal/api`.
 - Two dashboard paths:
   - Embedded dashboard at `/dashboard` from `baseline api serve`.
@@ -20,7 +20,7 @@ This README reflects what is currently implemented in this repository.
 - Go `1.24+` (see `go.mod`)
 - Git installed and available in PATH
 - Optional:
-  - Ollama (for `baseline generate` and `baseline pr`)
+  - Ollama, or OpenRouter API access (for `baseline generate` and `baseline pr`)
   - GitHub CLI (`gh`) for `baseline pr`
 
 ## Build
@@ -38,7 +38,7 @@ go build -o baseline.exe ./cmd/baseline
 - `baseline init` - create `.baseline/config.yaml`.
 - `baseline report` - output scan results (`--json` supported).
 - `baseline explain <policy_id>` - explain current status + remediation for one policy.
-- `baseline generate` - generate scaffolded fixes for certain violations via Ollama.
+- `baseline generate` - generate scaffolded fixes for certain violations via configured AI provider.
 - `baseline pr` - generate fixes, commit/push branch, and try `gh pr create`.
 - `baseline api serve` - run API server.
 - `baseline api keygen` - generate a random API key.
@@ -202,6 +202,11 @@ Baseline uses AI for scaffolding only:
 
 - `baseline generate` can create CI/test/README/Dockerfile/env-template scaffolds based on violations.
 - `baseline pr` can generate files, commit, push branch, and attempt PR creation.
+- AI provider config:
+  - `AI_PROVIDER=ollama` with `OLLAMA_URL` and optional `OLLAMA_MODEL`
+  - `AI_PROVIDER=openrouter` (or set `OPENROUTER_API_KEY` to auto-select) with `OPENROUTER_API_KEY`, optional `OPENROUTER_MODEL`, optional `OPENROUTER_URL`
+  - automatic fallback: when provider is `ollama` and `OPENROUTER_API_KEY` is set, Baseline falls back to OpenRouter if Ollama availability/check or request calls fail
+  - optional env file auto-load for these commands: `BASELINE_AI_ENV_FILE`, `.env.production`, `.env`, `ai.env`, `api.env`
 
 AI is not used to decide enforcement outcomes. Review generated content before merge.
 

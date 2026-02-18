@@ -18,35 +18,75 @@ import (
 
 // Config holds AI generator configuration.
 type Config struct {
-	OllamaURL string
-	Model     string
-	Timeout   time.Duration
+	Provider          string
+	OllamaURL         string
+	OllamaModel       string
+	OpenRouterURL     string
+	OpenRouterModel   string
+	OpenRouterAPIKey  string
+	OpenRouterReferer string
+	OpenRouterTitle   string
+	Model             string
+	Timeout           time.Duration
 }
 
 // DefaultConfig returns the default AI configuration.
 // Values can be overridden via environment variables.
 func DefaultConfig() Config {
-	url := os.Getenv("OLLAMA_URL")
-	if url == "" {
-		url = "http://localhost:11434"
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
+	openRouterAPIKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+	if provider == "" {
+		if openRouterAPIKey != "" {
+			provider = "openrouter"
+		} else {
+			provider = "ollama"
+		}
 	}
 
-	model := os.Getenv("OLLAMA_MODEL")
-	if model == "" {
-		model = "tinyllama:latest"
+	ollamaURL := strings.TrimSpace(os.Getenv("OLLAMA_URL"))
+	if ollamaURL == "" {
+		ollamaURL = "http://localhost:11434"
+	}
+
+	openRouterURL := strings.TrimSpace(os.Getenv("OPENROUTER_URL"))
+	if openRouterURL == "" {
+		openRouterURL = "https://openrouter.ai/api/v1"
+	}
+
+	ollamaModel := strings.TrimSpace(os.Getenv("OLLAMA_MODEL"))
+	if ollamaModel == "" {
+		ollamaModel = "tinyllama:latest"
+	}
+
+	openRouterModel := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL"))
+	if openRouterModel == "" {
+		openRouterModel = "openai/gpt-4o-mini"
+	}
+
+	model := ollamaModel
+	if provider == "openrouter" {
+		model = openRouterModel
 	}
 
 	return Config{
-		OllamaURL: url,
-		Model:     model,
-		Timeout:   30 * time.Second,
+		Provider:          provider,
+		OllamaURL:         ollamaURL,
+		OllamaModel:       ollamaModel,
+		OpenRouterURL:     openRouterURL,
+		OpenRouterModel:   openRouterModel,
+		OpenRouterAPIKey:  openRouterAPIKey,
+		OpenRouterReferer: strings.TrimSpace(os.Getenv("OPENROUTER_HTTP_REFERER")),
+		OpenRouterTitle:   strings.TrimSpace(os.Getenv("OPENROUTER_APP_TITLE")),
+		Model:             model,
+		Timeout:           30 * time.Second,
 	}
 }
 
 // Generator handles AI-assisted scaffold generation.
 type Generator struct {
-	config Config
-	client *http.Client
+	config         Config
+	client         *http.Client
+	activeProvider string
 }
 
 // NewGenerator creates a new AI generator with the given configuration.
@@ -64,6 +104,60 @@ func NewDefaultGenerator() *Generator {
 	return NewGenerator(DefaultConfig())
 }
 
+// Provider returns the configured AI provider.
+func (g *Generator) Provider() string {
+	provider := strings.ToLower(strings.TrimSpace(g.activeProvider))
+	if provider != "" {
+		return provider
+	}
+
+	provider = g.configuredProvider()
+	if provider == "" {
+		return "ollama"
+	}
+	return provider
+}
+
+func (g *Generator) configuredProvider() string {
+	provider := strings.ToLower(strings.TrimSpace(g.config.Provider))
+	if provider == "" {
+		return "ollama"
+	}
+	return provider
+}
+
+func (g *Generator) canFallbackToOpenRouter() bool {
+	return strings.TrimSpace(g.config.OpenRouterAPIKey) != ""
+}
+
+func (g *Generator) setActiveProvider(provider string) {
+	g.activeProvider = strings.ToLower(strings.TrimSpace(provider))
+}
+
+func (g *Generator) ollamaModel() string {
+	if model := strings.TrimSpace(g.config.OllamaModel); model != "" {
+		return model
+	}
+	if g.configuredProvider() == "ollama" {
+		if model := strings.TrimSpace(g.config.Model); model != "" {
+			return model
+		}
+	}
+	return "tinyllama:latest"
+}
+
+func (g *Generator) openRouterModel() string {
+	if model := strings.TrimSpace(g.config.OpenRouterModel); model != "" {
+		return model
+	}
+	if g.configuredProvider() == "openrouter" {
+		if model := strings.TrimSpace(g.config.Model); model != "" {
+			return model
+		}
+	}
+	return "openai/gpt-4o-mini"
+}
+
 // OllamaRequest represents a request to the Ollama API.
 type OllamaRequest struct {
 	Model  string `json:"model"`
@@ -77,9 +171,57 @@ type OllamaResponse struct {
 	Done     bool   `json:"done"`
 }
 
-// CheckAvailability verifies the Ollama service is running.
+type openRouterMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type openRouterRequest struct {
+	Model    string              `json:"model"`
+	Messages []openRouterMessage `json:"messages"`
+	Stream   bool                `json:"stream"`
+}
+
+type openRouterResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+// CheckAvailability verifies the configured AI provider is reachable.
 func (g *Generator) CheckAvailability() error {
-	resp, err := g.client.Get(g.config.OllamaURL + "/api/tags")
+	switch g.configuredProvider() {
+	case "openrouter":
+		if err := g.checkOpenRouterAvailability(); err != nil {
+			return err
+		}
+		g.setActiveProvider("openrouter")
+		return nil
+	case "ollama":
+		ollamaErr := g.checkOllamaAvailability()
+		if ollamaErr == nil {
+			g.setActiveProvider("ollama")
+			return nil
+		}
+
+		if g.canFallbackToOpenRouter() {
+			if openRouterErr := g.checkOpenRouterAvailability(); openRouterErr == nil {
+				g.setActiveProvider("openrouter")
+				return nil
+			} else {
+				return fmt.Errorf("Ollama unavailable and OpenRouter fallback failed: %v | %v", ollamaErr, openRouterErr)
+			}
+		}
+		return ollamaErr
+	default:
+		return fmt.Errorf("unsupported AI provider %q; use ollama or openrouter", g.config.Provider)
+	}
+}
+
+func (g *Generator) checkOllamaAvailability() error {
+	resp, err := g.client.Get(strings.TrimRight(g.config.OllamaURL, "/") + "/api/tags")
 	if err != nil {
 		return fmt.Errorf("Ollama not available at %s: %w", g.config.OllamaURL, err)
 	}
@@ -88,7 +230,36 @@ func (g *Generator) CheckAvailability() error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("Ollama returned status %d", resp.StatusCode)
 	}
+	return nil
+}
 
+func (g *Generator) checkOpenRouterAvailability() error {
+	if strings.TrimSpace(g.config.OpenRouterAPIKey) == "" {
+		return fmt.Errorf("OpenRouter API key is missing; set OPENROUTER_API_KEY")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(g.config.OpenRouterURL, "/")+"/models", nil)
+	if err != nil {
+		return fmt.Errorf("failed to build OpenRouter availability request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+g.config.OpenRouterAPIKey)
+	if g.config.OpenRouterReferer != "" {
+		req.Header.Set("HTTP-Referer", g.config.OpenRouterReferer)
+	}
+	if g.config.OpenRouterTitle != "" {
+		req.Header.Set("X-Title", g.config.OpenRouterTitle)
+	}
+
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("OpenRouter not available at %s: %w", g.config.OpenRouterURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("OpenRouter returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
 	return nil
 }
 
@@ -113,7 +284,7 @@ Requirements:
 
 Only return the YAML content, no explanations.`
 
-	return g.callOllama(prompt)
+	return g.callModel(prompt)
 }
 
 // GenerateTestScaffold generates test file scaffolding.
@@ -135,7 +306,7 @@ Requirements:
 
 Only return the Go test code, no explanations.`
 
-	return g.callOllama(prompt)
+	return g.callModel(prompt)
 }
 
 // GenerateREADME generates README documentation.
@@ -158,7 +329,7 @@ Requirements:
 
 Only return the markdown content, no explanations.`
 
-	return g.callOllama(prompt)
+	return g.callModel(prompt)
 }
 
 // GenerateDockerfile generates a secure Dockerfile.
@@ -182,7 +353,7 @@ Requirements:
 
 Only return the Dockerfile content, no explanations.`
 
-	return g.callOllama(prompt)
+	return g.callModel(prompt)
 }
 
 // GenerateEnvExample generates environment variable documentation.
@@ -204,7 +375,7 @@ Requirements:
 
 Only return the .env.example content, no explanations.`
 
-	return g.callOllama(prompt)
+	return g.callModel(prompt)
 }
 
 // WriteGeneratedFile writes content to the specified file path.
@@ -223,10 +394,35 @@ func (g *Generator) WriteGeneratedFile(filename, content string) error {
 	return nil
 }
 
+func (g *Generator) callModel(prompt string) (string, error) {
+	switch g.Provider() {
+	case "openrouter":
+		return g.callOpenRouter(prompt)
+	case "ollama":
+		result, err := g.callOllama(prompt)
+		if err == nil {
+			g.setActiveProvider("ollama")
+			return result, nil
+		}
+
+		if g.canFallbackToOpenRouter() {
+			fallbackResult, fallbackErr := g.callOpenRouter(prompt)
+			if fallbackErr == nil {
+				g.setActiveProvider("openrouter")
+				return fallbackResult, nil
+			}
+			return "", fmt.Errorf("Ollama request failed and OpenRouter fallback failed: %v | %v", err, fallbackErr)
+		}
+		return "", err
+	default:
+		return "", fmt.Errorf("unsupported AI provider %q; use ollama or openrouter", g.config.Provider)
+	}
+}
+
 // callOllama makes a request to the Ollama API.
 func (g *Generator) callOllama(prompt string) (string, error) {
 	request := OllamaRequest{
-		Model:  g.config.Model,
+		Model:  g.ollamaModel(),
 		Prompt: prompt,
 		Stream: false,
 	}
@@ -237,7 +433,7 @@ func (g *Generator) callOllama(prompt string) (string, error) {
 	}
 
 	resp, err := g.client.Post(
-		g.config.OllamaURL+"/api/generate",
+		strings.TrimRight(g.config.OllamaURL, "/")+"/api/generate",
 		"application/json",
 		bytes.NewBuffer(jsonData),
 	)
@@ -262,6 +458,77 @@ func (g *Generator) callOllama(prompt string) (string, error) {
 	}
 
 	return strings.TrimSpace(ollamaResp.Response), nil
+}
+
+func (g *Generator) callOpenRouter(prompt string) (string, error) {
+	apiKey := strings.TrimSpace(g.config.OpenRouterAPIKey)
+	if apiKey == "" {
+		return "", fmt.Errorf("OpenRouter API key is missing; set OPENROUTER_API_KEY")
+	}
+
+	request := openRouterRequest{
+		Model: g.openRouterModel(),
+		Messages: []openRouterMessage{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		Stream: false,
+	}
+
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal OpenRouter request: %w", err)
+	}
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		strings.TrimRight(g.config.OpenRouterURL, "/")+"/chat/completions",
+		bytes.NewBuffer(jsonData),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to build OpenRouter request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	if g.config.OpenRouterReferer != "" {
+		req.Header.Set("HTTP-Referer", g.config.OpenRouterReferer)
+	}
+	if g.config.OpenRouterTitle != "" {
+		req.Header.Set("X-Title", g.config.OpenRouterTitle)
+	}
+
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call OpenRouter: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read OpenRouter response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("OpenRouter returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var openRouterResp openRouterResponse
+	if err := json.Unmarshal(body, &openRouterResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal OpenRouter response: %w", err)
+	}
+	if len(openRouterResp.Choices) == 0 {
+		return "", fmt.Errorf("OpenRouter response did not include choices")
+	}
+
+	content := strings.TrimSpace(openRouterResp.Choices[0].Message.Content)
+	if content == "" {
+		return "", fmt.Errorf("OpenRouter response content is empty")
+	}
+
+	return content, nil
 }
 
 // hasViolation checks if a specific policy violation exists.

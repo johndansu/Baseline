@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +109,44 @@ func TestHandleExplainWithPolicyID(t *testing.T) {
 	}
 }
 
+func TestHandleCheckNonGitExitCode(t *testing.T) {
+	tempDir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+
+	repoRoot := filepath.Clean(filepath.Join(cwd, "..", ".."))
+	binPath := filepath.Join(t.TempDir(), "baseline-test")
+	if runtime.GOOS == "windows" {
+		binPath += ".exe"
+	}
+	buildCmd := exec.Command("go", "build", "-o", binPath, "./cmd/baseline")
+	buildCmd.Dir = repoRoot
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to build baseline CLI for test: %v\n%s", err, string(output))
+	}
+
+	cmd := exec.Command(binPath, "check")
+	cmd.Dir = tempDir
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected check command to fail outside git repository. Output: %s", string(output))
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected exec.ExitError, got %T", err)
+	}
+	if exitErr.ExitCode() != types.ExitSystemError {
+		t.Fatalf("expected exit code %d, got %d. Output: %s", types.ExitSystemError, exitErr.ExitCode(), string(output))
+	}
+	if !strings.Contains(string(output), "not a git repository") {
+		t.Fatalf("expected non-git error output, got: %s", string(output))
+	}
+}
+
 func TestHandleReportArgs(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -158,6 +197,61 @@ func TestHandleReportArgs(t *testing.T) {
 				t.Fatalf("expected format %q, got %q", tt.expected, format)
 			}
 		})
+	}
+}
+
+func TestBuildGenerationOutcome(t *testing.T) {
+	violations := []types.PolicyViolation{
+		{PolicyID: types.PolicyCIPipeline, Message: "missing ci", Severity: types.SeverityBlock},
+		{PolicyID: types.PolicyDocumentation, Message: "missing docs", Severity: types.SeverityBlock},
+		{PolicyID: types.PolicyProtectedBranch, Message: "branch policy", Severity: types.SeverityBlock},
+	}
+
+	outcome := buildGenerationOutcome(violations, func(v types.PolicyViolation) string {
+		switch v.PolicyID {
+		case types.PolicyCIPipeline:
+			return ""
+		case types.PolicyDocumentation:
+			return "README.md"
+		default:
+			return ""
+		}
+	})
+
+	if len(outcome.GeneratedFiles) != 1 || outcome.GeneratedFiles[0] != "README.md" {
+		t.Fatalf("expected one generated README.md, got %#v", outcome.GeneratedFiles)
+	}
+	if len(outcome.Failed) != 1 || outcome.Failed[0].PolicyID != types.PolicyCIPipeline {
+		t.Fatalf("expected CI violation in failed bucket, got %#v", outcome.Failed)
+	}
+	if len(outcome.Skipped) != 1 || outcome.Skipped[0].PolicyID != types.PolicyProtectedBranch {
+		t.Fatalf("expected protected branch violation in skipped bucket, got %#v", outcome.Skipped)
+	}
+}
+
+func TestIsAIFixSupported(t *testing.T) {
+	supported := []string{
+		types.PolicyCIPipeline,
+		types.PolicyTestSuite,
+		types.PolicyDocumentation,
+		types.PolicyDeploymentConfig,
+		types.PolicyEnvVariables,
+	}
+	for _, policyID := range supported {
+		if !isAIFixSupported(policyID) {
+			t.Fatalf("expected policy %s to be AI-fix supported", policyID)
+		}
+	}
+
+	unsupported := []string{
+		types.PolicyProtectedBranch,
+		types.PolicyBackupRecovery,
+		types.PolicyRollbackPlan,
+	}
+	for _, policyID := range unsupported {
+		if isAIFixSupported(policyID) {
+			t.Fatalf("expected policy %s to be unsupported", policyID)
+		}
 	}
 }
 
