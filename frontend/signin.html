@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign In - Baseline</title>
+  <meta name="description" content="Sign in to Baseline dashboard to manage production policies and releases.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" sizes="32x32" href="../img/baseline favicon.png">
+  <link rel="apple-touch-icon" href="../img/baseline favicon.png">
+  <link rel="shortcut icon" href="../img/baseline favicon.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body class="landing-body experience-page">
+  <div class="landing-wrap">
+    <header class="topbar">
+      <a class="brand" href="./index.html">
+        <img src="../img/baseline logo.png" alt="Baseline logo" class="brand-logo">
+        <div class="brand-text">
+          <strong>Baseline</strong>
+          <span>Production Policy Engine</span>
+        </div>
+      </a>
+    </header>
+
+    <section class="signin-section">
+      <div class="signin-form">
+        <h2>Sign In</h2>
+        <p>Access your Baseline dashboard to manage production policies and releases.</p>
+        
+        <form class="auth-form">
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required placeholder="your.email@company.com">
+          </div>
+          
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required placeholder="Enter your password">
+          </div>
+          
+          <div class="form-actions">
+            <button type="submit" class="btn primary full-width">Sign In</button>
+          </div>
+        </form>
+        
+        <div class="auth-links">
+          <p>Don't have an account? <a href="./up.html">Sign up</a></p>
+          <p><a href="#">Forgot password?</a></p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>&copy; 2026 Baseline. Production Policy Engine.</p>
+    </footer>
+  </div>
+  <script src="./auth.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
