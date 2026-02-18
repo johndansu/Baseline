@@ -137,12 +137,40 @@ jobs:
     if: github.event_name == 'release' && github.event.action == 'published'
     permissions:
       contents: write
+      id-token: write
     steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4.1.8
         with:
           path: dist
           merge-multiple: true
+
+      - name: Generate SHA256 checksums
+        run: |
+          set -euo pipefail
+          sha256sum \
+            dist/baseline-linux-amd64 \
+            dist/baseline-windows-amd64.exe \
+            dist/baseline-darwin-amd64 \
+            > dist/SHA256SUMS
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Sign release artifacts (keyless)
+        run: |
+          set -euo pipefail
+          for file in \
+            dist/baseline-linux-amd64 \
+            dist/baseline-windows-amd64.exe \
+            dist/baseline-darwin-amd64 \
+            dist/SHA256SUMS
+          do
+            cosign sign-blob --yes \
+              --output-signature "${file}.sig" \
+              --output-certificate "${file}.pem" \
+              "$file"
+          done
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2.0.8
@@ -151,5 +179,14 @@ jobs:
             dist/baseline-linux-amd64
             dist/baseline-windows-amd64.exe
             dist/baseline-darwin-amd64
+            dist/SHA256SUMS
+            dist/baseline-linux-amd64.sig
+            dist/baseline-linux-amd64.pem
+            dist/baseline-windows-amd64.exe.sig
+            dist/baseline-windows-amd64.exe.pem
+            dist/baseline-darwin-amd64.sig
+            dist/baseline-darwin-amd64.pem
+            dist/SHA256SUMS.sig
+            dist/SHA256SUMS.pem
           draft: false
           prerelease: false

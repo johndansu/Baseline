@@ -5,8 +5,8 @@ _Last updated: 2026-02-18_
 ## Current State Snapshot
 - `go test ./...` passes.
 - `go build ./cmd/baseline` passes.
-- Latest GitHub Actions run on `main` is green (`CI/CD Pipeline` run `#44`, created 2026-02-18T15:59:37Z).
-- Local policy check still reports one blocking violation: `A1` (protected primary branch not verified).
+- Latest GitHub Actions run on `main` was green at last verification (`CI/CD Pipeline` run `#44`, created 2026-02-18T15:59:37Z).
+- Local policy check passes (`A1` closed via branch protection validation).
 
 ## What Next (Execution Order)
 1. Close `A1` immediately.
@@ -150,12 +150,12 @@ Compliance integrity status:
 4. Add CLI end-to-end conformance tests for exit code contract.
 - Scope: black-box tests for `check`, `scan`, `report` (`--text/--json/--sarif`, invalid flags), and no-arg behavior.
 - Why: protect script-safety guarantees across releases.
-- Done when: CI fails on any contract drift for exit codes or report formats.
+- Status: `done` (2026-02-18).
 
 5. Add release hardening for distributed binaries.
 - Scope: checksums + signature/attestation for release artifacts.
 - Why: supply-chain trust for customer installs.
-- Done when: each release publishes verifiable hashes/signature metadata.
+- Status: `done` (2026-02-18, release workflow publishes SHA256SUMS + keyless cosign signatures/certs).
 
 ## P2 (Product Maturity)
 1. API onboarding UX hardening.
