@@ -5,6 +5,9 @@
 *.dylib
 baseline.exe
 baseline_*.exe
+coverage
+coverage.out
+*.coverprofile
 
 # Go specific
 vendor/
