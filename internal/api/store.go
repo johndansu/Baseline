@@ -75,6 +75,22 @@ func migrateStore(db *sql.DB) error {
 			created_at TEXT NOT NULL
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS integration_jobs (
+			id TEXT PRIMARY KEY,
+			provider TEXT NOT NULL,
+			job_type TEXT NOT NULL,
+			project_ref TEXT,
+			external_ref TEXT,
+			payload TEXT,
+			status TEXT NOT NULL,
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			max_attempts INTEGER NOT NULL DEFAULT 5,
+			last_error TEXT,
+			next_attempt_at TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_integration_jobs_due ON integration_jobs(status, next_attempt_at, created_at);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -303,6 +319,257 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func (s *Store) EnqueueIntegrationJob(job IntegrationJob) (IntegrationJob, error) {
+	if s == nil || s.db == nil {
+		return job, nil
+	}
+
+	now := time.Now().UTC()
+	if strings.TrimSpace(job.ID) == "" {
+		job.ID = "job_" + randomToken(6)
+	}
+	if strings.TrimSpace(job.Provider) == "" {
+		return IntegrationJob{}, errors.New("integration job provider is required")
+	}
+	if strings.TrimSpace(job.JobType) == "" {
+		return IntegrationJob{}, errors.New("integration job type is required")
+	}
+	if job.MaxAttempts <= 0 {
+		job.MaxAttempts = 5
+	}
+	if strings.TrimSpace(job.Status) == "" {
+		job.Status = IntegrationJobPending
+	}
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
+	if job.UpdatedAt.IsZero() {
+		job.UpdatedAt = now
+	}
+	if job.NextAttemptAt.IsZero() {
+		job.NextAttemptAt = now
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO integration_jobs (
+			id, provider, job_type, project_ref, external_ref, payload, status, attempt_count,
+			max_attempts, last_error, next_attempt_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		strings.TrimSpace(job.ID),
+		strings.TrimSpace(job.Provider),
+		strings.TrimSpace(job.JobType),
+		strings.TrimSpace(job.ProjectRef),
+		strings.TrimSpace(job.ExternalRef),
+		job.Payload,
+		strings.TrimSpace(job.Status),
+		job.AttemptCount,
+		job.MaxAttempts,
+		strings.TrimSpace(job.LastError),
+		job.NextAttemptAt.UTC().Format(time.RFC3339Nano),
+		job.CreatedAt.UTC().Format(time.RFC3339Nano),
+		job.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return IntegrationJob{}, err
+	}
+	return job, nil
+}
+
+func (s *Store) ClaimDueIntegrationJob(now time.Time) (*IntegrationJob, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	current := now.UTC()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	var id string
+	err = tx.QueryRow(
+		`SELECT id
+		 FROM integration_jobs
+		 WHERE status IN (?, ?)
+		   AND attempt_count < max_attempts
+		   AND next_attempt_at <= ?
+		 ORDER BY created_at ASC
+		 LIMIT 1`,
+		IntegrationJobPending,
+		IntegrationJobFailed,
+		current.Format(time.RFC3339Nano),
+	).Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	result, err := tx.Exec(
+		`UPDATE integration_jobs
+		 SET status = ?, attempt_count = attempt_count + 1, updated_at = ?
+		 WHERE id = ? AND status IN (?, ?)`,
+		IntegrationJobRunning,
+		current.Format(time.RFC3339Nano),
+		id,
+		IntegrationJobPending,
+		IntegrationJobFailed,
+	)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, nil
+	}
+
+	row := tx.QueryRow(
+		`SELECT id, provider, job_type, project_ref, external_ref, payload, status, attempt_count,
+		        max_attempts, last_error, next_attempt_at, created_at, updated_at
+		 FROM integration_jobs
+		 WHERE id = ?`,
+		id,
+	)
+	job, err := scanIntegrationJob(row)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+func (s *Store) MarkIntegrationJobSucceeded(id string, now time.Time) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	jobID := strings.TrimSpace(id)
+	if jobID == "" {
+		return errors.New("integration job id is required")
+	}
+	_, err := s.db.Exec(
+		`UPDATE integration_jobs
+		 SET status = ?, last_error = '', next_attempt_at = ?, updated_at = ?
+		 WHERE id = ?`,
+		IntegrationJobSucceeded,
+		now.UTC().Format(time.RFC3339Nano),
+		now.UTC().Format(time.RFC3339Nano),
+		jobID,
+	)
+	return err
+}
+
+func (s *Store) MarkIntegrationJobRetry(id, lastError string, nextAttemptAt, now time.Time) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	jobID := strings.TrimSpace(id)
+	if jobID == "" {
+		return errors.New("integration job id is required")
+	}
+	_, err := s.db.Exec(
+		`UPDATE integration_jobs
+		 SET status = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		 WHERE id = ?`,
+		IntegrationJobFailed,
+		strings.TrimSpace(lastError),
+		nextAttemptAt.UTC().Format(time.RFC3339Nano),
+		now.UTC().Format(time.RFC3339Nano),
+		jobID,
+	)
+	return err
+}
+
+func (s *Store) MarkIntegrationJobFailed(id, lastError string, now time.Time) error {
+	return s.MarkIntegrationJobRetry(id, lastError, now, now)
+}
+
+func (s *Store) ListIntegrationJobs(limit int) ([]IntegrationJob, error) {
+	if s == nil || s.db == nil {
+		return []IntegrationJob{}, nil
+	}
+	maxRows := limit
+	if maxRows <= 0 {
+		maxRows = 100
+	}
+	rows, err := s.db.Query(
+		`SELECT id, provider, job_type, project_ref, external_ref, payload, status, attempt_count,
+		        max_attempts, last_error, next_attempt_at, created_at, updated_at
+		 FROM integration_jobs
+		 ORDER BY created_at DESC
+		 LIMIT ?`,
+		maxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []IntegrationJob{}
+	for rows.Next() {
+		job, err := scanIntegrationJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type integrationJobScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanIntegrationJob(scanner integrationJobScanner) (IntegrationJob, error) {
+	var (
+		job                                    IntegrationJob
+		nextAttemptRaw, createdRaw, updatedRaw string
+	)
+	if err := scanner.Scan(
+		&job.ID,
+		&job.Provider,
+		&job.JobType,
+		&job.ProjectRef,
+		&job.ExternalRef,
+		&job.Payload,
+		&job.Status,
+		&job.AttemptCount,
+		&job.MaxAttempts,
+		&job.LastError,
+		&nextAttemptRaw,
+		&createdRaw,
+		&updatedRaw,
+	); err != nil {
+		return IntegrationJob{}, err
+	}
+	nextAttemptAt, err := parseStoredTime(nextAttemptRaw)
+	if err != nil {
+		return IntegrationJob{}, err
+	}
+	createdAt, err := parseStoredTime(createdRaw)
+	if err != nil {
+		return IntegrationJob{}, err
+	}
+	updatedAt, err := parseStoredTime(updatedRaw)
+	if err != nil {
+		return IntegrationJob{}, err
+	}
+	job.NextAttemptAt = nextAttemptAt
+	job.CreatedAt = createdAt
+	job.UpdatedAt = updatedAt
+	return job, nil
 }
 
 func parseStoredTime(value string) (time.Time, error) {

@@ -108,3 +108,27 @@ type APIKeyMetadata struct {
 	Revoked   bool       `json:"revoked"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
+
+const (
+	IntegrationJobPending   = "pending"
+	IntegrationJobRunning   = "running"
+	IntegrationJobSucceeded = "succeeded"
+	IntegrationJobFailed    = "failed"
+)
+
+// IntegrationJob is a persisted asynchronous integration task.
+type IntegrationJob struct {
+	ID            string    `json:"id"`
+	Provider      string    `json:"provider"`
+	JobType       string    `json:"job_type"`
+	ProjectRef    string    `json:"project_ref,omitempty"`
+	ExternalRef   string    `json:"external_ref,omitempty"`
+	Payload       string    `json:"payload,omitempty"`
+	Status        string    `json:"status"`
+	AttemptCount  int       `json:"attempt_count"`
+	MaxAttempts   int       `json:"max_attempts"`
+	LastError     string    `json:"last_error,omitempty"`
+	NextAttemptAt time.Time `json:"next_attempt_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}

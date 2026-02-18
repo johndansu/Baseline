@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDashboardSessionLifecycleAndProjectFlow(t *testing.T) {
@@ -956,6 +957,145 @@ func TestGitLabStatusPublish(t *testing.T) {
 	if !strings.Contains(body, "gitlab_status_published") {
 		t.Fatalf("expected gitlab_status_published audit event, body=%s", body)
 	}
+}
+
+func TestWebhookEnqueuesPersistentIntegrationJob(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "integration_jobs.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.GitHubWebhookSecret = "github-secret"
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	payload := map[string]any{
+		"action": "opened",
+		"pull_request": map[string]any{
+			"number": 77,
+		},
+		"repository": map[string]any{
+			"full_name": "acme/repo",
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/integrations/github/webhook", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-Hub-Signature-256", testGitHubSignature(raw, cfg.GitHubWebhookSecret))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 for webhook enqueue, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	jobs, err := store.ListIntegrationJobs(10)
+	if err != nil {
+		t.Fatalf("ListIntegrationJobs failed: %v", err)
+	}
+	if len(jobs) == 0 {
+		t.Fatal("expected queued integration job after webhook")
+	}
+	if jobs[0].Provider != "github" || jobs[0].Status != IntegrationJobPending {
+		t.Fatalf("unexpected queued job state: provider=%q status=%q", jobs[0].Provider, jobs[0].Status)
+	}
+
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for audit events, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "integration_job_enqueued") {
+		t.Fatalf("expected integration_job_enqueued audit event, body=%s", body)
+	}
+}
+
+func TestIntegrationWorkerRetriesTransientFailure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "integration_worker.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	server.integrationPollInterval = 10 * time.Millisecond
+	server.integrationRetryBase = 10 * time.Millisecond
+	server.integrationRetryMax = 20 * time.Millisecond
+
+	_, err = store.EnqueueIntegrationJob(IntegrationJob{
+		Provider:    "github",
+		JobType:     "webhook_event",
+		ProjectRef:  "acme/repo",
+		ExternalRef: "42",
+		MaxAttempts: 5,
+		Payload:     `{"simulate_transient_failures":1}`,
+	})
+	if err != nil {
+		t.Fatalf("EnqueueIntegrationJob failed: %v", err)
+	}
+
+	server.startIntegrationWorker()
+	defer server.stopIntegrationWorker()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		jobs, listErr := store.ListIntegrationJobs(10)
+		if listErr != nil {
+			t.Fatalf("ListIntegrationJobs failed: %v", listErr)
+		}
+		if len(jobs) > 0 && jobs[0].Status == IntegrationJobSucceeded && jobs[0].AttemptCount >= 2 {
+			events, eventErr := store.LoadAuditEvents(20)
+			if eventErr != nil {
+				t.Fatalf("LoadAuditEvents failed: %v", eventErr)
+			}
+			joined := ""
+			for _, event := range events {
+				joined += event.EventType + "\n"
+			}
+			if !strings.Contains(joined, "integration_job_retry_scheduled") {
+				t.Fatalf("expected retry audit event, got events:\n%s", joined)
+			}
+			if !strings.Contains(joined, "integration_job_succeeded") {
+				t.Fatalf("expected success audit event, got events:\n%s", joined)
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for integration job retry/success flow")
 }
 
 func mustRequest(t *testing.T, client *http.Client, method, url string, payload any, headers map[string]string) (*http.Response, string) {

@@ -79,6 +79,7 @@ All notable changes to this project are documented in this file.
 ### Persistence
 - API keys persisted to SQLite with metadata and revocation state.
 - Audit events persisted and loaded across restarts.
+- Integration jobs persisted to SQLite (`pending/running/succeeded/failed`) with attempt counters.
 - Startup reconciliation:
   - bootstrap env keys are ensured in DB without overwriting managed records.
   - persisted managed keys are loaded into runtime auth state.
@@ -89,6 +90,7 @@ All notable changes to this project are documented in this file.
 - Added explicit webhook contract entries to OpenAPI.
 - Added API key lifecycle contract entries to OpenAPI.
 - Added outbound GitHub/GitLab status publishing entries to OpenAPI.
+- Webhook routes now enqueue asynchronous integration jobs for background processing.
 - Error behavior standardized across new endpoints:
   - `401 unauthorized`
   - `403 forbidden` / `integration_disabled`
@@ -110,6 +112,8 @@ All notable changes to this project are documented in this file.
   - persistence across restart (key auth + revoke + audit events)
   - webhook validation (GitHub signature, GitLab token)
   - outbound publish flow validation (GitHub check-run, GitLab commit status)
+  - persistent integration job enqueue behavior from webhook ingestion
+  - integration worker retry/backoff behavior for transient failures
   - config parsing for new security/integration env variables
 - Full suite passing after these changes.
 

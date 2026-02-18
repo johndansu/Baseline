@@ -96,6 +96,7 @@ baseline api verify-prod --strict
 - Optional self-service API key registration via `/v1/auth/register` when enabled (server issues the key; client submits `enrollment_token`).
 - API key lifecycle management endpoints: create/list/revoke via `/v1/api-keys` (admin for create/revoke).
 - Optional signed webhook ingestion for GitHub/GitLab under `/v1/integrations/*/webhook`.
+- Webhook ingestion now enqueues persistent integration jobs in SQLite and processes them with background retry/backoff worker logic.
 - Session-authenticated mutating requests require `X-Baseline-CSRF: 1`.
 - API keys and audit events are persisted in SQLite at `BASELINE_API_DB_PATH`.
 
