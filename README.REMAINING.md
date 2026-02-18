@@ -51,10 +51,10 @@ Go-live minimum gate:
 12. `L1` Logging and monitoring requirements exist.
 13. `R1` Rollback plan exists.
 
-Compliance integrity gaps still to fix:
-- `A1` still allows proxy evidence paths; should validate real branch protection state.
-- `B1` still relies on string heuristics; should parse workflow config semantically.
-- `policy-manifest.yaml` severities and runtime enforcement should be aligned and tested.
+Compliance integrity status:
+- Closed: `A1` now verifies real GitHub branch protection via API when available and no longer accepts docs-only proxy evidence.
+- Closed: `B1` now parses GitHub Actions workflows semantically and requires tests in pull_request-triggered workflows.
+- Closed: `policy-manifest.yaml` severities are aligned to blocking enforcement and covered by regression test.
 
 ## Future Rules Roadmap (Proposed)
 1. `M1` SAST required in CI.
@@ -135,19 +135,24 @@ Compliance integrity gaps still to fix:
 1. Replace A1 proxy/evidence checks with real branch protection validation.
 - Scope: check actual host protection state (GitHub API when remote is GitHub), use deterministic fallback only when API is unavailable.
 - Why: stronger obligation mapping than doc-file proxies.
-- Done when: A1 result reflects real branch protection state, not just local evidence files.
+- Status: `done` (2026-02-18).
 
 2. Harden CI obligation parsing beyond substring matching.
 - Scope: parse CI config semantically (at least GitHub Actions YAML) to validate PR triggers and test execution more reliably.
 - Why: reduce false positives/false negatives in `B1`.
-- Done when: B1 validates real PR/test behavior in workflows with deterministic test coverage.
+- Status: `done` (2026-02-18).
 
-3. Add CLI end-to-end conformance tests for exit code contract.
+3. Align policy manifest severities with runtime enforcement.
+- Scope: eliminate warn/block drift between `policy-manifest.yaml` and policy engine behavior.
+- Why: make contract deterministic for users and automation.
+- Status: `done` (2026-02-18, guarded by test).
+
+4. Add CLI end-to-end conformance tests for exit code contract.
 - Scope: black-box tests for `check`, `scan`, `report` (`--text/--json/--sarif`, invalid flags), and no-arg behavior.
 - Why: protect script-safety guarantees across releases.
 - Done when: CI fails on any contract drift for exit codes or report formats.
 
-4. Add release hardening for distributed binaries.
+5. Add release hardening for distributed binaries.
 - Scope: checksums + signature/attestation for release artifacts.
 - Why: supply-chain trust for customer installs.
 - Done when: each release publishes verifiable hashes/signature metadata.
