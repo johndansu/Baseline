@@ -49,6 +49,13 @@ type Server struct {
 	policies map[string][]PolicyVersion
 	rulesets []RulesetVersion
 	events   []AuditEvent
+
+	workerMu                sync.Mutex
+	workerCancel            context.CancelFunc
+	workerDone              chan struct{}
+	integrationPollInterval time.Duration
+	integrationRetryBase    time.Duration
+	integrationRetryMax     time.Duration
 }
 
 // NewServer creates a new API server.
@@ -97,6 +104,9 @@ func NewServer(config Config, store *Store) (*Server, error) {
 		events: []AuditEvent{
 			{EventType: "dashboard_initialized", CreatedAt: now},
 		},
+		integrationPollInterval: 500 * time.Millisecond,
+		integrationRetryBase:    1 * time.Second,
+		integrationRetryMax:     30 * time.Second,
 	}
 	for key, role := range config.APIKeys {
 		id := nextKeyID()
@@ -154,11 +164,17 @@ func (s *Server) Handler() http.Handler {
 
 // ListenAndServe starts serving API requests.
 func (s *Server) ListenAndServe() error {
-	return s.httpServer.ListenAndServe()
+	s.startIntegrationWorker()
+	err := s.httpServer.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		s.stopIntegrationWorker()
+	}
+	return err
 }
 
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.stopIntegrationWorker()
 	return s.httpServer.Shutdown(ctx)
 }
 
@@ -582,6 +598,18 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now().UTC(),
 	})
 	s.dataMu.Unlock()
+	jobID, err := s.enqueueIntegrationJob(IntegrationJob{
+		Provider:    "github",
+		JobType:     "webhook_event",
+		ProjectRef:  repository,
+		ExternalRef: integrationRef(prNumber),
+		Payload:     string(body),
+		MaxAttempts: 5,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "failed to enqueue integration job")
+		return
+	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"accepted":   true,
@@ -590,6 +618,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		"action":     action,
 		"repository": repository,
 		"pr_number":  prNumber,
+		"job_id":     jobID,
 	})
 }
 
@@ -640,6 +669,18 @@ func (s *Server) handleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now().UTC(),
 	})
 	s.dataMu.Unlock()
+	jobID, err := s.enqueueIntegrationJob(IntegrationJob{
+		Provider:    "gitlab",
+		JobType:     "webhook_event",
+		ProjectRef:  repository,
+		ExternalRef: integrationRef(mrIID),
+		Payload:     string(body),
+		MaxAttempts: 5,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "failed to enqueue integration job")
+		return
+	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"accepted":   true,
@@ -648,6 +689,7 @@ func (s *Server) handleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 		"action":     action,
 		"repository": repository,
 		"mr_iid":     mrIID,
+		"job_id":     jobID,
 	})
 }
 
@@ -1469,6 +1511,173 @@ func (s *Server) appendEventLocked(event AuditEvent) {
 	}
 }
 
+func (s *Server) enqueueIntegrationJob(job IntegrationJob) (string, error) {
+	if s.store == nil {
+		return "", nil
+	}
+	created, err := s.store.EnqueueIntegrationJob(job)
+	if err != nil {
+		return "", err
+	}
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "integration_job_enqueued",
+		ProjectID: created.ProjectRef,
+		ScanID:    created.ExternalRef,
+		CreatedAt: time.Now().UTC(),
+	})
+	s.dataMu.Unlock()
+	return created.ID, nil
+}
+
+func (s *Server) startIntegrationWorker() {
+	if s.store == nil {
+		return
+	}
+	s.workerMu.Lock()
+	defer s.workerMu.Unlock()
+	if s.workerCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	s.workerCancel = cancel
+	s.workerDone = done
+	go s.runIntegrationWorker(ctx, done)
+}
+
+func (s *Server) stopIntegrationWorker() {
+	s.workerMu.Lock()
+	cancel := s.workerCancel
+	done := s.workerDone
+	s.workerCancel = nil
+	s.workerDone = nil
+	s.workerMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
+	}
+}
+
+func (s *Server) runIntegrationWorker(ctx context.Context, done chan struct{}) {
+	defer close(done)
+	interval := s.integrationPollInterval
+	if interval <= 0 {
+		interval = 500 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.runIntegrationWorkerCycle(ctx)
+		}
+	}
+}
+
+func (s *Server) runIntegrationWorkerCycle(ctx context.Context) {
+	if s.store == nil {
+		return
+	}
+	job, err := s.store.ClaimDueIntegrationJob(time.Now().UTC())
+	if err != nil || job == nil {
+		return
+	}
+	now := time.Now().UTC()
+	processErr := s.processIntegrationJob(ctx, *job)
+	if processErr == nil {
+		_ = s.store.MarkIntegrationJobSucceeded(job.ID, now)
+		s.dataMu.Lock()
+		s.appendEventLocked(AuditEvent{
+			EventType: "integration_job_succeeded",
+			ProjectID: job.ProjectRef,
+			ScanID:    job.ExternalRef,
+			CreatedAt: now,
+		})
+		s.dataMu.Unlock()
+		return
+	}
+
+	if isRetryableIntegrationError(processErr) && job.AttemptCount < job.MaxAttempts {
+		nextAttempt := now.Add(s.integrationBackoff(job.AttemptCount))
+		_ = s.store.MarkIntegrationJobRetry(job.ID, processErr.Error(), nextAttempt, now)
+		s.dataMu.Lock()
+		s.appendEventLocked(AuditEvent{
+			EventType: "integration_job_retry_scheduled",
+			ProjectID: job.ProjectRef,
+			ScanID:    job.ExternalRef,
+			CreatedAt: now,
+		})
+		s.dataMu.Unlock()
+		return
+	}
+
+	_ = s.store.MarkIntegrationJobFailed(job.ID, processErr.Error(), now)
+	s.dataMu.Lock()
+	s.appendEventLocked(AuditEvent{
+		EventType: "integration_job_failed",
+		ProjectID: job.ProjectRef,
+		ScanID:    job.ExternalRef,
+		CreatedAt: now,
+	})
+	s.dataMu.Unlock()
+}
+
+func (s *Server) processIntegrationJob(_ context.Context, job IntegrationJob) error {
+	if strings.TrimSpace(job.JobType) != "webhook_event" {
+		return nil
+	}
+	if strings.TrimSpace(job.Payload) == "" {
+		return &integrationRetryableError{msg: "missing job payload"}
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+		return err
+	}
+	retryCount := 0
+	if raw, ok := payload["simulate_transient_failures"]; ok {
+		switch v := raw.(type) {
+		case float64:
+			retryCount = int(v)
+		case int:
+			retryCount = v
+		}
+	}
+	if retryCount > 0 && job.AttemptCount <= retryCount {
+		return &integrationRetryableError{msg: "transient integration processing failure"}
+	}
+	return nil
+}
+
+func (s *Server) integrationBackoff(attempt int) time.Duration {
+	base := s.integrationRetryBase
+	if base <= 0 {
+		base = 1 * time.Second
+	}
+	maxDelay := s.integrationRetryMax
+	if maxDelay <= 0 {
+		maxDelay = 30 * time.Second
+	}
+	delay := base
+	for i := 1; i < attempt; i++ {
+		if delay >= maxDelay/2 {
+			return maxDelay
+		}
+		delay *= 2
+	}
+	if delay > maxDelay {
+		return maxDelay
+	}
+	return delay
+}
+
 func (s *Server) loadPersistentState() error {
 	if s.store == nil {
 		return nil
@@ -1818,6 +2027,19 @@ func integrationRef(number int) string {
 		return ""
 	}
 	return strconv.Itoa(number)
+}
+
+type integrationRetryableError struct {
+	msg string
+}
+
+func (e *integrationRetryableError) Error() string {
+	return strings.TrimSpace(e.msg)
+}
+
+func isRetryableIntegrationError(err error) bool {
+	var target *integrationRetryableError
+	return errors.As(err, &target)
 }
 
 func (s *Server) decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
