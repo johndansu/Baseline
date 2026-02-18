@@ -1,7 +1,6 @@
 (function () {
-  var storageKey = "baseline_api_dashboard_key";
   var state = {
-    apiKey: localStorage.getItem(storageKey) || "",
+    apiKey: "",
     sessionEnabled: false,
   };
 
@@ -77,16 +76,20 @@
   }
 
   async function request(path, method, body, requiresAuth) {
+    var httpMethod = (method || "GET").toUpperCase();
     var headers = { Accept: "application/json" };
     if (body) {
       headers["Content-Type"] = "application/json";
+    }
+    if (httpMethod !== "GET" && httpMethod !== "HEAD" && httpMethod !== "OPTIONS") {
+      headers["X-Baseline-CSRF"] = "1";
     }
     if (requiresAuth && state.apiKey) {
       headers.Authorization = "Bearer " + state.apiKey;
     }
 
     var response = await fetch(path, {
-      method: method || "GET",
+      method: httpMethod,
       headers: headers,
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -359,18 +362,12 @@
   els.apiKeyInput.value = state.apiKey;
   els.saveKeyBtn.addEventListener("click", function () {
     state.apiKey = (els.apiKeyInput.value || "").trim();
-    if (state.apiKey) {
-      localStorage.setItem(storageKey, state.apiKey);
-    } else {
-      localStorage.removeItem(storageKey);
-    }
     refreshAll();
   });
 
   els.clearKeyBtn.addEventListener("click", function () {
     state.apiKey = "";
     els.apiKeyInput.value = "";
-    localStorage.removeItem(storageKey);
     refreshAll();
   });
 

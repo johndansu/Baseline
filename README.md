@@ -93,7 +93,11 @@ baseline api verify-prod --strict
 
 - API key auth via `Authorization: Bearer <key>`.
 - Optional dashboard cookie sessions via `/v1/auth/session` when `BASELINE_API_DASHBOARD_SESSION_ENABLED=true`.
-- Optional self-service API key registration via `/v1/auth/register` when enabled.
+- Optional self-service API key registration via `/v1/auth/register` when enabled (server issues the key; client submits `enrollment_token`).
+- API key lifecycle management endpoints: create/list/revoke via `/v1/api-keys` (admin for create/revoke).
+- Optional signed webhook ingestion for GitHub/GitLab under `/v1/integrations/*/webhook`.
+- Session-authenticated mutating requests require `X-Baseline-CSRF: 1`.
+- API keys and audit events are persisted in SQLite at `BASELINE_API_DB_PATH`.
 
 ### Implemented API Routes (Current)
 
@@ -102,10 +106,15 @@ baseline api verify-prod --strict
 - `GET /assets/baseline-logo.png`
 - `GET /assets/dashboard.css`
 - `GET /assets/dashboard.js`
+- `GET /openapi.yaml`
 - `GET /healthz` and `GET /livez`
 - `GET /readyz`
 - `POST|GET|DELETE /v1/auth/session`
 - `POST /v1/auth/register`
+- `GET|POST /v1/api-keys`
+- `DELETE /v1/api-keys/{key_id}`
+- `POST /v1/integrations/github/webhook`
+- `POST /v1/integrations/gitlab/webhook`
 - `GET /v1/dashboard`
 - `GET|POST /v1/projects`
 - `GET /v1/projects/{project_id}`
@@ -127,6 +136,7 @@ baseline api verify-prod --strict
 - `BASELINE_API_DB_PATH`
 - `BASELINE_API_KEY`
 - `BASELINE_API_KEYS`
+- `BASELINE_API_REQUIRE_HTTPS`
 - `BASELINE_API_SELF_SERVICE_ENABLED`
 - `BASELINE_API_ENROLLMENT_TOKENS`
 - `BASELINE_API_ENROLLMENT_TOKEN_TTL_MINUTES`
@@ -140,9 +150,12 @@ baseline api verify-prod --strict
 - `BASELINE_API_DASHBOARD_SESSION_ENABLED`
 - `BASELINE_API_DASHBOARD_SESSION_ROLE`
 - `BASELINE_API_DASHBOARD_SESSION_TTL_MINUTES`
+- `BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE`
 - `BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED`
 - `BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER`
 - `BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER`
+- `BASELINE_API_GITHUB_WEBHOOK_SECRET`
+- `BASELINE_API_GITLAB_WEBHOOK_TOKEN`
 - `BASELINE_API_AI_ENABLED`
 
 Env files are auto-loaded in this order:

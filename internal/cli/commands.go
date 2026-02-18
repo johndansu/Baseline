@@ -475,6 +475,7 @@ func HandleAPI(args []string) {
 		fmt.Println("       baseline api verify-prod [--strict]")
 		fmt.Println("Environment:")
 		fmt.Println("  BASELINE_API_KEY=<key> or BASELINE_API_KEYS=<key:role,key:role>")
+		fmt.Println("  BASELINE_API_REQUIRE_HTTPS=false")
 		fmt.Println("  BASELINE_API_SELF_SERVICE_ENABLED=true")
 		fmt.Println("  BASELINE_API_ENROLLMENT_TOKENS=<token:role,token:role>")
 		fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_TTL_MINUTES=1440")
@@ -489,9 +490,12 @@ func HandleAPI(args []string) {
 		fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ENABLED=true")
 		fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ROLE=viewer")
 		fmt.Println("  BASELINE_API_DASHBOARD_SESSION_TTL_MINUTES=720")
+		fmt.Println("  BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE=false")
 		fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED=false")
 		fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER=X-Forwarded-User")
 		fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER=X-Forwarded-Role")
+		fmt.Println("  BASELINE_API_GITHUB_WEBHOOK_SECRET=<secret>")
+		fmt.Println("  BASELINE_API_GITLAB_WEBHOOK_TOKEN=<token>")
 		fmt.Println("  BASELINE_API_AI_ENABLED=false")
 		fmt.Println("Config file auto-load order: BASELINE_API_ENV_FILE, .env.production, .env, api.env")
 		os.Exit(types.ExitSystemError)
@@ -584,7 +588,16 @@ func HandleAPI(args []string) {
 		}
 	}
 
-	server, err := api.NewServer(cfg, nil)
+	store, err := api.NewStore(cfg.DBPath)
+	if err != nil {
+		fmt.Printf("API FAILED: unable to open persistent store: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+	defer func() {
+		_ = store.Close()
+	}()
+
+	server, err := api.NewServer(cfg, store)
 	if err != nil {
 		fmt.Printf("API FAILED: %v\n", err)
 		os.Exit(types.ExitSystemError)
@@ -641,6 +654,16 @@ func loadAPIEnvFiles() error {
 		}
 	}
 	return nil
+}
+
+// ShouldAutoStartAPI returns true when an API key is configured for serving the API.
+// It loads API env files using the same precedence as HandleAPI.
+func ShouldAutoStartAPI() bool {
+	if err := loadAPIEnvFiles(); err != nil {
+		return false
+	}
+	cfg := api.ConfigFromEnv()
+	return len(cfg.APIKeys) > 0
 }
 
 func loadAIEnvFiles() error {
@@ -764,6 +787,9 @@ func verifyAPIProdConfig(cfg api.Config, getenv func(string) string) prodVerifyR
 	}
 
 	host := hostFromAddr(cfg.Addr)
+	if !isLoopbackHost(host) && !cfg.RequireHTTPS {
+		result.Errors = append(result.Errors, "BASELINE_API_REQUIRE_HTTPS must be true for non-loopback production addresses.")
+	}
 	if !cfg.TrustProxyHeaders && !isLoopbackHost(host) {
 		result.Errors = append(result.Errors, "BASELINE_API_TRUST_PROXY_HEADERS should be true when binding to non-loopback addresses behind TLS termination.")
 	}
@@ -784,6 +810,9 @@ func verifyAPIProdConfig(cfg api.Config, getenv func(string) string) prodVerifyR
 	}
 	if cfg.DashboardSessionEnabled && !isLoopbackHost(host) {
 		result.Warnings = append(result.Warnings, "Dashboard session auth is enabled on a non-loopback address; place the API behind trusted auth/proxy.")
+		if !cfg.DashboardSessionCookieSecure {
+			result.Errors = append(result.Errors, "BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE must be true when dashboard sessions are exposed on non-loopback addresses.")
+		}
 	}
 	if cfg.DashboardAuthProxyEnabled {
 		if !cfg.DashboardSessionEnabled {
@@ -810,6 +839,12 @@ func verifyAPIProdConfig(cfg api.Config, getenv func(string) string) prodVerifyR
 	}
 	if secretLooksPlaceholder(getenv("BASELINE_API_ENROLLMENT_TOKENS")) {
 		result.Errors = append(result.Errors, "Enrollment token environment variable looks like a placeholder value.")
+	}
+	if secretLooksPlaceholder(getenv("BASELINE_API_GITHUB_WEBHOOK_SECRET")) {
+		result.Errors = append(result.Errors, "GitHub webhook secret looks like a placeholder value.")
+	}
+	if secretLooksPlaceholder(getenv("BASELINE_API_GITLAB_WEBHOOK_TOKEN")) {
+		result.Errors = append(result.Errors, "GitLab webhook token looks like a placeholder value.")
 	}
 
 	return result

@@ -12,6 +12,7 @@ type Config struct {
 	Addr                         string
 	DBPath                       string
 	APIKeys                      map[string]Role
+	RequireHTTPS                 bool
 	SelfServiceEnabled           bool
 	EnrollmentTokens             map[string]Role
 	EnrollmentTokenTTL           time.Duration
@@ -26,9 +27,12 @@ type Config struct {
 	DashboardSessionEnabled      bool
 	DashboardSessionRole         Role
 	DashboardSessionTTL          time.Duration
+	DashboardSessionCookieSecure bool
 	DashboardAuthProxyEnabled    bool
 	DashboardAuthProxyUserHeader string
 	DashboardAuthProxyRoleHeader string
+	GitHubWebhookSecret          string
+	GitLabWebhookToken           string
 	AIEnabled                    bool
 }
 
@@ -38,6 +42,7 @@ func DefaultConfig() Config {
 		Addr:                         ":8080",
 		DBPath:                       "baseline_api.db",
 		APIKeys:                      map[string]Role{},
+		RequireHTTPS:                 false,
 		SelfServiceEnabled:           false,
 		EnrollmentTokens:             map[string]Role{},
 		EnrollmentTokenTTL:           24 * time.Hour,
@@ -52,9 +57,12 @@ func DefaultConfig() Config {
 		DashboardSessionEnabled:      false,
 		DashboardSessionRole:         RoleViewer,
 		DashboardSessionTTL:          12 * time.Hour,
+		DashboardSessionCookieSecure: false,
 		DashboardAuthProxyEnabled:    false,
 		DashboardAuthProxyUserHeader: "X-Forwarded-User",
 		DashboardAuthProxyRoleHeader: "X-Forwarded-Role",
+		GitHubWebhookSecret:          "",
+		GitLabWebhookToken:           "",
 		AIEnabled:                    false,
 	}
 }
@@ -74,6 +82,9 @@ func ConfigFromEnv() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_KEYS")); v != "" {
 		cfg.APIKeys = mergeRoleMaps(cfg.APIKeys, parseRolePairs(v, RoleViewer))
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_REQUIRE_HTTPS")); v != "" {
+		cfg.RequireHTTPS = parseBool(v, cfg.RequireHTTPS)
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SELF_SERVICE_ENABLED")); v != "" {
 		cfg.SelfServiceEnabled = parseBool(v, cfg.SelfServiceEnabled)
@@ -136,6 +147,9 @@ func ConfigFromEnv() Config {
 			cfg.DashboardSessionTTL = time.Duration(minutes) * time.Minute
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE")); v != "" {
+		cfg.DashboardSessionCookieSecure = parseBool(v, cfg.DashboardSessionCookieSecure)
+	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED")); v != "" {
 		cfg.DashboardAuthProxyEnabled = parseBool(v, cfg.DashboardAuthProxyEnabled)
 	}
@@ -144,6 +158,12 @@ func ConfigFromEnv() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER")); v != "" {
 		cfg.DashboardAuthProxyRoleHeader = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITHUB_WEBHOOK_SECRET")); v != "" {
+		cfg.GitHubWebhookSecret = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITLAB_WEBHOOK_TOKEN")); v != "" {
+		cfg.GitLabWebhookToken = v
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AI_ENABLED")); v != "" {
 		cfg.AIEnabled = parseBool(v, cfg.AIEnabled)

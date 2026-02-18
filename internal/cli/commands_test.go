@@ -367,6 +367,37 @@ func TestVerifyAPIProdConfigWarnings(t *testing.T) {
 	}
 }
 
+func TestVerifyAPIProdConfigRequiresHTTPSAndSecureSessionCookies(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = "0.0.0.0:8080"
+	cfg.DBPath = "baseline_api.db"
+	cfg.APIKeys = map[string]api.Role{
+		"admin-key": api.RoleAdmin,
+	}
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.MaxBodyBytes = 1 << 20
+	cfg.ShutdownTimeout = 10 * time.Second
+	cfg.ReadTimeout = 5 * time.Second
+	cfg.WriteTimeout = 5 * time.Second
+	cfg.IdleTimeout = 30 * time.Second
+	cfg.TrustProxyHeaders = true
+	cfg.DashboardSessionEnabled = true
+	cfg.RequireHTTPS = false
+	cfg.DashboardSessionCookieSecure = false
+
+	result := verifyAPIProdConfig(cfg, func(_ string) string { return "" })
+	if len(result.Errors) == 0 {
+		t.Fatal("expected blocking errors, got none")
+	}
+	joined := strings.Join(result.Errors, "\n")
+	if !strings.Contains(joined, "BASELINE_API_REQUIRE_HTTPS") {
+		t.Fatalf("expected RequireHTTPS validation error, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE") {
+		t.Fatalf("expected secure session cookie validation error, got:\n%s", joined)
+	}
+}
+
 func TestLoadEnvFileIfPresent(t *testing.T) {
 	tempDir := t.TempDir()
 	envPath := filepath.Join(tempDir, "api.env")
@@ -419,6 +450,13 @@ func TestLoadEnvFileDoesNotOverrideExistingEnv(t *testing.T) {
 	}
 	if got := os.Getenv("BASELINE_API_ADDR"); got != ":8000" {
 		t.Fatalf("expected existing env to remain :8000, got %q", got)
+	}
+}
+
+func TestShouldAutoStartAPIWithConfiguredKey(t *testing.T) {
+	t.Setenv("BASELINE_API_KEY", "auto-start-admin-key")
+	if !ShouldAutoStartAPI() {
+		t.Fatal("expected ShouldAutoStartAPI to return true when BASELINE_API_KEY is set")
 	}
 }
 

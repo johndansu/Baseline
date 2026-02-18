@@ -676,9 +676,8 @@ const dashboardHTMLTemplate = `<!doctype html>
 
   <script>
     (function () {
-      var storageKey = "baseline_dashboard_api_key";
       var state = {
-        apiKey: localStorage.getItem(storageKey) || ""
+        apiKey: ""
       };
 
       var apiKeyInput = document.getElementById("apiKeyInput");
@@ -920,11 +919,6 @@ const dashboardHTMLTemplate = `<!doctype html>
 
       saveKeyButton.addEventListener("click", function () {
         state.apiKey = apiKeyInput.value.trim();
-        if (state.apiKey) {
-          localStorage.setItem(storageKey, state.apiKey);
-        } else {
-          localStorage.removeItem(storageKey);
-        }
         refreshDashboard();
       });
 

@@ -2,10 +2,14 @@ package api
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -43,7 +47,9 @@ func TestDashboardSessionLifecycleAndProjectFlow(t *testing.T) {
 		"default_branch": "main",
 		"policy_set":     "baseline:prod",
 	}
-	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", projectPayload, nil)
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", projectPayload, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 for project create, got %d body=%s", resp.StatusCode, body)
 	}
@@ -67,7 +73,9 @@ func TestDashboardSessionLifecycleAndProjectFlow(t *testing.T) {
 	}
 
 	// End session and confirm protected endpoint is denied.
-	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/auth/session", nil, nil)
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/auth/session", nil, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for session delete, got %d body=%s", resp.StatusCode, body)
 	}
@@ -306,6 +314,493 @@ func TestPolicyAndRulesetEndpoints(t *testing.T) {
 	}
 }
 
+func TestUnauthorizedResponseIncludesBearerChallenge(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"viewer-key": RoleViewer,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, _ := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("WWW-Authenticate"); !strings.Contains(got, "Bearer") {
+		t.Fatalf("expected Bearer challenge header, got %q", got)
+	}
+}
+
+func TestSessionMutationRequiresCSRFHeader(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.DashboardSessionEnabled = true
+	cfg.DashboardSessionRole = RoleOperator
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/session", nil, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 for session create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]string{
+		"name": "csrf-check",
+	}, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for missing CSRF header, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestSelfServiceRegisterIssuesServerGeneratedKey(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SelfServiceEnabled = true
+	cfg.EnrollmentTokens = map[string]Role{
+		"enroll-viewer": RoleViewer,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/register", map[string]string{
+		"enrollment_token": "enroll-viewer",
+	}, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 register, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var registerResp struct {
+		Role   Role   `json:"role"`
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal([]byte(body), &registerResp); err != nil {
+		t.Fatalf("failed to parse register response: %v", err)
+	}
+	if registerResp.Role != RoleViewer || strings.TrimSpace(registerResp.APIKey) == "" {
+		t.Fatalf("expected viewer role with generated key, got role=%q key=%q", registerResp.Role, registerResp.APIKey)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer " + registerResp.APIKey,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected issued key to authenticate, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestAPIKeyLifecycleEndpoints(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key":  RoleAdmin,
+		"viewer-key": RoleViewer,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+
+	// Viewer cannot create API keys.
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/api-keys", map[string]string{
+		"name": "viewer-created",
+		"role": "viewer",
+	}, map[string]string{
+		"Authorization": "Bearer viewer-key",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Admin creates an operator key.
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/api-keys", map[string]string{
+		"name": "ops-key",
+		"role": "operator",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 for key create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var created struct {
+		ID     string `json:"id"`
+		Role   Role   `json:"role"`
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatalf("failed to decode created key response: %v", err)
+	}
+	if strings.TrimSpace(created.ID) == "" || strings.TrimSpace(created.APIKey) == "" {
+		t.Fatalf("expected key id and secret in create response, got id=%q key=%q", created.ID, created.APIKey)
+	}
+	if created.Role != RoleOperator {
+		t.Fatalf("expected operator role, got %q", created.Role)
+	}
+
+	// Created key should authenticate as operator.
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]string{
+		"name": "project-via-created-key",
+	}, map[string]string{
+		"Authorization": "Bearer " + created.APIKey,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected created key to create project, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// List keys should return metadata only (not raw secret).
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/api-keys", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for key list, got %d body=%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, created.APIKey) {
+		t.Fatalf("key list leaked raw secret: %s", body)
+	}
+	if !strings.Contains(body, created.ID) {
+		t.Fatalf("expected key list to contain created key id, body=%s", body)
+	}
+
+	// Revoke managed key.
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+created.ID, nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for key revoke, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Revoked key should no longer authenticate.
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer " + created.APIKey,
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for revoked key, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Bootstrap key revocation should be rejected.
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/api-keys", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for key list before bootstrap revoke, got %d body=%s", resp.StatusCode, body)
+	}
+	var listed struct {
+		APIKeys []APIKeyMetadata `json:"api_keys"`
+	}
+	if err := json.Unmarshal([]byte(body), &listed); err != nil {
+		t.Fatalf("failed to decode key list: %v", err)
+	}
+	bootstrapID := ""
+	for _, item := range listed.APIKeys {
+		if item.Source == "bootstrap" && item.Role == RoleAdmin {
+			bootstrapID = item.ID
+			break
+		}
+	}
+	if bootstrapID == "" {
+		t.Fatalf("expected bootstrap admin key metadata in list, body=%s", body)
+	}
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+bootstrapID, nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 for bootstrap key revoke, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestOpenAPISpecRoute(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"viewer-key": RoleViewer,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/openapi.yaml", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 openapi route, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "openapi: 3.0.3") {
+		t.Fatalf("expected OpenAPI document body, got: %s", body)
+	}
+}
+
+func TestAPIStatePersistsAcrossServerRestart(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "baseline_api_test.db")
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+
+	store1, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	server1, err := NewServer(cfg, store1)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts1 := httptest.NewServer(server1.Handler())
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts1.URL+"/v1/api-keys", map[string]string{
+		"name": "persisted-key",
+		"role": "operator",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 key create, got %d body=%s", resp.StatusCode, body)
+	}
+	var created struct {
+		ID     string `json:"id"`
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatalf("failed to decode key create response: %v", err)
+	}
+	if created.ID == "" || created.APIKey == "" {
+		t.Fatalf("expected created key id + secret, got id=%q key=%q", created.ID, created.APIKey)
+	}
+	ts1.Close()
+	_ = store1.Close()
+
+	store2, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error on restart: %v", err)
+	}
+	defer store2.Close()
+	server2, err := NewServer(cfg, store2)
+	if err != nil {
+		t.Fatalf("NewServer returned error on restart: %v", err)
+	}
+	ts2 := httptest.NewServer(server2.Handler())
+	defer ts2.Close()
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts2.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer " + created.APIKey,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected persisted key auth to work after restart, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts2.URL+"/v1/api-keys", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected api key list after restart, got %d body=%s", resp.StatusCode, body)
+	}
+	var listed struct {
+		APIKeys []APIKeyMetadata `json:"api_keys"`
+	}
+	if err := json.Unmarshal([]byte(body), &listed); err != nil {
+		t.Fatalf("failed to decode api key list: %v", err)
+	}
+	revokeID := ""
+	for _, item := range listed.APIKeys {
+		if item.Source != "bootstrap" && !item.Revoked {
+			revokeID = item.ID
+		}
+		if item.Source == "managed" && item.Prefix == keyPrefix(created.APIKey) {
+			revokeID = item.ID
+			break
+		}
+	}
+	if revokeID == "" {
+		t.Fatalf("expected at least one managed api key after restart, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts2.URL+"/v1/api-keys/"+revokeID, nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected key revoke to succeed, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts2.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer " + created.APIKey,
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected revoked persisted key to fail auth, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts2.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected audit events to load from persistence, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "api_key_issued") || !strings.Contains(body, "api_key_revoked") {
+		t.Fatalf("expected persisted audit events for key lifecycle, body=%s", body)
+	}
+}
+
+func TestGitHubWebhookSignatureValidation(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.GitHubWebhookSecret = "github-secret"
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	payload := map[string]any{
+		"action": "opened",
+		"pull_request": map[string]any{
+			"number": 31,
+		},
+		"repository": map[string]any{
+			"full_name": "acme/payments",
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/integrations/github/webhook", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for missing github signature, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	signature := testGitHubSignature(raw, cfg.GitHubWebhookSecret)
+	req, err = http.NewRequest(http.MethodPost, ts.URL+"/v1/integrations/github/webhook", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-Hub-Signature-256", signature)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 for valid github webhook, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 audit events, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "github_webhook_received") {
+		t.Fatalf("expected github webhook audit event, body=%s", body)
+	}
+}
+
+func TestGitLabWebhookTokenValidation(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.GitLabWebhookToken = "gitlab-token"
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	payload := map[string]any{
+		"object_kind": "merge_request",
+		"object_attributes": map[string]any{
+			"action": "open",
+			"iid":    12,
+		},
+		"project": map[string]any{
+			"path_with_namespace": "acme/platform",
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/integrations/gitlab/webhook", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Gitlab-Event", "Merge Request Hook")
+	req.Header.Set("X-Gitlab-Token", "wrong-token")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for invalid gitlab token, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	req, err = http.NewRequest(http.MethodPost, ts.URL+"/v1/integrations/gitlab/webhook", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Gitlab-Event", "Merge Request Hook")
+	req.Header.Set("X-Gitlab-Token", cfg.GitLabWebhookToken)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 for valid gitlab webhook, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 audit events, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "gitlab_webhook_received") {
+		t.Fatalf("expected gitlab webhook audit event, body=%s", body)
+	}
+}
+
 func mustRequest(t *testing.T, client *http.Client, method, url string, payload any, headers map[string]string) (*http.Response, string) {
 	t.Helper()
 
@@ -342,4 +837,10 @@ func mustRequest(t *testing.T, client *http.Client, method, url string, payload 
 	var out bytes.Buffer
 	_, _ = out.ReadFrom(resp.Body)
 	return resp, out.String()
+}
+
+func testGitHubSignature(body []byte, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(body)
+	return "sha256=" + fmt.Sprintf("%x", mac.Sum(nil))
 }
