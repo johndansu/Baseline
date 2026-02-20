@@ -2,6 +2,8 @@
 
 _Last updated: 2026-02-18_
 
+Detailed backend execution plan: `BACKEND.IMPLEMENTATION.PLAN.md`
+
 ## Current State Snapshot
 - `go test ./...` passes.
 - `go build ./cmd/baseline` passes.
