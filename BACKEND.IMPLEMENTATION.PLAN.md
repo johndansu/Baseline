@@ -1,7 +1,7 @@
 # Backend Implementation Plan
 
 _Owner: Baseline Engineering_
-_Last updated: 2026-02-20_
+_Last updated: 2026-02-21_
 
 ## Goal
 Ship a production-grade Baseline backend that is contract-stable, secure-by-default, observable, and fully test-gated.
@@ -20,9 +20,14 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 
 ## Delivery Order
 
+## Progress Snapshot
+- Completed: OpenAPI/runtime contract regression harness (`internal/api/contract_test.go`).
+- Completed: OpenAPI drift fix for liveness alias (`/livez`) in `internal/api/assets/openapi.yaml`.
+- In progress: `server.go` decomposition (auth handlers + projects/scans handlers extracted).
+
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
-- [ ] Add route-to-contract regression tests in `internal/api/server_test.go`.
+- [x] Add route-to-contract regression tests in `internal/api/contract_test.go`.
 - [ ] Add response shape checks for key endpoints:
 - `GET /v1/dashboard`
 - `GET|POST /v1/scans`
@@ -36,8 +41,8 @@ Done when:
 
 ## Phase 1: API Server Refactor for Maintainability (Week 1-2)
 - [ ] Split `internal/api/server.go` into focused files without behavior change:
-- `internal/api/handlers_auth.go`
-- `internal/api/handlers_projects_scans.go`
+- [x] `internal/api/handlers_auth.go`
+- [x] `internal/api/handlers_projects_scans.go`
 - `internal/api/handlers_policies_rulesets.go`
 - `internal/api/handlers_audit_dashboard.go`
 - `internal/api/middleware.go`

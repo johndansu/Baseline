@@ -20,6 +20,20 @@ paths:
                   status:
                     type: string
                     example: ok
+  /livez:
+    get:
+      summary: Liveness probe alias
+      responses:
+        "200":
+          description: API is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
   /readyz:
     get:
       summary: Readiness probe
