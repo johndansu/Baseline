@@ -39,6 +39,10 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: Audit events now include key/policy/ruleset lifecycle resource references with regression tests.
 - Completed: Operator runbook snippets added to README and command reference.
 - Completed: Dashboard runtime fetch/auth/error flows aligned with implemented API routes and contract tests.
+- Completed: Dedicated backend e2e suite covering auth/projects/scans/policies/rulesets/audit flows.
+- Completed: API high-read performance smoke tests and CI release-gate execution flow.
+- Completed: Rollback procedure and release checklist documented in `README.REMAINING.md`.
+- In progress: Contract/e2e checks exposed as dedicated CI gate (`Release Gates`); branch protection enforcement still requires repository settings.
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
@@ -131,15 +135,15 @@ Done when:
 - Dashboard works end-to-end against `baseline api serve` without hidden assumptions.
 
 ## Phase 7: Release Gates and Production Readiness (Week 4-5)
-- [ ] Add backend e2e suite (auth, projects, scans, policies, rulesets, audit).
+- [x] Add backend e2e suite (auth, projects, scans, policies, rulesets, audit).
 - [ ] Add contract checks to required CI branch protections.
-- [ ] Add performance smoke tests for high-read endpoints.
-- [ ] Run hardening gate before release:
+- [x] Add performance smoke tests for high-read endpoints.
+- [x] Run hardening gate before release:
 - `go test ./...`
 - `baseline check`
 - API contract tests
 - e2e suite
-- [ ] Document rollback procedure and release checklist in `README.REMAINING.md`.
+- [x] Document rollback procedure and release checklist in `README.REMAINING.md`.
 
 Done when:
 - Backend changes are script-safe, test-gated, and release-ready.
