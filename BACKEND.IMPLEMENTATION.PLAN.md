@@ -38,6 +38,7 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: Readiness semantics now validate database connectivity and integration worker state.
 - Completed: Audit events now include key/policy/ruleset lifecycle resource references with regression tests.
 - Completed: Operator runbook snippets added to README and command reference.
+- Completed: Dashboard runtime fetch/auth/error flows aligned with implemented API routes and contract tests.
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
@@ -117,14 +118,14 @@ Done when:
 - Operators can diagnose incidents from logs/metrics/readiness quickly.
 
 ## Phase 6: Dashboard-Backend Integration (Week 4)
-- [ ] Connect dashboard data fetching to real endpoints in:
+- [x] Connect dashboard data fetching to real endpoints in:
 - `internal/api/assets/dashboard.js`
 - `internal/api/dashboard.html`
-- [ ] Align the static template expectations with API payloads:
+- [x] Align the static template expectations with API payloads:
 - `frontend/dashboard.html`
 - `frontend/dashboard.css`
-- [ ] Ensure auth/session behavior is clear (API key vs session) and error states are rendered.
-- [ ] Add integration checks so dashboard only calls implemented routes.
+- [x] Ensure auth/session behavior is clear (API key vs session) and error states are rendered.
+- [x] Add integration checks so dashboard only calls implemented routes.
 
 Done when:
 - Dashboard works end-to-end against `baseline api serve` without hidden assumptions.
