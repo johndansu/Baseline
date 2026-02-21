@@ -85,10 +85,37 @@ jobs:
       - name: Run govulncheck (strict)
         run: $(go env GOPATH)/bin/govulncheck ./...
 
+  release-gates:
+    name: Release Gates
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Go
+        uses: actions/setup-go@v5.0.2
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run hardening gate
+        run: |
+          go test ./...
+          go run ./cmd/baseline check
+          go run ./cmd/baseline report --json > /tmp/baseline-report.json
+          go run ./cmd/baseline report --sarif > /tmp/baseline-report.sarif
+
+      - name: Run API contract + e2e + performance smoke gates
+        run: go test ./internal/api -run "TestOpenAPIOperationsReturnDocumentedStatuses|TestContractResponseShapesForCoreEndpoints|TestBackendE2ESuite|TestHighReadEndpointsPerformanceSmoke" -count=1
+
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, security-scan]
+    needs: [test, security-scan, release-gates]
     strategy:
       fail-fast: false
       matrix:

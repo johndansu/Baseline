@@ -475,6 +475,79 @@ func TestVerifyProtectedBranchRequirementDoesNotAcceptDocsProxy(t *testing.T) {
 	}
 }
 
+func TestDetectPrimaryBranchFromEnvironmentUsesGitHubBaseRef(t *testing.T) {
+	t.Setenv("BASELINE_PRIMARY_BRANCH", "")
+	t.Setenv("GITHUB_BASE_REF", "develop")
+	t.Setenv("CI_DEFAULT_BRANCH", "")
+	t.Setenv("GITHUB_REF", "")
+	t.Setenv("GITHUB_REF_TYPE", "")
+	t.Setenv("GITHUB_REF_NAME", "")
+	t.Setenv("GITHUB_REF_PROTECTED", "")
+
+	branch := detectPrimaryBranchFromEnvironment()
+	if branch != "develop" {
+		t.Fatalf("Expected primary branch to be develop, got %q", branch)
+	}
+}
+
+func TestDetectPrimaryBranchFromEnvironmentUsesProtectedRef(t *testing.T) {
+	t.Setenv("BASELINE_PRIMARY_BRANCH", "")
+	t.Setenv("GITHUB_BASE_REF", "")
+	t.Setenv("CI_DEFAULT_BRANCH", "")
+	t.Setenv("GITHUB_REF", "refs/heads/main")
+	t.Setenv("GITHUB_REF_TYPE", "branch")
+	t.Setenv("GITHUB_REF_NAME", "main")
+	t.Setenv("GITHUB_REF_PROTECTED", "true")
+
+	branch := detectPrimaryBranchFromEnvironment()
+	if branch != "main" {
+		t.Fatalf("Expected primary branch to be main, got %q", branch)
+	}
+}
+
+func TestDetectPrimaryBranchFromBranchListParsesOriginHeadMapping(t *testing.T) {
+	branches := []string{
+		"feature/some-work",
+		"remotes/origin/HEAD -> origin/main",
+		"remotes/origin/main",
+	}
+
+	branch := detectPrimaryBranchFromBranchList(branches)
+	if branch != "main" {
+		t.Fatalf("Expected primary branch to be main, got %q", branch)
+	}
+}
+
+func TestDetectPrimaryBranchViaGitHubAPI(t *testing.T) {
+	origRemoteReader := gitRemoteOriginReader
+	origClientFactory := httpClientFactory
+	origAPIBase := githubAPIBaseURL
+	defer func() {
+		gitRemoteOriginReader = origRemoteReader
+		httpClientFactory = origClientFactory
+		githubAPIBaseURL = origAPIBase
+	}()
+
+	server := newTestHTTPServer(t, `{"default_branch":"main"}`, 200)
+	defer server.Close()
+
+	gitRemoteOriginReader = func() (string, error) {
+		return "https://github.com/example/repo.git", nil
+	}
+	httpClientFactory = server.Client
+	githubAPIBaseURL = server.URL
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+
+	branch, err := detectPrimaryBranchViaGitHubAPI()
+	if err != nil {
+		t.Fatalf("detectPrimaryBranchViaGitHubAPI returned error: %v", err)
+	}
+	if branch != "main" {
+		t.Fatalf("Expected primary branch main, got %q", branch)
+	}
+}
+
 func newTestHTTPServer(t *testing.T, body string, status int) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

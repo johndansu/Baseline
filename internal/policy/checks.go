@@ -137,44 +137,25 @@ func RunAllChecks() []types.PolicyViolation {
 	return violations
 }
 
-// CheckProtectedMainBranch verifies the repository has a main or master branch.
+// CheckProtectedMainBranch verifies the repository has a protected primary branch.
 func CheckProtectedMainBranch() *types.PolicyViolation {
 	return runSnapshotCheck(checkProtectedMainBranch)
 }
 
 func checkProtectedMainBranch(_ repoSnapshot) *types.PolicyViolation {
-	branches, err := listGitBranches()
+	primaryBranch, err := detectPrimaryBranch()
 	if err != nil {
 		return &types.PolicyViolation{
 			PolicyID: types.PolicySystemError,
-			Message:  fmt.Sprintf("Unable to check git branches: %v", err),
+			Message:  fmt.Sprintf("Unable to detect primary branch: %v", err),
 			Severity: types.SeverityBlock,
-		}
-	}
-
-	primaryBranch := ""
-	for _, branch := range branches {
-		normalized := strings.ToLower(strings.TrimSpace(branch))
-		normalized = strings.TrimPrefix(normalized, "* ")
-		if normalized == "" {
-			continue
-		}
-
-		if normalized == "main" || normalized == "master" ||
-			strings.HasSuffix(normalized, "/main") || strings.HasSuffix(normalized, "/master") {
-			if strings.Contains(normalized, "master") {
-				primaryBranch = "master"
-			} else {
-				primaryBranch = "main"
-			}
-			break
 		}
 	}
 
 	if primaryBranch == "" {
 		return &types.PolicyViolation{
 			PolicyID: types.PolicyProtectedBranch,
-			Message:  "No main or master branch found - repository must include a protected primary branch",
+			Message:  "No primary branch detected - repository must include a protected primary branch",
 			Severity: types.SeverityBlock,
 		}
 	}
@@ -1035,6 +1016,217 @@ func listGitBranches() ([]string, error) {
 		return nil, err
 	}
 	return strings.Split(string(output), "\n"), nil
+}
+
+func detectPrimaryBranch() (string, error) {
+	if branch := detectPrimaryBranchFromEnvironment(); branch != "" {
+		return branch, nil
+	}
+
+	if branch := readGitOriginHEADBranch(); branch != "" {
+		return branch, nil
+	}
+
+	branches, branchErr := listGitBranches()
+	if branchErr == nil {
+		if branch := detectPrimaryBranchFromBranchList(branches); branch != "" {
+			return branch, nil
+		}
+	}
+
+	branch, apiErr := detectPrimaryBranchViaGitHubAPI()
+	if apiErr != nil && branchErr != nil {
+		return "", fmt.Errorf("git branch inspection failed: %v; GitHub default branch lookup failed: %v", branchErr, apiErr)
+	}
+	if branch != "" {
+		return branch, nil
+	}
+
+	if branchErr != nil {
+		return "", branchErr
+	}
+
+	return "", nil
+}
+
+func detectPrimaryBranchFromEnvironment() string {
+	priorityCandidates := []string{
+		os.Getenv("BASELINE_PRIMARY_BRANCH"),
+		os.Getenv("GITHUB_BASE_REF"),
+		os.Getenv("CI_DEFAULT_BRANCH"),
+	}
+	for _, candidate := range priorityCandidates {
+		if branch := normalizeGitBranchName(candidate); branch != "" {
+			return branch
+		}
+	}
+
+	refProtected := strings.EqualFold(strings.TrimSpace(os.Getenv("GITHUB_REF_PROTECTED")), "true")
+	ref := strings.TrimSpace(os.Getenv("GITHUB_REF"))
+	if strings.HasPrefix(ref, "refs/heads/") {
+		if branch := normalizeGitBranchName(strings.TrimPrefix(ref, "refs/heads/")); branch != "" {
+			if refProtected || isPreferredPrimaryBranch(branch) {
+				return branch
+			}
+		}
+	}
+
+	refType := strings.TrimSpace(os.Getenv("GITHUB_REF_TYPE"))
+	refName := strings.TrimSpace(os.Getenv("GITHUB_REF_NAME"))
+	if strings.EqualFold(refType, "branch") {
+		if branch := normalizeGitBranchName(refName); branch != "" {
+			if refProtected || isPreferredPrimaryBranch(branch) {
+				return branch
+			}
+		}
+	}
+
+	return ""
+}
+
+func readGitOriginHEADBranch() string {
+	cmd := exec.Command("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return normalizeGitBranchName(string(output))
+}
+
+func detectPrimaryBranchFromBranchList(branches []string) string {
+	unique := make(map[string]string)
+	for _, raw := range branches {
+		branch := normalizeGitBranchName(raw)
+		if branch == "" {
+			continue
+		}
+		lower := strings.ToLower(branch)
+		if _, exists := unique[lower]; !exists {
+			unique[lower] = branch
+		}
+	}
+
+	for _, preferred := range []string{"main", "master", "trunk", "default"} {
+		if branch, ok := unique[preferred]; ok {
+			return branch
+		}
+	}
+
+	if len(unique) == 1 {
+		for _, branch := range unique {
+			return branch
+		}
+	}
+
+	return ""
+}
+
+func normalizeGitBranchName(raw string) string {
+	value := strings.TrimSpace(raw)
+	value = strings.TrimPrefix(value, "* ")
+	if value == "" {
+		return ""
+	}
+
+	if strings.Contains(value, "->") {
+		parts := strings.Split(value, "->")
+		value = strings.TrimSpace(parts[len(parts)-1])
+	}
+
+	prefixes := []string{
+		"refs/heads/",
+		"refs/remotes/",
+		"remotes/",
+		"heads/",
+	}
+	for _, prefix := range prefixes {
+		value = strings.TrimPrefix(value, prefix)
+	}
+
+	value = strings.TrimPrefix(value, "origin/")
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	lower := strings.ToLower(value)
+	if lower == "head" || strings.HasPrefix(lower, "pull/") {
+		return ""
+	}
+
+	return value
+}
+
+func isPreferredPrimaryBranch(branch string) bool {
+	switch strings.ToLower(strings.TrimSpace(branch)) {
+	case "main", "master", "trunk", "default":
+		return true
+	default:
+		return false
+	}
+}
+
+func detectPrimaryBranchViaGitHubAPI() (string, error) {
+	remoteURL, err := gitRemoteOriginReader()
+	if err != nil {
+		return "", nil
+	}
+
+	owner, repo, ok := parseGitHubRepoFromRemote(remoteURL)
+	if !ok {
+		return "", nil
+	}
+
+	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
+	}
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/repos/%s/%s",
+		strings.TrimRight(githubAPIBaseURL, "/"),
+		neturl.PathEscape(owner),
+		neturl.PathEscape(repo)), nil)
+	if err != nil {
+		return "", fmt.Errorf("unable to build GitHub repository metadata request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := httpClientFactory().Do(req)
+	if err != nil {
+		if token == "" {
+			return "", nil
+		}
+		return "", fmt.Errorf("unable to query GitHub repository metadata API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var payload struct {
+			DefaultBranch string `json:"default_branch"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return "", fmt.Errorf("unable to parse GitHub repository metadata response: %w", err)
+		}
+		return normalizeGitBranchName(payload.DefaultBranch), nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		if token == "" {
+			return "", nil
+		}
+		return "", fmt.Errorf("GitHub repository metadata API returned %d; verify GITHUB_TOKEN/GH_TOKEN permissions", resp.StatusCode)
+	default:
+		if resp.StatusCode >= 500 && token != "" {
+			return "", fmt.Errorf("GitHub repository metadata API returned %d", resp.StatusCode)
+		}
+	}
+
+	return "", nil
 }
 
 func verifyProtectedBranchRequirement(primaryBranch string) (bool, error) {

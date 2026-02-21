@@ -1,13 +1,20 @@
 (function () {
+  var storageKey = "baseline.dashboard.apiKey";
+
   var state = {
     apiKey: "",
     sessionEnabled: false,
+    sessionRole: "",
+    sessionUser: "",
+    authMode: "unknown",
   };
 
   var els = {
     healthPill: document.getElementById("healthPill"),
     readyPill: document.getElementById("readyPill"),
+    readyDetail: document.getElementById("readyDetail"),
     authPill: document.getElementById("authPill"),
+    authDetail: document.getElementById("authDetail"),
     lastUpdated: document.getElementById("lastUpdated"),
     sessionInfo: document.getElementById("sessionInfo"),
     errorText: document.getElementById("errorText"),
@@ -42,6 +49,11 @@
   function setError(message) {
     if (!els.errorText) return;
     els.errorText.textContent = message || "";
+  }
+
+  function setText(el, value) {
+    if (!el) return;
+    el.textContent = String(value || "");
   }
 
   function setMetric(el, value) {
@@ -89,6 +101,7 @@
     }
 
     var response = await fetch(path, {
+      credentials: "same-origin",
       method: httpMethod,
       headers: headers,
       body: body ? JSON.stringify(body) : undefined,
@@ -117,6 +130,93 @@
     }
 
     return payload;
+  }
+
+  async function requestText(path, method, body, requiresAuth) {
+    var httpMethod = (method || "GET").toUpperCase();
+    var headers = { Accept: "text/plain, application/json" };
+    if (body) {
+      headers["Content-Type"] = "application/json";
+    }
+    if (httpMethod !== "GET" && httpMethod !== "HEAD" && httpMethod !== "OPTIONS") {
+      headers["X-Baseline-CSRF"] = "1";
+    }
+    if (requiresAuth && state.apiKey) {
+      headers.Authorization = "Bearer " + state.apiKey;
+    }
+
+    var response = await fetch(path, {
+      credentials: "same-origin",
+      method: httpMethod,
+      headers: headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    var text = await response.text();
+    if (!response.ok) {
+      throw new Error(path + ": " + response.status + " request failed");
+    }
+    return text;
+  }
+
+  function metricFromPrometheus(text, metricName) {
+    if (!text || !metricName) return null;
+    var pattern = new RegExp("^" + metricName + "\\s+(-?\\d+(?:\\.\\d+)?)$", "m");
+    var match = text.match(pattern);
+    if (!match) return null;
+    var parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function summarizeReadiness(checks) {
+    if (!checks || typeof checks !== "object") {
+      return "Readiness checks: unavailable";
+    }
+    var keys = Object.keys(checks);
+    if (keys.length === 0) {
+      return "Readiness checks: unavailable";
+    }
+    var parts = keys.sort().map(function (key) {
+      var check = checks[key] || {};
+      var status = String(check.status || "unknown");
+      var detail = String(check.detail || "");
+      return detail ? key + "=" + status + " (" + detail + ")" : key + "=" + status;
+    });
+    return "Readiness checks: " + parts.join(", ");
+  }
+
+  function loadSavedAPIKey() {
+    try {
+      return (window.localStorage.getItem(storageKey) || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function saveAPIKey(value) {
+    try {
+      if (!value) {
+        window.localStorage.removeItem(storageKey);
+      } else {
+        window.localStorage.setItem(storageKey, value);
+      }
+    } catch (_) {
+      // Ignore storage failures; dashboard still works in-memory.
+    }
+  }
+
+  function updateAuthPillAndDetail() {
+    if (state.sessionEnabled) {
+      setPill(els.authPill, "Auth: session", "ok");
+      setText(els.authDetail, "Auth mode: session (" + (state.sessionRole || "viewer") + ")");
+      return;
+    }
+    if (state.apiKey) {
+      setPill(els.authPill, "Auth: api_key", "ok");
+      setText(els.authDetail, "Auth mode: api_key");
+      return;
+    }
+    setPill(els.authPill, "Auth: required", "pending");
+    setText(els.authDetail, "Auth mode: required");
   }
 
   function renderScans(scans) {
@@ -226,13 +326,16 @@
 
     try {
       var ready = await request("/readyz", "GET", null, false);
+      var readyText = ready && ready.status === "ready" ? "Ready: ready" : "Ready: not ready";
       setPill(
         els.readyPill,
-        ready && ready.status === "ready" ? "Ready: ready" : "Ready: not ready",
+        readyText,
         ready && ready.status === "ready" ? "ok" : "bad"
       );
+      setText(els.readyDetail, summarizeReadiness(ready.checks));
     } catch (_) {
       setPill(els.readyPill, "Ready: unavailable", "bad");
+      setText(els.readyDetail, "Readiness checks: unavailable");
     }
   }
 
@@ -240,47 +343,68 @@
     try {
       var session = await request("/v1/auth/session", "GET", null, false);
       state.sessionEnabled = true;
-      els.sessionInfo.textContent = "Session: active as " + (session.user || "unknown") + " (" + (session.role || "viewer") + ")";
-      setPill(els.authPill, "Auth: session", "ok");
+      state.sessionUser = String(session.user || "unknown");
+      state.sessionRole = String(session.role || "viewer");
+      state.authMode = String(session.auth_mode || "session_cookie");
+      els.sessionInfo.textContent = "Session: active as " + state.sessionUser + " (" + state.sessionRole + ")";
+      updateAuthPillAndDetail();
     } catch (err) {
+      state.sessionEnabled = false;
+      state.sessionUser = "";
+      state.sessionRole = "";
+
       if (err.statusCode === 403) {
-        state.sessionEnabled = false;
         els.sessionInfo.textContent = "Session: disabled";
+        if (!state.apiKey) {
+          setText(els.authDetail, "Auth mode: api_key only (sessions disabled)");
+        }
       } else if (err.statusCode === 401) {
-        state.sessionEnabled = true;
         els.sessionInfo.textContent = "Session: not active";
       } else {
         els.sessionInfo.textContent = "Session: unavailable";
       }
-
-      if (state.apiKey) {
-        setPill(els.authPill, "Auth: api_key", "ok");
-      } else {
-        setPill(els.authPill, "Auth: required", "pending");
-      }
+      updateAuthPillAndDetail();
     }
   }
 
   async function refreshProtectedData() {
     if (!state.apiKey && !state.sessionEnabled) {
-      resetProtectedData("Provide API key or session.");
+      resetProtectedData("Provide API key or start a session.");
+      setError("");
       return;
     }
 
     try {
       var summary = await request("/v1/dashboard", "GET", null, true);
       var projectsResp = await request("/v1/projects", "GET", null, true);
+      var scansResp = await request("/v1/scans", "GET", null, true).catch(function () { return {}; });
+      var eventsResp = await request("/v1/audit/events?limit=20", "GET", null, true).catch(function () { return {}; });
+      var metricsText = await requestText("/metrics", "GET", null, false).catch(function () { return ""; });
 
       var metrics = summary.metrics || {};
       var scans = Array.isArray(summary.recent_scans) ? summary.recent_scans : [];
       var top = Array.isArray(summary.top_violations) ? summary.top_violations : [];
       var events = Array.isArray(summary.recent_events) ? summary.recent_events : [];
       var projects = Array.isArray(projectsResp.projects) ? projectsResp.projects : [];
+      var listedScans = Array.isArray(scansResp.scans) ? scansResp.scans : [];
+      var listedEvents = Array.isArray(eventsResp.events) ? eventsResp.events : [];
 
-      setMetric(els.metricProjects, metrics.projects || projects.length || 0);
-      setMetric(els.metricScans, metrics.scans || scans.length || 0);
-      setMetric(els.metricFailing, metrics.failing_scans || 0);
-      setMetric(els.metricBlocking, metrics.blocking_violations || 0);
+      if (scans.length === 0 && listedScans.length > 0) {
+        scans = listedScans;
+      }
+      if (events.length === 0 && listedEvents.length > 0) {
+        events = listedEvents;
+      }
+
+      var projectsTotal = metricFromPrometheus(metricsText, "baseline_projects_total");
+      var scansTotal = metricFromPrometheus(metricsText, "baseline_scans_total");
+      var failingTotal = metricFromPrometheus(metricsText, "baseline_failing_scans_total");
+      var blockingTotal = metricFromPrometheus(metricsText, "baseline_blocking_violations_total");
+
+      setMetric(els.metricProjects, metrics.projects || projectsTotal || projects.length || 0);
+      setMetric(els.metricScans, metrics.scans || scansTotal || scans.length || 0);
+      setMetric(els.metricFailing, metrics.failing_scans || failingTotal || 0);
+      setMetric(els.metricBlocking, metrics.blocking_violations || blockingTotal || 0);
 
       renderScans(scans);
       renderTopViolations(top);
@@ -289,9 +413,11 @@
       setError("");
     } catch (err) {
       if (err.statusCode === 401) {
-        resetProtectedData("Auth failed. Refresh credentials.");
+        resetProtectedData("Authentication failed. Refresh key or session.");
+      } else if (err.statusCode === 403) {
+        resetProtectedData("Access denied for this role.");
       } else {
-        resetProtectedData("Unable to load protected data.");
+        resetProtectedData("Unable to load dashboard data.");
       }
       setError(err.message);
     }
@@ -314,8 +440,11 @@
     try {
       var session = await request("/v1/auth/session", "POST", {}, false);
       state.sessionEnabled = true;
-      setPill(els.authPill, "Auth: session", "ok");
-      els.sessionInfo.textContent = "Session: active as " + (session.user || "unknown") + " (" + (session.role || "viewer") + ")";
+      state.sessionUser = String(session.user || "unknown");
+      state.sessionRole = String(session.role || "viewer");
+      state.authMode = String(session.auth_mode || "session_cookie");
+      els.sessionInfo.textContent = "Session: active as " + state.sessionUser + " (" + state.sessionRole + ")";
+      updateAuthPillAndDetail();
       await refreshProtectedData();
       setLastUpdated();
     } catch (err) {
@@ -327,6 +456,10 @@
     setError("");
     try {
       await request("/v1/auth/session", "DELETE", null, false);
+      state.sessionEnabled = false;
+      state.sessionUser = "";
+      state.sessionRole = "";
+      state.authMode = "";
       await refreshAll();
     } catch (err) {
       setError(err.message);
@@ -353,21 +486,28 @@
         policy_set: policySet,
       }, true);
       els.projectName.value = "";
+      els.projectBranch.value = "";
+      els.projectPolicySet.value = "";
       await refreshAll();
     } catch (err) {
       setError(err.message);
     }
   }
 
+  state.apiKey = loadSavedAPIKey();
   els.apiKeyInput.value = state.apiKey;
   els.saveKeyBtn.addEventListener("click", function () {
     state.apiKey = (els.apiKeyInput.value || "").trim();
+    saveAPIKey(state.apiKey);
+    updateAuthPillAndDetail();
     refreshAll();
   });
 
   els.clearKeyBtn.addEventListener("click", function () {
     state.apiKey = "";
     els.apiKeyInput.value = "";
+    saveAPIKey("");
+    updateAuthPillAndDetail();
     refreshAll();
   });
 

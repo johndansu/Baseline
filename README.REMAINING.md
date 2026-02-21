@@ -26,6 +26,59 @@ Detailed backend execution plan: `BACKEND.IMPLEMENTATION.PLAN.md`
 5. Release-gate run.
 - Run full suite: `go test ./...`, `baseline check`, `baseline report --json`, `baseline report --sarif`, CI pipeline on `main`.
 
+## Rollback Procedure (Operator)
+1. Identify target rollback commit/tag.
+- Use `git log --oneline --decorate -n 20` and select last known-good release.
+
+2. Revert deployment manifest or release reference.
+- Point runtime/deployment to prior image/binary tag.
+- Avoid force-push on `main`; use revert commits for traceability.
+
+3. Rotate affected managed API keys if rollback was incident-driven.
+- Revoke compromised key IDs with `DELETE /v1/api-keys/{id}`.
+- Issue replacement keys and update runtime secrets.
+
+4. Validate post-rollback health.
+- `curl http://127.0.0.1:8080/healthz`
+- `curl http://127.0.0.1:8080/readyz`
+- `curl http://127.0.0.1:8080/metrics`
+
+5. Verify policy and audit posture.
+- Run `baseline check`.
+- Query `GET /v1/audit/events?limit=50` and confirm rollback/change events are visible.
+
+6. Document rollback evidence.
+- Incident ID, operator, timestamps, impacted services, restored commit/tag, and validation outputs.
+
+## Production Release Checklist
+1. Local hardening gate passes.
+- `go test ./...`
+- `baseline check`
+- `baseline report --json`
+- `baseline report --sarif`
+
+2. API-specific gates pass.
+- API contract checks.
+- Backend e2e suite (`auth/projects/scans/policies/rulesets/audit`).
+- API high-read performance smoke tests.
+
+3. CI required checks configured on `main`.
+- Require these checks in branch protection:
+  - `Test`
+  - `Security Scan`
+  - `Release Gates`
+  - `Build`
+- Enforce PR-only merges and restrict direct pushes.
+
+4. Security and secrets validated.
+- No plaintext secrets committed.
+- Runtime credentials rotated/active.
+
+5. Artifact and release integrity confirmed.
+- Release binaries built.
+- `SHA256SUMS` published.
+- Cosign signatures/certificates attached.
+
 ## Production Readiness (Current)
 - Engineering readiness: `~80%` (build/tests/CI mostly stable).
 - Compliance readiness: `~60%` (blocking `A1` still open, rule-fidelity hardening pending).

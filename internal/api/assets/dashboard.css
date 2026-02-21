@@ -89,6 +89,15 @@ h2 {
   flex-wrap: wrap;
 }
 
+.status-details {
+  display: grid;
+  gap: 4px;
+}
+
+.status-details .muted {
+  margin: 0;
+}
+
 .pill {
   padding: 7px 11px;
   border-radius: 999px;

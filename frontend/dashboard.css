@@ -568,6 +568,10 @@ code {
   line-height: 1.5;
 }
 
+.api-contract pre {
+  max-height: 280px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
