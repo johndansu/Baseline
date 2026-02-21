@@ -28,6 +28,7 @@ logs/
 tmp/
 temp/
 *.tmp
+.artifacts/
 internal/api/*.go.*
 .gocache/
 .baseline/*.log

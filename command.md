@@ -63,10 +63,11 @@ git push origin v1.0.1
 
 ## Final Release Gate
 ```bash
-go test ./...
-baseline check
-baseline report --json
-baseline report --sarif
+bash ./scripts/release-gate.sh
+```
+
+```powershell
+.\scripts\release-gate.ps1
 ```
 
 ## Operator Runbook (API Ops)

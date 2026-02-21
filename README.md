@@ -231,8 +231,13 @@ curl -H "Authorization: Bearer <admin_key>" "http://127.0.0.1:8080/v1/audit/even
 
 ```bash
 baseline api verify-prod --strict
-go test ./...
-baseline check
+bash ./scripts/release-gate.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\release-gate.ps1
 ```
 
 ## Dashboard Options

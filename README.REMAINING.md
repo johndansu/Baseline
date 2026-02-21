@@ -52,10 +52,8 @@ Detailed backend execution plan: `BACKEND.IMPLEMENTATION.PLAN.md`
 
 ## Production Release Checklist
 1. Local hardening gate passes.
-- `go test ./...`
-- `baseline check`
-- `baseline report --json`
-- `baseline report --sarif`
+- Linux/macOS: `bash ./scripts/release-gate.sh`
+- Windows: `.\scripts\release-gate.ps1`
 
 2. API-specific gates pass.
 - API contract checks.
