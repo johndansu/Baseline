@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,16 @@ import (
 type persistedAPIKey struct {
 	Key      string
 	Metadata APIKeyMetadata
+}
+
+const (
+	storeSchemaVersionKey     = "schema_version"
+	currentStoreSchemaVersion = 2
+)
+
+type storeMigration struct {
+	version    int
+	statements []string
 }
 
 // Store manages persistent API state.
@@ -54,50 +65,175 @@ func (s *Store) Close() error {
 }
 
 func migrateStore(db *sql.DB) error {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS api_keys (
-			id TEXT PRIMARY KEY,
-			key_value TEXT NOT NULL UNIQUE,
-			name TEXT,
-			role TEXT NOT NULL,
-			prefix TEXT NOT NULL,
-			source TEXT,
-			created_at TEXT NOT NULL,
-			created_by TEXT,
-			revoked INTEGER NOT NULL DEFAULT 0,
-			revoked_at TEXT
-		);`,
-		`CREATE TABLE IF NOT EXISTS audit_events (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			event_type TEXT NOT NULL,
-			project_id TEXT,
-			scan_id TEXT,
-			created_at TEXT NOT NULL
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);`,
-		`CREATE TABLE IF NOT EXISTS integration_jobs (
-			id TEXT PRIMARY KEY,
-			provider TEXT NOT NULL,
-			job_type TEXT NOT NULL,
-			project_ref TEXT,
-			external_ref TEXT,
-			payload TEXT,
-			status TEXT NOT NULL,
-			attempt_count INTEGER NOT NULL DEFAULT 0,
-			max_attempts INTEGER NOT NULL DEFAULT 5,
-			last_error TEXT,
-			next_attempt_at TEXT NOT NULL,
-			created_at TEXT NOT NULL,
+	if _, err := db.Exec(
+		`CREATE TABLE IF NOT EXISTS store_meta (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);`,
-		`CREATE INDEX IF NOT EXISTS idx_integration_jobs_due ON integration_jobs(status, next_attempt_at, created_at);`,
+	); err != nil {
+		return err
 	}
-	for _, stmt := range stmts {
-		if _, err := db.Exec(stmt); err != nil {
+
+	version, err := loadStoreSchemaVersion(db)
+	if err != nil {
+		return err
+	}
+
+	migrations := []storeMigration{
+		{
+			version: 1,
+			statements: []string{
+				`CREATE TABLE IF NOT EXISTS api_keys (
+					id TEXT PRIMARY KEY,
+					key_value TEXT NOT NULL UNIQUE,
+					name TEXT,
+					role TEXT NOT NULL,
+					prefix TEXT NOT NULL,
+					source TEXT,
+					created_at TEXT NOT NULL,
+					created_by TEXT,
+					revoked INTEGER NOT NULL DEFAULT 0,
+					revoked_at TEXT
+				);`,
+				`CREATE TABLE IF NOT EXISTS audit_events (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					event_type TEXT NOT NULL,
+					project_id TEXT,
+					scan_id TEXT,
+					created_at TEXT NOT NULL
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);`,
+				`CREATE TABLE IF NOT EXISTS integration_jobs (
+					id TEXT PRIMARY KEY,
+					provider TEXT NOT NULL,
+					job_type TEXT NOT NULL,
+					project_ref TEXT,
+					external_ref TEXT,
+					payload TEXT,
+					status TEXT NOT NULL,
+					attempt_count INTEGER NOT NULL DEFAULT 0,
+					max_attempts INTEGER NOT NULL DEFAULT 5,
+					last_error TEXT,
+					next_attempt_at TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_integration_jobs_due ON integration_jobs(status, next_attempt_at, created_at);`,
+			},
+		},
+		{
+			version: 2,
+			statements: []string{
+				`CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_created_at ON api_keys(revoked, created_at DESC);`,
+				`CREATE INDEX IF NOT EXISTS idx_api_keys_id_revoked ON api_keys(id, revoked);`,
+				`CREATE INDEX IF NOT EXISTS idx_api_keys_source_created_at ON api_keys(source, created_at DESC);`,
+				`CREATE INDEX IF NOT EXISTS idx_audit_events_project_created_at ON audit_events(project_id, created_at DESC);`,
+				`CREATE TABLE IF NOT EXISTS projects (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					repository_url TEXT,
+					default_branch TEXT NOT NULL DEFAULT 'main',
+					policy_set TEXT NOT NULL DEFAULT 'baseline:prod',
+					created_at TEXT NOT NULL
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(created_at DESC);`,
+				`CREATE TABLE IF NOT EXISTS scans (
+					id TEXT PRIMARY KEY,
+					project_id TEXT NOT NULL,
+					commit_sha TEXT,
+					status TEXT NOT NULL,
+					violations_json TEXT,
+					created_at TEXT NOT NULL
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_scans_project_created_at ON scans(project_id, created_at DESC);`,
+				`CREATE INDEX IF NOT EXISTS idx_scans_created_at ON scans(created_at DESC);`,
+			},
+		},
+	}
+
+	for _, migration := range migrations {
+		if migration.version <= version {
+			continue
+		}
+		tx, err := db.Begin()
+		if err != nil {
 			return err
 		}
+		for _, stmt := range migration.statements {
+			if _, err := tx.Exec(stmt); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		if err := upsertStoreSchemaVersionTx(tx, migration.version); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		version = migration.version
+	}
+
+	if version != currentStoreSchemaVersion {
+		return fmt.Errorf("store schema version mismatch: expected %d got %d", currentStoreSchemaVersion, version)
 	}
 	return nil
+}
+
+func loadStoreSchemaVersion(db *sql.DB) (int, error) {
+	var raw string
+	err := db.QueryRow(
+		`SELECT value
+		 FROM store_meta
+		 WHERE key = ?`,
+		storeSchemaVersionKey,
+	).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	version, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("invalid store schema version %q: %w", raw, err)
+	}
+	if version < 0 {
+		return 0, fmt.Errorf("invalid negative schema version %d", version)
+	}
+	return version, nil
+}
+
+func upsertStoreSchemaVersion(db *sql.DB, version int) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := db.Exec(
+		`INSERT INTO store_meta (key, value, updated_at)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET
+		   value = excluded.value,
+		   updated_at = excluded.updated_at`,
+		storeSchemaVersionKey,
+		strconv.Itoa(version),
+		now,
+	)
+	return err
+}
+
+func upsertStoreSchemaVersionTx(tx *sql.Tx, version int) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := tx.Exec(
+		`INSERT INTO store_meta (key, value, updated_at)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET
+		   value = excluded.value,
+		   updated_at = excluded.updated_at`,
+		storeSchemaVersionKey,
+		strconv.Itoa(version),
+		now,
+	)
+	return err
 }
 
 func (s *Store) UpsertAPIKey(rawKey string, metadata APIKeyMetadata) error {

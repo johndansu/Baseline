@@ -1098,6 +1098,53 @@ func TestIntegrationWorkerRetriesTransientFailure(t *testing.T) {
 	t.Fatal("timed out waiting for integration job retry/success flow")
 }
 
+func TestServerLoadsMigratedLegacyStore(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy_runtime.db")
+	createLegacyStoreSchema(t, dbPath)
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	version := currentStoreSchemaVersionForTest(t, store.db)
+	if version != currentStoreSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", currentStoreSchemaVersion, version)
+	}
+
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer legacy-key-value",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected migrated legacy key auth to work, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected audit endpoint to load after migration, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "legacy_event") {
+		t.Fatalf("expected legacy audit event after migration, body=%s", body)
+	}
+}
+
 func mustRequest(t *testing.T, client *http.Client, method, url string, payload any, headers map[string]string) (*http.Response, string) {
 	t.Helper()
 

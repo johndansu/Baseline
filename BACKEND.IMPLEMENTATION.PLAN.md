@@ -25,6 +25,7 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: Core response-shape contract checks for dashboard/scans/reports/policies/audit.
 - Completed: OpenAPI drift fix for liveness alias (`/livez`) in `internal/api/assets/openapi.yaml`.
 - In progress: `server.go` decomposition (handlers + router + middleware + errors extraction completed; remaining file-size reduction still pending).
+- Completed: Versioned SQLite migration runner with legacy upgrade coverage (`internal/api/store.go`, `internal/api/store_migration_test.go`).
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
@@ -57,13 +58,13 @@ Done when:
 - `server.go` is no longer monolithic and test suite remains green.
 
 ## Phase 2: Data Layer and Migration Discipline (Week 2)
-- [ ] Introduce schema versioning and migration runner in `internal/api/store.go`.
-- [ ] Add deterministic bootstrap path for fresh DB and upgrade path for existing DB.
-- [ ] Add indexes for common read paths:
+- [x] Introduce schema versioning and migration runner in `internal/api/store.go`.
+- [x] Add deterministic bootstrap path for fresh DB and upgrade path for existing DB.
+- [x] Add indexes for common read paths:
 - audit events by `created_at`
 - scans by `project_id`, `created_at`
 - keys by `id`, `revoked`
-- [ ] Add migration tests for upgrade safety in `internal/api/config_test.go` and `internal/api/server_test.go`.
+- [x] Add migration tests for upgrade safety in `internal/api/store_migration_test.go` and `internal/api/server_test.go`.
 
 Done when:
 - Old DB files upgrade safely and all queries remain performant under basic load tests.
