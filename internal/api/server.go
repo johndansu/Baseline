@@ -266,6 +266,7 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		s.dataMu.Lock()
 		s.appendEventLocked(AuditEvent{
 			EventType: "api_key_issued",
+			ScanID:    metadata.ID,
 			CreatedAt: time.Now().UTC(),
 		})
 		s.dataMu.Unlock()
@@ -346,6 +347,7 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		s.dataMu.Lock()
 		s.appendEventLocked(AuditEvent{
 			EventType: "api_key_revoked",
+			ScanID:    metadata.ID,
 			CreatedAt: now,
 		})
 		s.dataMu.Unlock()

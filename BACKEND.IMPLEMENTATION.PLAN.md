@@ -36,6 +36,8 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: Request ID propagation and structured API request logging in middleware.
 - Completed: Lightweight Prometheus-style `/metrics` endpoint with operational counters and tests.
 - Completed: Readiness semantics now validate database connectivity and integration worker state.
+- Completed: Audit events now include key/policy/ruleset lifecycle resource references with regression tests.
+- Completed: Operator runbook snippets added to README and command reference.
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
@@ -108,8 +110,8 @@ Done when:
 - [x] Add request IDs and structured request logs in `internal/api/middleware.go`.
 - [x] Add lightweight metrics endpoint (`/metrics`) in `internal/api/server.go`.
 - [x] Strengthen readiness semantics to include DB and worker health.
-- [ ] Improve audit event coverage for key lifecycle and policy changes.
-- [ ] Add operator-oriented runbook snippets to `README.md` and `command.md`.
+- [x] Improve audit event coverage for key lifecycle and policy changes.
+- [x] Add operator-oriented runbook snippets to `README.md` and `command.md`.
 
 Done when:
 - Operators can diagnose incidents from logs/metrics/readiness quickly.

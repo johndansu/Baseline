@@ -800,6 +800,33 @@ func TestPolicyAndRulesetEndpoints(t *testing.T) {
 		t.Fatalf("expected ruleset by version, got %d body=%s", resp.StatusCode, body)
 	}
 
+	// Audit stream should include policy and ruleset update references.
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer viewer-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for audit events list, got %d body=%s", resp.StatusCode, body)
+	}
+	var policyAudit struct {
+		Events []AuditEvent `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(body), &policyAudit); err != nil {
+		t.Fatalf("failed to decode policy/ruleset audit events: %v body=%s", err, body)
+	}
+	policyUpdatedFound := false
+	rulesetUpdatedFound := false
+	for _, event := range policyAudit.Events {
+		if event.EventType == "policy_updated" && event.ScanID == "baseline-prod@v1" {
+			policyUpdatedFound = true
+		}
+		if event.EventType == "ruleset_updated" && event.ScanID == "2026.02.17" {
+			rulesetUpdatedFound = true
+		}
+	}
+	if !policyUpdatedFound || !rulesetUpdatedFound {
+		t.Fatalf("expected policy/ruleset audit references, policy=%v ruleset=%v events=%v", policyUpdatedFound, rulesetUpdatedFound, policyAudit.Events)
+	}
+
 	// Duplicate policy version should be rejected deterministically.
 	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/policies/baseline-prod/versions", map[string]any{
 		"version": "v1",
@@ -1150,6 +1177,33 @@ func TestAPIKeyLifecycleEndpoints(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for revoked key, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Audit stream should include key lifecycle events with key id references.
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for audit events, got %d body=%s", resp.StatusCode, body)
+	}
+	var lifecycleAudit struct {
+		Events []AuditEvent `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(body), &lifecycleAudit); err != nil {
+		t.Fatalf("failed to decode audit events response: %v body=%s", err, body)
+	}
+	issuedFound := false
+	revokedFound := false
+	for _, event := range lifecycleAudit.Events {
+		if event.EventType == "api_key_issued" && event.ScanID == created.ID {
+			issuedFound = true
+		}
+		if event.EventType == "api_key_revoked" && event.ScanID == created.ID {
+			revokedFound = true
+		}
+	}
+	if !issuedFound || !revokedFound {
+		t.Fatalf("expected lifecycle audit events with key id reference, issued=%v revoked=%v events=%v", issuedFound, revokedFound, lifecycleAudit.Events)
 	}
 
 	// Bootstrap key revocation should be rejected.

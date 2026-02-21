@@ -112,6 +112,7 @@ baseline api verify-prod --strict
 - `GET /assets/dashboard.css`
 - `GET /assets/dashboard.js`
 - `GET /openapi.yaml`
+- `GET /metrics`
 - `GET /healthz` and `GET /livez`
 - `GET /readyz`
 - `POST|GET|DELETE /v1/auth/session`
@@ -181,6 +182,58 @@ Env files are auto-loaded in this order:
 `BASELINE_API_ENV_FILE` (if set), `.env.production`, `.env`, `api.env`.
 
 For managed API key rotation, use `scripts/api-key-rotate.ps1`.
+
+### Operator Runbook (Quick Ops)
+
+1. Start API with explicit config:
+
+```bash
+baseline api serve --addr :8080
+```
+
+2. Verify liveness and readiness:
+
+```bash
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+```
+
+3. Check operational metrics:
+
+```bash
+curl http://127.0.0.1:8080/metrics
+```
+
+4. Confirm auth and dashboard payload path:
+
+```bash
+curl -H "Authorization: Bearer <admin_key>" http://127.0.0.1:8080/v1/dashboard
+```
+
+5. Inspect recent audit trail:
+
+```bash
+curl -H "Authorization: Bearer <admin_key>" "http://127.0.0.1:8080/v1/audit/events?limit=20"
+```
+
+6. Rotate/revoke managed API keys:
+
+```powershell
+.\scripts\api-key-rotate.ps1 `
+  -ApiBaseUrl http://127.0.0.1:8080 `
+  -AdminApiKey "<admin_key>" `
+  -Role operator `
+  -Name "ops-rotation-01" `
+  -RevokeKeyId "<old_key_id>"
+```
+
+7. Production preflight:
+
+```bash
+baseline api verify-prod --strict
+go test ./...
+baseline check
+```
 
 ## Dashboard Options
 

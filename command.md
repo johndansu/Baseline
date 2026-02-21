@@ -68,3 +68,38 @@ baseline check
 baseline report --json
 baseline report --sarif
 ```
+
+## Operator Runbook (API Ops)
+```bash
+# 1) start service
+baseline api serve --addr :8080
+
+# 2) basic health/readiness
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+
+# 3) operational metrics
+curl http://127.0.0.1:8080/metrics
+
+# 4) dashboard summary probe
+curl -H "Authorization: Bearer <admin_key>" \
+  http://127.0.0.1:8080/v1/dashboard
+
+# 5) audit stream probe
+curl -H "Authorization: Bearer <admin_key>" \
+  "http://127.0.0.1:8080/v1/audit/events?limit=20"
+```
+
+## Incident Triage Quick Checks
+```bash
+# readiness dependency detail
+curl http://127.0.0.1:8080/readyz
+
+# inspect recent failing scan reports
+curl -H "Authorization: Bearer <admin_key>" \
+  "http://127.0.0.1:8080/v1/scans?project_id=<project_id>"
+
+# fetch SARIF for one scan
+curl -H "Authorization: Bearer <admin_key>" \
+  "http://127.0.0.1:8080/v1/scans/<scan_id>/report?format=sarif"
+```

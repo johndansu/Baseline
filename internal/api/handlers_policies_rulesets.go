@@ -109,6 +109,7 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 			s.policies[policyName] = append(existing, item)
 			s.appendEventLocked(AuditEvent{
 				EventType: "policy_updated",
+				ScanID:    policyName + "@" + version,
 				CreatedAt: time.Now().UTC(),
 			})
 			s.dataMu.Unlock()
@@ -208,6 +209,7 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 		s.rulesets = append(s.rulesets, item)
 		s.appendEventLocked(AuditEvent{
 			EventType: "ruleset_updated",
+			ScanID:    version,
 			CreatedAt: time.Now().UTC(),
 		})
 		s.dataMu.Unlock()
