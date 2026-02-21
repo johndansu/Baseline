@@ -13,7 +13,7 @@ permissions:
   security-events: write
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.24.13"
   GOSEC_VERSION: "v2.21.4"
   GOVULNCHECK_VERSION: "v1.1.4"
 

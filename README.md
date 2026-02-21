@@ -17,7 +17,7 @@ This README reflects what is currently implemented in this repository.
 
 ## Requirements
 
-- Go `1.24+` (see `go.mod`)
+- Go `1.24.13+` (or Go `1.25+`) (see `go.mod`)
 - Git installed and available in PATH
 - Optional:
   - Ollama, or OpenRouter API access (for `baseline generate` and `baseline pr`)
