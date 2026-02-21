@@ -26,6 +26,8 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: OpenAPI drift fix for liveness alias (`/livez`) in `internal/api/assets/openapi.yaml`.
 - In progress: `server.go` decomposition (handlers + router + middleware + errors extraction completed; remaining file-size reduction still pending).
 - Completed: Versioned SQLite migration runner with legacy upgrade coverage (`internal/api/store.go`, `internal/api/store_migration_test.go`).
+- Completed: API key hash-at-rest migration with keyed hashing support and compatibility tests.
+- Completed: Middleware rate limits and abuse controls for unauth/authenticated/auth endpoints with deterministic `429` behavior.
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
@@ -70,13 +72,13 @@ Done when:
 - Old DB files upgrade safely and all queries remain performant under basic load tests.
 
 ## Phase 3: Security Hardening (Week 2-3)
-- [ ] Move API key storage from plaintext to hashed-at-rest in `internal/api/store.go`.
-- [ ] Preserve one-time key return semantics at creation endpoints in `internal/api/server.go`.
+- [x] Move API key storage from plaintext to hashed-at-rest in `internal/api/store.go`.
+- [x] Preserve one-time key return semantics at creation endpoints in `internal/api/server.go`.
 - [ ] Enforce RBAC on all mutating routes (admin-only where required).
-- [ ] Add request rate limits in middleware (`internal/api/middleware.go`).
-- [ ] Enforce strict body limits and payload validation (`internal/api/server.go`, `internal/api/config.go`).
-- [ ] Ensure secure default headers and cookie settings for dashboard sessions (`internal/api/middleware.go`).
-- [ ] Extend tests for auth/RBAC/rate-limit/validation in `internal/api/server_test.go`.
+- [x] Add request rate limits in middleware (`internal/api/middleware.go`).
+- [x] Enforce strict body limits and payload validation (`internal/api/server.go`, `internal/api/config.go`).
+- [x] Ensure secure default headers and cookie settings for dashboard sessions (`internal/api/middleware.go`).
+- [x] Extend tests for auth/RBAC/rate-limit/validation in `internal/api/server_test.go`.
 
 Done when:
 - Key exfiltration risk is reduced and auth failures are deterministic.

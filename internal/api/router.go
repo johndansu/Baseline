@@ -16,6 +16,9 @@ func (s *Server) Handler() http.Handler {
 			writeError(w, http.StatusForbidden, "https_required", "HTTPS is required")
 			return
 		}
+		if !s.allowRequestByRateLimit(w, r) {
+			return
+		}
 		s.route(w, r)
 	})
 }

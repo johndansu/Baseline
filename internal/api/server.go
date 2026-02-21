@@ -43,6 +43,9 @@ type Server struct {
 	keysByID  map[string]APIKeyMetadata
 	sessionMu sync.RWMutex
 	sessions  map[string]dashboardSession
+	rateMu    sync.Mutex
+	rateState map[string]rateWindowCounter
+	rateSweep time.Time
 
 	dataMu   sync.RWMutex
 	projects []Project
@@ -66,6 +69,24 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	}
 	if config.DashboardSessionTTL <= 0 {
 		config.DashboardSessionTTL = 12 * time.Hour
+	}
+	if config.RateLimitRequests <= 0 {
+		config.RateLimitRequests = 120
+	}
+	if config.RateLimitWindow <= 0 {
+		config.RateLimitWindow = 1 * time.Minute
+	}
+	if config.AuthRateLimitRequests <= 0 {
+		config.AuthRateLimitRequests = 20
+	}
+	if config.AuthRateLimitWindow <= 0 {
+		config.AuthRateLimitWindow = 1 * time.Minute
+	}
+	if config.UnauthRateLimitRequests <= 0 {
+		config.UnauthRateLimitRequests = 30
+	}
+	if config.UnauthRateLimitWindow <= 0 {
+		config.UnauthRateLimitWindow = 1 * time.Minute
 	}
 	if !config.SelfServiceEnabled && len(config.APIKeys) == 0 && !config.DashboardSessionEnabled {
 		return nil, errors.New("no API keys configured. Set BASELINE_API_KEY/BASELINE_API_KEYS or enable BASELINE_API_DASHBOARD_SESSION_ENABLED")
@@ -102,6 +123,7 @@ func NewServer(config Config, store *Store) (*Server, error) {
 		keyHashes: map[string]string{},
 		keysByID:  map[string]APIKeyMetadata{},
 		sessions:  map[string]dashboardSession{},
+		rateState: map[string]rateWindowCounter{},
 		projects:  []Project{},
 		scans:     []ScanSummary{},
 		policies:  map[string][]PolicyVersion{},

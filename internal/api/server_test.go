@@ -337,6 +337,115 @@ func TestUnauthorizedResponseIncludesBearerChallenge(t *testing.T) {
 	}
 }
 
+func TestUnauthenticatedRequestsAreRateLimited(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.RateLimitEnabled = true
+	cfg.UnauthRateLimitRequests = 2
+	cfg.UnauthRateLimitWindow = 1 * time.Hour
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	for i := 0; i < 2; i++ {
+		resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, nil)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected 401 before unauth rate cap, got %d body=%s", resp.StatusCode, body)
+		}
+	}
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, nil)
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after unauth rate cap, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "rate_limited") {
+		t.Fatalf("expected rate_limited error code, body=%s", body)
+	}
+	if strings.TrimSpace(resp.Header.Get("Retry-After")) == "" {
+		t.Fatalf("expected Retry-After header on 429 response")
+	}
+}
+
+func TestAuthEndpointsUseDedicatedRateLimit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.SelfServiceEnabled = true
+	cfg.EnrollmentTokens = map[string]Role{
+		"valid-token": RoleViewer,
+	}
+	cfg.RateLimitEnabled = true
+	cfg.AuthRateLimitRequests = 1
+	cfg.AuthRateLimitWindow = 1 * time.Hour
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/register", map[string]string{
+		"enrollment_token": "bad-token",
+	}, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for invalid enrollment token, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/register", map[string]string{
+		"enrollment_token": "bad-token",
+	}, nil)
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 on second auth endpoint hit, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "rate_limited") {
+		t.Fatalf("expected rate_limited error code, body=%s", body)
+	}
+}
+
+func TestAuthenticatedRequestsAreRateLimited(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.RateLimitEnabled = true
+	cfg.RateLimitRequests = 1
+	cfg.RateLimitWindow = 1 * time.Hour
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for first authenticated request, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 for second authenticated request, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "rate_limited") {
+		t.Fatalf("expected rate_limited error code, body=%s", body)
+	}
+}
+
 func TestSessionMutationRequiresCSRFHeader(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DashboardSessionEnabled = true
