@@ -17,7 +17,7 @@ This README reflects what is currently implemented in this repository.
 
 ## Requirements
 
-- Go `1.24+` (see `go.mod`)
+- Go `1.24.13+` (or Go `1.25+`) (see `go.mod`)
 - Git installed and available in PATH
 - Optional:
   - Ollama, or OpenRouter API access (for `baseline generate` and `baseline pr`)
@@ -36,7 +36,7 @@ go build -o baseline.exe ./cmd/baseline
 - `baseline enforce` - enforcement-focused output; blocks on violations.
 - `baseline scan` - run comprehensive scan summary (files/security/violations).
 - `baseline init` - create `.baseline/config.yaml`.
-- `baseline report` - output scan results (`--json` supported).
+- `baseline report` - output scan results (`--text`, `--json`, `--sarif`).
 - `baseline explain <policy_id>` - explain current status + remediation for one policy.
 - `baseline generate` - generate scaffolded fixes for certain violations via configured AI provider.
 - `baseline pr` - generate fixes, commit/push branch, and try `gh pr create`.
@@ -55,8 +55,8 @@ go build -o baseline.exe ./cmd/baseline
 
 Baseline currently runs these checks (IDs from `internal/types/types.go`):
 
-- `A1` protected primary branch exists (`main` or `master` present).
-- `B1` CI pipeline config exists.
+- `A1` primary branch protection is verified (PR-required and direct push restrictions), using GitHub API when available and config fallback when needed.
+- `B1` CI workflows must run on pull requests and execute automated tests in PR-triggered jobs.
 - `C1` automated tests exist.
 - `D1` no plaintext secrets/token patterns in scannable files.
 - `E1` dependency management files exist.
@@ -72,6 +72,10 @@ Baseline currently runs these checks (IDs from `internal/types/types.go`):
 Notes:
 - Most violations are `block`.
 - Dockerfile use of `:latest` is currently reported as `warn`.
+
+## Command Reference
+
+For a concise day-to-day command list, see `command.md`.
 
 ## API Server
 
@@ -108,6 +112,7 @@ baseline api verify-prod --strict
 - `GET /assets/dashboard.css`
 - `GET /assets/dashboard.js`
 - `GET /openapi.yaml`
+- `GET /metrics`
 - `GET /healthz` and `GET /livez`
 - `GET /readyz`
 - `POST|GET|DELETE /v1/auth/session`
@@ -139,6 +144,7 @@ baseline api verify-prod --strict
 - `BASELINE_API_DB_PATH`
 - `BASELINE_API_KEY`
 - `BASELINE_API_KEYS`
+- `BASELINE_API_KEY_HASH_SECRET`
 - `BASELINE_API_REQUIRE_HTTPS`
 - `BASELINE_API_SELF_SERVICE_ENABLED`
 - `BASELINE_API_ENROLLMENT_TOKENS`
@@ -163,10 +169,71 @@ baseline api verify-prod --strict
 - `BASELINE_API_GITHUB_API_URL`
 - `BASELINE_API_GITLAB_TOKEN`
 - `BASELINE_API_GITLAB_API_URL`
+- `BASELINE_API_RATE_LIMIT_ENABLED`
+- `BASELINE_API_RATE_LIMIT_REQUESTS`
+- `BASELINE_API_RATE_LIMIT_WINDOW_SECONDS`
+- `BASELINE_API_AUTH_RATE_LIMIT_REQUESTS`
+- `BASELINE_API_AUTH_RATE_LIMIT_WINDOW_SECONDS`
+- `BASELINE_API_UNAUTH_RATE_LIMIT_REQUESTS`
+- `BASELINE_API_UNAUTH_RATE_LIMIT_WINDOW_SECONDS`
 - `BASELINE_API_AI_ENABLED`
 
 Env files are auto-loaded in this order:
 `BASELINE_API_ENV_FILE` (if set), `.env.production`, `.env`, `api.env`.
+
+For managed API key rotation, use `scripts/api-key-rotate.ps1`.
+
+### Operator Runbook (Quick Ops)
+
+1. Start API with explicit config:
+
+```bash
+baseline api serve --addr :8080
+```
+
+2. Verify liveness and readiness:
+
+```bash
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+```
+
+3. Check operational metrics:
+
+```bash
+curl http://127.0.0.1:8080/metrics
+```
+
+4. Confirm auth and dashboard payload path:
+
+```bash
+curl -H "Authorization: Bearer <admin_key>" http://127.0.0.1:8080/v1/dashboard
+```
+
+5. Inspect recent audit trail:
+
+```bash
+curl -H "Authorization: Bearer <admin_key>" "http://127.0.0.1:8080/v1/audit/events?limit=20"
+```
+
+6. Rotate/revoke managed API keys:
+
+```powershell
+.\scripts\api-key-rotate.ps1 `
+  -ApiBaseUrl http://127.0.0.1:8080 `
+  -AdminApiKey "<admin_key>" `
+  -Role operator `
+  -Name "ops-rotation-01" `
+  -RevokeKeyId "<old_key_id>"
+```
+
+7. Production preflight:
+
+```bash
+baseline api verify-prod --strict
+go test ./...
+baseline check
+```
 
 ## Dashboard Options
 
@@ -235,6 +302,14 @@ AI is not used to decide enforcement outcomes. Review generated content before m
 ```bash
 go test ./...
 ```
+
+## Release Integrity
+
+Release artifacts are hardened in CI:
+
+- `SHA256SUMS` is generated for release binaries.
+- Binaries and checksums are keylessly signed with Sigstore Cosign.
+- Signatures (`.sig`) and certificates (`.pem`) are uploaded with release assets.
 
 ## Security
 

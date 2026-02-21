@@ -39,16 +39,23 @@ type Server struct {
 
 	authMu    sync.RWMutex
 	keyIndex  map[string]string
+	keyHashes map[string]string
 	keysByID  map[string]APIKeyMetadata
 	sessionMu sync.RWMutex
 	sessions  map[string]dashboardSession
+	rateMu    sync.Mutex
+	rateState map[string]rateWindowCounter
+	rateSweep time.Time
 
-	dataMu   sync.RWMutex
-	projects []Project
-	scans    []ScanSummary
-	policies map[string][]PolicyVersion
-	rulesets []RulesetVersion
-	events   []AuditEvent
+	dataMu               sync.RWMutex
+	projects             []Project
+	scans                []ScanSummary
+	scanIdempotency      map[string]scanIdempotencyEntry
+	scanIdempotencyTTL   time.Duration
+	scanIdempotencySweep time.Time
+	policies             map[string][]PolicyVersion
+	rulesets             []RulesetVersion
+	events               []AuditEvent
 
 	workerMu                sync.Mutex
 	workerCancel            context.CancelFunc
@@ -66,6 +73,24 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	if config.DashboardSessionTTL <= 0 {
 		config.DashboardSessionTTL = 12 * time.Hour
 	}
+	if config.RateLimitRequests <= 0 {
+		config.RateLimitRequests = 120
+	}
+	if config.RateLimitWindow <= 0 {
+		config.RateLimitWindow = 1 * time.Minute
+	}
+	if config.AuthRateLimitRequests <= 0 {
+		config.AuthRateLimitRequests = 20
+	}
+	if config.AuthRateLimitWindow <= 0 {
+		config.AuthRateLimitWindow = 1 * time.Minute
+	}
+	if config.UnauthRateLimitRequests <= 0 {
+		config.UnauthRateLimitRequests = 30
+	}
+	if config.UnauthRateLimitWindow <= 0 {
+		config.UnauthRateLimitWindow = 1 * time.Minute
+	}
 	if !config.SelfServiceEnabled && len(config.APIKeys) == 0 && !config.DashboardSessionEnabled {
 		return nil, errors.New("no API keys configured. Set BASELINE_API_KEY/BASELINE_API_KEYS or enable BASELINE_API_DASHBOARD_SESSION_ENABLED")
 	}
@@ -77,6 +102,9 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	}
 	if config.APIKeys == nil {
 		config.APIKeys = map[string]Role{}
+	}
+	if store != nil {
+		store.SetAPIKeyHashSecret(config.APIKeyHashSecret)
 	}
 	copiedAPIKeys := make(map[string]Role, len(config.APIKeys))
 	for key, role := range config.APIKeys {
@@ -91,16 +119,20 @@ func NewServer(config Config, store *Store) (*Server, error) {
 
 	now := time.Now().UTC()
 	s := &Server{
-		config:   config,
-		store:    store,
-		client:   &http.Client{Timeout: 10 * time.Second},
-		keyIndex: map[string]string{},
-		keysByID: map[string]APIKeyMetadata{},
-		sessions: map[string]dashboardSession{},
-		projects: []Project{},
-		scans:    []ScanSummary{},
-		policies: map[string][]PolicyVersion{},
-		rulesets: []RulesetVersion{},
+		config:             config,
+		store:              store,
+		client:             &http.Client{Timeout: 10 * time.Second},
+		keyIndex:           map[string]string{},
+		keyHashes:          map[string]string{},
+		keysByID:           map[string]APIKeyMetadata{},
+		sessions:           map[string]dashboardSession{},
+		rateState:          map[string]rateWindowCounter{},
+		projects:           []Project{},
+		scans:              []ScanSummary{},
+		scanIdempotency:    map[string]scanIdempotencyEntry{},
+		scanIdempotencyTTL: 24 * time.Hour,
+		policies:           map[string][]PolicyVersion{},
+		rulesets:           []RulesetVersion{},
 		events: []AuditEvent{
 			{EventType: "dashboard_initialized", CreatedAt: now},
 		},
@@ -109,10 +141,11 @@ func NewServer(config Config, store *Store) (*Server, error) {
 		integrationRetryMax:     30 * time.Second,
 	}
 	for key, role := range config.APIKeys {
-		id := nextKeyID()
-		if id == "" {
-			id = "key_bootstrap"
+		keyHash := hashAPIKey(key, config.APIKeyHashSecret)
+		if keyHash == "" {
+			continue
 		}
+		id := bootstrapKeyID(legacyAPIKeyHash(key))
 		for {
 			if _, exists := s.keysByID[id]; !exists {
 				break
@@ -124,6 +157,7 @@ func NewServer(config Config, store *Store) (*Server, error) {
 			}
 		}
 		s.keyIndex[key] = id
+		s.keyHashes[keyHash] = id
 		s.keysByID[id] = APIKeyMetadata{
 			ID:        id,
 			Role:      role,
@@ -147,21 +181,6 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	return s, nil
 }
 
-// Handler returns the API HTTP handler.
-func (s *Server) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.applySecurityHeaders(w, r)
-		if s.handleCORS(w, r) {
-			return
-		}
-		if s.config.RequireHTTPS && !s.isRequestSecure(r) {
-			writeError(w, http.StatusForbidden, "https_required", "HTTPS is required")
-			return
-		}
-		s.route(w, r)
-	})
-}
-
 // ListenAndServe starts serving API requests.
 func (s *Server) ListenAndServe() error {
 	s.startIntegrationWorker()
@@ -176,223 +195,6 @@ func (s *Server) ListenAndServe() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.stopIntegrationWorker()
 	return s.httpServer.Shutdown(ctx)
-}
-
-func (s *Server) route(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/", "/dashboard", "/dashboard/", "/assets/baseline-logo.png", "/assets/dashboard.css", "/assets/dashboard.js":
-		s.handleDashboard(w, r)
-		return
-	case "/openapi.yaml":
-		s.handleOpenAPI(w, r)
-		return
-	case "/healthz", "/livez":
-		s.handleHealth(w, r)
-		return
-	case "/readyz":
-		s.handleReady(w, r)
-		return
-	}
-
-	switch {
-	case strings.HasPrefix(r.URL.Path, "/v1/auth/session"):
-		s.handleAuthSession(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/auth/register"):
-		s.handleAuthRegister(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/api-keys"):
-		s.handleAPIKeys(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/integrations/github/webhook"):
-		s.handleGitHubWebhook(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/webhook"):
-		s.handleGitLabWebhook(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/integrations/github/check-runs"):
-		s.handleGitHubCheckRuns(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/statuses"):
-		s.handleGitLabStatuses(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/dashboard"):
-		s.handleDashboardSummary(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/projects"):
-		s.handleProjects(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/scans"):
-		s.handleScans(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/policies"):
-		s.handlePolicies(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/rulesets"):
-		s.handleRulesets(w, r)
-	case strings.HasPrefix(r.URL.Path, "/v1/audit/events"):
-		s.handleAuditEvents(w, r)
-	default:
-		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
-	}
-}
-
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status": "ok",
-	})
-}
-
-func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status": "ready",
-	})
-}
-
-func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
-	if !s.config.DashboardSessionEnabled {
-		writeError(w, http.StatusForbidden, "session_disabled", "dashboard session auth is disabled")
-		return
-	}
-
-	switch r.Method {
-	case http.MethodPost:
-		if !s.requestBodyAllowed(w, r) {
-			return
-		}
-		user := "local_dashboard"
-		role := s.config.DashboardSessionRole
-		if s.config.DashboardAuthProxyEnabled && s.config.TrustProxyHeaders {
-			if v := strings.TrimSpace(r.Header.Get(s.config.DashboardAuthProxyUserHeader)); v != "" {
-				user = v
-			}
-			if v := strings.ToLower(strings.TrimSpace(r.Header.Get(s.config.DashboardAuthProxyRoleHeader))); v != "" {
-				candidate := Role(v)
-				if isValidRole(candidate) {
-					role = candidate
-				}
-			}
-		}
-
-		secureCookie := s.shouldUseSecureSessionCookie(r)
-		if secureCookie && !s.isRequestSecure(r) {
-			writeError(w, http.StatusForbidden, "https_required", "secure dashboard sessions require HTTPS")
-			return
-		}
-		token := randomToken(32)
-		if token == "" {
-			writeError(w, http.StatusInternalServerError, "system_error", "unable to create dashboard session")
-			return
-		}
-		s.sessionMu.Lock()
-		s.sessions[token] = dashboardSession{
-			Role:      role,
-			User:      user,
-			ExpiresAt: time.Now().UTC().Add(s.config.DashboardSessionTTL),
-		}
-		s.sessionMu.Unlock()
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     dashboardSessionCookieName,
-			Value:    token,
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
-			Secure:   secureCookie,
-			Expires:  time.Now().UTC().Add(s.config.DashboardSessionTTL),
-		})
-
-		writeJSON(w, http.StatusCreated, map[string]any{
-			"user":      user,
-			"role":      role,
-			"auth_mode": s.dashboardAuthMode(),
-			"active":    true,
-		})
-	case http.MethodGet:
-		session, err := s.getDashboardSession(r)
-		if err != nil {
-			writeUnauthorized(w, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"user":      session.User,
-			"role":      session.Role,
-			"auth_mode": s.dashboardAuthMode(),
-			"active":    true,
-		})
-	case http.MethodDelete:
-		if !s.validCSRFSentinel(r) {
-			writeError(w, http.StatusForbidden, "csrf_failed", "missing required CSRF header")
-			return
-		}
-		cookie, _ := r.Cookie(dashboardSessionCookieName)
-		if cookie != nil && cookie.Value != "" {
-			s.sessionMu.Lock()
-			delete(s.sessions, cookie.Value)
-			s.sessionMu.Unlock()
-		}
-		secureCookie := s.shouldUseSecureSessionCookie(r)
-		http.SetCookie(w, &http.Cookie{
-			Name:     dashboardSessionCookieName,
-			Value:    "",
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
-			Secure:   secureCookie,
-			MaxAge:   -1,
-			Expires:  time.Unix(0, 0),
-		})
-		writeJSON(w, http.StatusOK, map[string]any{"active": false})
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-	}
-}
-
-func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-	if !s.requestBodyAllowed(w, r) {
-		return
-	}
-	if !s.config.SelfServiceEnabled {
-		writeError(w, http.StatusForbidden, "self_service_disabled", "self-service registration is disabled")
-		return
-	}
-	var req struct {
-		EnrollmentToken string `json:"enrollment_token"`
-		APIKey          string `json:"api_key,omitempty"`
-	}
-	if !s.decodeJSONBody(w, r, &req) {
-		return
-	}
-	token := strings.TrimSpace(req.EnrollmentToken)
-	if token == "" {
-		writeError(w, http.StatusBadRequest, "bad_request", "enrollment_token is required")
-		return
-	}
-	role, ok := s.config.EnrollmentTokens[token]
-	if !ok {
-		writeError(w, http.StatusForbidden, "forbidden", "invalid enrollment token")
-		return
-	}
-	key, metadata, err := s.issueAPIKey(role, "self-service", "self_service", "enrollment_token")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "system_error", "unable to generate API key")
-		return
-	}
-	s.dataMu.Lock()
-	s.appendEventLocked(AuditEvent{
-		EventType: "api_key_issued",
-		CreatedAt: time.Now().UTC(),
-	})
-	s.dataMu.Unlock()
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":        metadata.ID,
-		"name":      metadata.Name,
-		"role":      role,
-		"prefix":    metadata.Prefix,
-		"api_key":   key,
-		"auth_mode": "api_key",
-	})
 }
 
 func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
@@ -464,6 +266,7 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		s.dataMu.Lock()
 		s.appendEventLocked(AuditEvent{
 			EventType: "api_key_issued",
+			ScanID:    metadata.ID,
 			CreatedAt: time.Now().UTC(),
 		})
 		s.dataMu.Unlock()
@@ -525,6 +328,12 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		metadata.Revoked = true
 		metadata.RevokedAt = &now
 		s.keysByID[pathSuffix] = metadata
+		for keyHash, id := range s.keyHashes {
+			if id == pathSuffix {
+				delete(s.keyHashes, keyHash)
+				break
+			}
+		}
 		for key, id := range s.keyIndex {
 			if id != pathSuffix {
 				continue
@@ -538,6 +347,7 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		s.dataMu.Lock()
 		s.appendEventLocked(AuditEvent{
 			EventType: "api_key_revoked",
+			ScanID:    metadata.ID,
 			CreatedAt: now,
 		})
 		s.dataMu.Unlock()
@@ -940,567 +750,6 @@ func (s *Server) handleGitLabStatuses(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-	if _, err := s.authenticate(r); err != nil {
-		writeUnauthorized(w, err.Error())
-		return
-	}
-
-	s.dataMu.RLock()
-	projects := append([]Project(nil), s.projects...)
-	scans := append([]ScanSummary(nil), s.scans...)
-	events := append([]AuditEvent(nil), s.events...)
-	policies := clonePoliciesLocked(s.policies)
-	s.dataMu.RUnlock()
-
-	violations := map[string]int{}
-	failingScans := 0
-	blocking := 0
-	for _, scan := range scans {
-		if strings.EqualFold(scan.Status, "fail") {
-			failingScans++
-		}
-		for _, v := range scan.Violations {
-			policyID := strings.TrimSpace(v.PolicyID)
-			if policyID == "" {
-				policyID = "unknown"
-			}
-			violations[policyID]++
-			if strings.EqualFold(strings.TrimSpace(v.Severity), "block") {
-				blocking++
-			}
-		}
-	}
-	top := make([]DashboardViolationCount, 0, len(violations))
-	for policyID, count := range violations {
-		top = append(top, DashboardViolationCount{PolicyID: policyID, Count: count})
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"metrics": DashboardMetrics{
-			Projects:           len(projects),
-			Scans:              len(scans),
-			FailingScans:       failingScans,
-			BlockingViolations: blocking,
-		},
-		"recent_scans":   scans,
-		"top_violations": top,
-		"recent_events":  events,
-		"policies":       summarizePolicies(policies),
-	})
-}
-
-func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
-	projectID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/projects"))
-	projectID = strings.TrimPrefix(projectID, "/")
-
-	switch r.Method {
-	case http.MethodGet:
-		if _, err := s.authenticate(r); err != nil {
-			writeUnauthorized(w, err.Error())
-			return
-		}
-		s.dataMu.RLock()
-		projects := append([]Project(nil), s.projects...)
-		s.dataMu.RUnlock()
-
-		if projectID != "" {
-			for _, project := range projects {
-				if project.ID == projectID {
-					writeJSON(w, http.StatusOK, project)
-					return
-				}
-			}
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
-	case http.MethodPost:
-		if projectID != "" {
-			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
-			return
-		}
-		if !s.requestBodyAllowed(w, r) {
-			return
-		}
-		role, authSource, err := s.authenticateWithSource(r)
-		if err != nil {
-			writeUnauthorized(w, err.Error())
-			return
-		}
-		if !s.enforceSessionCSRF(w, r, authSource) {
-			return
-		}
-		if role == RoleViewer {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
-			return
-		}
-		var req struct {
-			ID            string `json:"id"`
-			Name          string `json:"name"`
-			RepositoryURL string `json:"repository_url"`
-			DefaultBranch string `json:"default_branch"`
-			PolicySet     string `json:"policy_set"`
-		}
-		if !s.decodeJSONBody(w, r, &req) {
-			return
-		}
-		if strings.TrimSpace(req.Name) == "" {
-			writeError(w, http.StatusBadRequest, "bad_request", "project name is required")
-			return
-		}
-		project := Project{
-			ID:            strings.TrimSpace(req.ID),
-			Name:          strings.TrimSpace(req.Name),
-			RepositoryURL: strings.TrimSpace(req.RepositoryURL),
-			DefaultBranch: strings.TrimSpace(req.DefaultBranch),
-			PolicySet:     strings.TrimSpace(req.PolicySet),
-		}
-		if project.ID == "" {
-			project.ID = randomToken(8)
-		}
-		if project.DefaultBranch == "" {
-			project.DefaultBranch = "main"
-		}
-		if project.PolicySet == "" {
-			project.PolicySet = "baseline:prod"
-		}
-		s.dataMu.Lock()
-		s.projects = append(s.projects, project)
-		s.appendEventLocked(AuditEvent{
-			EventType: "project_registered",
-			ProjectID: project.ID,
-			CreatedAt: time.Now().UTC(),
-		})
-		s.dataMu.Unlock()
-		writeJSON(w, http.StatusCreated, project)
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-	}
-}
-
-func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
-	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/scans")
-	pathSuffix = strings.Trim(pathSuffix, "/")
-
-	switch r.Method {
-	case http.MethodGet:
-		if _, err := s.authenticate(r); err != nil {
-			writeUnauthorized(w, err.Error())
-			return
-		}
-
-		if strings.HasSuffix(pathSuffix, "/report") {
-			scanID := strings.TrimSuffix(pathSuffix, "/report")
-			scanID = strings.TrimSuffix(scanID, "/")
-			if strings.TrimSpace(scanID) == "" {
-				writeError(w, http.StatusNotFound, "not_found", "scan not found")
-				return
-			}
-			s.handleScanReport(w, r, scanID)
-			return
-		}
-
-		s.dataMu.RLock()
-		scans := append([]ScanSummary(nil), s.scans...)
-		s.dataMu.RUnlock()
-
-		if strings.TrimSpace(pathSuffix) != "" {
-			for _, scan := range scans {
-				if scan.ID == pathSuffix {
-					writeJSON(w, http.StatusOK, scan)
-					return
-				}
-			}
-			writeError(w, http.StatusNotFound, "not_found", "scan not found")
-			return
-		}
-
-		projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
-		if projectID != "" {
-			filtered := make([]ScanSummary, 0, len(scans))
-			for _, scan := range scans {
-				if scan.ProjectID == projectID {
-					filtered = append(filtered, scan)
-				}
-			}
-			scans = filtered
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{"scans": scans})
-	case http.MethodPost:
-		if strings.TrimSpace(pathSuffix) != "" {
-			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
-			return
-		}
-		if !s.requestBodyAllowed(w, r) {
-			return
-		}
-		role, authSource, err := s.authenticateWithSource(r)
-		if err != nil {
-			writeUnauthorized(w, err.Error())
-			return
-		}
-		if !s.enforceSessionCSRF(w, r, authSource) {
-			return
-		}
-		if role == RoleViewer {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
-			return
-		}
-
-		var req struct {
-			ID         string          `json:"id"`
-			ProjectID  string          `json:"project_id"`
-			CommitSHA  string          `json:"commit_sha"`
-			Status     string          `json:"status"`
-			Violations []ScanViolation `json:"violations"`
-		}
-		if !s.decodeJSONBody(w, r, &req) {
-			return
-		}
-		if strings.TrimSpace(req.ProjectID) == "" {
-			writeError(w, http.StatusBadRequest, "bad_request", "project_id is required")
-			return
-		}
-		projectExists := false
-		s.dataMu.RLock()
-		for _, project := range s.projects {
-			if project.ID == strings.TrimSpace(req.ProjectID) {
-				projectExists = true
-				break
-			}
-		}
-		s.dataMu.RUnlock()
-		if !projectExists {
-			writeError(w, http.StatusBadRequest, "bad_request", "project_id does not exist")
-			return
-		}
-		status := strings.ToLower(strings.TrimSpace(req.Status))
-		if status == "" {
-			status = "pass"
-		}
-		if status != "pass" && status != "fail" && status != "warn" {
-			writeError(w, http.StatusBadRequest, "bad_request", "status must be one of pass|fail|warn")
-			return
-		}
-
-		scan := ScanSummary{
-			ID:         strings.TrimSpace(req.ID),
-			ProjectID:  strings.TrimSpace(req.ProjectID),
-			CommitSHA:  strings.TrimSpace(req.CommitSHA),
-			Status:     status,
-			Violations: normalizeViolations(req.Violations),
-			CreatedAt:  time.Now().UTC(),
-		}
-		if scan.ID == "" {
-			scan.ID = randomToken(8)
-		}
-
-		s.dataMu.Lock()
-		s.scans = append([]ScanSummary{scan}, s.scans...)
-		s.appendEventLocked(AuditEvent{
-			EventType: "scan_uploaded",
-			ProjectID: scan.ProjectID,
-			ScanID:    scan.ID,
-			CreatedAt: time.Now().UTC(),
-		})
-		if strings.EqualFold(scan.Status, "fail") {
-			s.appendEventLocked(AuditEvent{
-				EventType: "enforcement_failed",
-				ProjectID: scan.ProjectID,
-				ScanID:    scan.ID,
-				CreatedAt: time.Now().UTC(),
-			})
-		}
-		s.dataMu.Unlock()
-
-		writeJSON(w, http.StatusCreated, scan)
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-	}
-}
-
-func (s *Server) handleScanReport(w http.ResponseWriter, r *http.Request, scanID string) {
-	s.dataMu.RLock()
-	scans := append([]ScanSummary(nil), s.scans...)
-	s.dataMu.RUnlock()
-
-	var scan *ScanSummary
-	for i := range scans {
-		if scans[i].ID == scanID {
-			scan = &scans[i]
-			break
-		}
-	}
-	if scan == nil {
-		writeError(w, http.StatusNotFound, "not_found", "scan not found")
-		return
-	}
-
-	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
-	if format == "" {
-		format = "json"
-	}
-
-	switch format {
-	case "json":
-		writeJSON(w, http.StatusOK, map[string]any{"scan": scan})
-	case "text":
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(renderScanTextReport(*scan)))
-	case "sarif":
-		writeJSON(w, http.StatusOK, renderScanSARIF(*scan))
-	default:
-		writeError(w, http.StatusBadRequest, "bad_request", "unsupported report format; use json|text|sarif")
-	}
-}
-
-func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
-	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/policies")
-	pathSuffix = strings.Trim(pathSuffix, "/")
-
-	role, authSource, err := s.authenticateWithSource(r)
-	if err != nil {
-		writeUnauthorized(w, err.Error())
-		return
-	}
-
-	if pathSuffix == "" {
-		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		s.dataMu.RLock()
-		policies := clonePoliciesLocked(s.policies)
-		s.dataMu.RUnlock()
-		writeJSON(w, http.StatusOK, map[string]any{"policies": summarizePolicies(policies)})
-		return
-	}
-
-	parts := strings.Split(pathSuffix, "/")
-	if len(parts) != 2 {
-		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
-		return
-	}
-	policyName := strings.TrimSpace(parts[0])
-	action := strings.TrimSpace(parts[1])
-	if policyName == "" {
-		writeError(w, http.StatusNotFound, "not_found", "policy not found")
-		return
-	}
-
-	switch action {
-	case "versions":
-		switch r.Method {
-		case http.MethodGet:
-			s.dataMu.RLock()
-			versions := append([]PolicyVersion(nil), s.policies[policyName]...)
-			s.dataMu.RUnlock()
-			writeJSON(w, http.StatusOK, map[string]any{"name": policyName, "versions": versions})
-		case http.MethodPost:
-			if role != RoleAdmin {
-				writeError(w, http.StatusForbidden, "forbidden", "admin role required")
-				return
-			}
-			if !s.requestBodyAllowed(w, r) {
-				return
-			}
-			if !s.enforceSessionCSRF(w, r, authSource) {
-				return
-			}
-			var req struct {
-				Version     string                 `json:"version"`
-				Description string                 `json:"description"`
-				Content     map[string]any         `json:"content"`
-				Metadata    map[string]interface{} `json:"metadata"`
-			}
-			if !s.decodeJSONBody(w, r, &req) {
-				return
-			}
-			version := strings.TrimSpace(req.Version)
-			if version == "" {
-				version = "v" + time.Now().UTC().Format("20060102150405")
-			}
-
-			s.dataMu.Lock()
-			existing := s.policies[policyName]
-			for _, item := range existing {
-				if item.Version == version {
-					s.dataMu.Unlock()
-					writeError(w, http.StatusConflict, "conflict", "policy version already exists")
-					return
-				}
-			}
-			item := PolicyVersion{
-				Name:        policyName,
-				Version:     version,
-				Description: strings.TrimSpace(req.Description),
-				Content:     req.Content,
-				Metadata:    req.Metadata,
-				PublishedAt: time.Now().UTC(),
-				PublishedBy: "api",
-			}
-			s.policies[policyName] = append(existing, item)
-			s.appendEventLocked(AuditEvent{
-				EventType: "policy_updated",
-				CreatedAt: time.Now().UTC(),
-			})
-			s.dataMu.Unlock()
-			writeJSON(w, http.StatusCreated, item)
-		default:
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		}
-	case "latest":
-		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		s.dataMu.RLock()
-		versions := append([]PolicyVersion(nil), s.policies[policyName]...)
-		s.dataMu.RUnlock()
-		if len(versions) == 0 {
-			writeError(w, http.StatusNotFound, "not_found", "policy not found")
-			return
-		}
-		writeJSON(w, http.StatusOK, versions[len(versions)-1])
-	default:
-		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
-	}
-}
-
-func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
-	pathSuffix := strings.TrimPrefix(r.URL.Path, "/v1/rulesets")
-	pathSuffix = strings.Trim(pathSuffix, "/")
-
-	role, authSource, err := s.authenticateWithSource(r)
-	if err != nil {
-		writeUnauthorized(w, err.Error())
-		return
-	}
-
-	if pathSuffix == "" {
-		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		if role != RoleAdmin {
-			writeError(w, http.StatusForbidden, "forbidden", "admin role required")
-			return
-		}
-		if !s.requestBodyAllowed(w, r) {
-			return
-		}
-		if !s.enforceSessionCSRF(w, r, authSource) {
-			return
-		}
-		var req struct {
-			Version     string   `json:"version"`
-			Description string   `json:"description"`
-			PolicyNames []string `json:"policy_names"`
-		}
-		if !s.decodeJSONBody(w, r, &req) {
-			return
-		}
-		version := strings.TrimSpace(req.Version)
-		if version == "" {
-			version = "v" + time.Now().UTC().Format("20060102150405")
-		}
-
-		s.dataMu.Lock()
-		for _, existing := range s.rulesets {
-			if existing.Version == version {
-				s.dataMu.Unlock()
-				writeError(w, http.StatusConflict, "conflict", "ruleset version already exists")
-				return
-			}
-		}
-		item := RulesetVersion{
-			Version:     version,
-			Description: strings.TrimSpace(req.Description),
-			PolicyNames: dedupeNonEmpty(req.PolicyNames),
-			CreatedAt:   time.Now().UTC(),
-			CreatedBy:   "api",
-		}
-		s.rulesets = append(s.rulesets, item)
-		s.appendEventLocked(AuditEvent{
-			EventType: "ruleset_updated",
-			CreatedAt: time.Now().UTC(),
-		})
-		s.dataMu.Unlock()
-		writeJSON(w, http.StatusCreated, item)
-		return
-	}
-
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-
-	s.dataMu.RLock()
-	rulesets := append([]RulesetVersion(nil), s.rulesets...)
-	s.dataMu.RUnlock()
-
-	if pathSuffix == "latest" {
-		if len(rulesets) == 0 {
-			writeError(w, http.StatusNotFound, "not_found", "ruleset not found")
-			return
-		}
-		writeJSON(w, http.StatusOK, rulesets[len(rulesets)-1])
-		return
-	}
-
-	for _, item := range rulesets {
-		if item.Version == pathSuffix {
-			writeJSON(w, http.StatusOK, item)
-			return
-		}
-	}
-	writeError(w, http.StatusNotFound, "not_found", "ruleset not found")
-}
-
-func (s *Server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
-	}
-	if _, err := s.authenticate(r); err != nil {
-		writeUnauthorized(w, err.Error())
-		return
-	}
-
-	projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
-	limitRaw := strings.TrimSpace(r.URL.Query().Get("limit"))
-
-	s.dataMu.RLock()
-	events := append([]AuditEvent(nil), s.events...)
-	s.dataMu.RUnlock()
-
-	if projectID != "" {
-		filtered := make([]AuditEvent, 0, len(events))
-		for _, event := range events {
-			if event.ProjectID == projectID {
-				filtered = append(filtered, event)
-			}
-		}
-		events = filtered
-	}
-
-	if limitRaw != "" {
-		if limit, err := strconv.Atoi(limitRaw); err == nil && limit > 0 && len(events) > limit {
-			events = events[:limit]
-		}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"events": events})
-}
-
 func (s *Server) appendEventLocked(event AuditEvent) {
 	s.events = append([]AuditEvent{event}, s.events...)
 	if len(s.events) > 500 {
@@ -1699,12 +948,23 @@ func (s *Server) loadPersistentState() error {
 		return err
 	}
 	for _, item := range keys {
-		s.keysByID[item.Metadata.ID] = item.Metadata
-		if item.Metadata.Revoked {
-			continue
+		keyHash := normalizeStoredAPIKeyHash(item.KeyHash)
+		if keyHash != "" {
+			if currentID, exists := s.keyHashes[keyHash]; exists && currentID != item.Metadata.ID {
+				delete(s.keysByID, currentID)
+				for rawKey, indexedID := range s.keyIndex {
+					if indexedID == currentID {
+						s.keyIndex[rawKey] = item.Metadata.ID
+					}
+				}
+			}
+			if item.Metadata.Revoked {
+				delete(s.keyHashes, keyHash)
+			} else {
+				s.keyHashes[keyHash] = item.Metadata.ID
+			}
 		}
-		s.keyIndex[item.Key] = item.Metadata.ID
-		s.config.APIKeys[item.Key] = item.Metadata.Role
+		s.keysByID[item.Metadata.ID] = item.Metadata
 	}
 
 	events, err := s.store.LoadAuditEvents(500)
@@ -1874,6 +1134,12 @@ func (s *Server) authenticateWithSource(r *http.Request) (Role, string, error) {
 			if role, ok := s.config.APIKeys[token]; ok {
 				s.authMu.RUnlock()
 				return role, "api_key", nil
+			}
+			if keyID, ok := s.findKeyIDByTokenLocked(token); ok {
+				if metadata, exists := s.keysByID[keyID]; exists && !metadata.Revoked {
+					s.authMu.RUnlock()
+					return metadata.Role, "api_key", nil
+				}
 			}
 			s.authMu.RUnlock()
 		}
@@ -2070,75 +1336,6 @@ func (s *Server) decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any)
 	return true
 }
 
-func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
-	if len(s.config.CORSAllowedOrigins) == 0 {
-		return false
-	}
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" {
-		return false
-	}
-
-	allowed := false
-	for _, candidate := range s.config.CORSAllowedOrigins {
-		if candidate == "*" || strings.EqualFold(strings.TrimSpace(candidate), origin) {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		if r.Method == http.MethodOptions && strings.TrimSpace(r.Header.Get("Access-Control-Request-Method")) != "" {
-			writeError(w, http.StatusForbidden, "cors_forbidden", "origin not allowed")
-			return true
-		}
-		return false
-	}
-
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID, X-Baseline-CSRF")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Add("Vary", "Origin")
-
-	if r.Method == http.MethodOptions && strings.TrimSpace(r.Header.Get("Access-Control-Request-Method")) != "" {
-		w.WriteHeader(http.StatusNoContent)
-		return true
-	}
-	return false
-}
-
-func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Cache-Control", "no-store")
-	if isDashboardPath(r.URL.Path) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
-	} else {
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
-	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{
-		"error": map[string]any{
-			"code":    code,
-			"message": message,
-		},
-	})
-}
-
-func writeUnauthorized(w http.ResponseWriter, message string) {
-	w.Header().Set("WWW-Authenticate", `Bearer realm="baseline-api", error="invalid_token"`)
-	writeError(w, http.StatusUnauthorized, "unauthorized", message)
-}
-
 func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string, APIKeyMetadata, error) {
 	if !isValidRole(role) {
 		return "", APIKeyMetadata{}, errors.New("invalid role")
@@ -2150,6 +1347,9 @@ func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string,
 	}
 	if s.keyIndex == nil {
 		s.keyIndex = map[string]string{}
+	}
+	if s.keyHashes == nil {
+		s.keyHashes = map[string]string{}
 	}
 	if s.keysByID == nil {
 		s.keysByID = map[string]APIKeyMetadata{}
@@ -2164,11 +1364,21 @@ func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string,
 		if _, exists := s.config.APIKeys[candidate]; exists {
 			continue
 		}
+		if s.hasTokenHashCollisionLocked(candidate) {
+			continue
+		}
 		key = candidate
 		break
 	}
 	if key == "" {
 		return "", APIKeyMetadata{}, errors.New("unable to create unique key")
+	}
+	keyHash := hashAPIKey(key, s.config.APIKeyHashSecret)
+	if keyHash == "" {
+		return "", APIKeyMetadata{}, errors.New("unable to hash generated API key")
+	}
+	if s.hasTokenHashCollisionLocked(key) {
+		return "", APIKeyMetadata{}, errors.New("unable to create unique key hash")
 	}
 
 	id := ""
@@ -2200,16 +1410,38 @@ func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string,
 	}
 	s.config.APIKeys[key] = role
 	s.keyIndex[key] = id
+	s.keyHashes[keyHash] = id
 	s.keysByID[id] = metadata
 	if s.store != nil {
 		if err := s.store.UpsertAPIKey(key, metadata); err != nil {
 			delete(s.config.APIKeys, key)
 			delete(s.keyIndex, key)
+			delete(s.keyHashes, keyHash)
 			delete(s.keysByID, id)
 			return "", APIKeyMetadata{}, err
 		}
 	}
 	return key, metadata, nil
+}
+
+func (s *Server) findKeyIDByTokenLocked(token string) (string, bool) {
+	candidates := apiKeyHashCandidates(token, s.config.APIKeyHashSecret)
+	if len(candidates) == 0 {
+		return "", false
+	}
+	for storedHash, keyID := range s.keyHashes {
+		for _, candidate := range candidates {
+			if constantTimeAPIKeyHashEqual(storedHash, candidate) {
+				return keyID, true
+			}
+		}
+	}
+	return "", false
+}
+
+func (s *Server) hasTokenHashCollisionLocked(token string) bool {
+	_, exists := s.findKeyIDByTokenLocked(token)
+	return exists
 }
 
 func nextKeyID() string {
@@ -2218,6 +1450,14 @@ func nextKeyID() string {
 		return ""
 	}
 	return "key_" + fragment
+}
+
+func bootstrapKeyID(keyHash string) string {
+	trimmed := strings.TrimSpace(keyHash)
+	if len(trimmed) < 12 {
+		return "key_bootstrap"
+	}
+	return "key_bootstrap_" + trimmed[:12]
 }
 
 func keyPrefix(key string) string {

@@ -5,8 +5,13 @@ package policy
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -14,8 +19,10 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/baseline/baseline/internal/types"
+	"gopkg.in/yaml.v3"
 )
 
 const maxScannableFileSize = 1 << 20 // 1 MiB
@@ -37,7 +44,35 @@ var (
 	secretAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|secret|token|password|passwd|private[_-]?key|client[_-]?secret)\b\s*[:=]\s*["']?([^\s"'#]+)`)
 	knownTokenPattern       = regexp.MustCompile(`(?i)\b(ghp_[a-z0-9]{36}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})\b`)
 	sqlKeywordPattern       = regexp.MustCompile(`(?i)\b(select|insert|update|delete|drop)\b`)
+	githubRemotePattern     = regexp.MustCompile(`github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?/?$`)
 )
+
+var (
+	githubAPIBaseURL      = "https://api.github.com"
+	gitRemoteOriginReader = defaultGitRemoteOriginReader
+	httpClientFactory     = func() *http.Client { return &http.Client{Timeout: 5 * time.Second} }
+)
+
+type githubWorkflow struct {
+	On   any                          `yaml:"on"`
+	Jobs map[string]githubWorkflowJob `yaml:"jobs"`
+}
+
+type githubWorkflowJob struct {
+	Steps []githubWorkflowStep `yaml:"steps"`
+}
+
+type githubWorkflowStep struct {
+	Run string `yaml:"run"`
+}
+
+type githubBranchProtectionResponse struct {
+	RequiredPullRequestReviews any `json:"required_pull_request_reviews"`
+	EnforceAdmins              struct {
+		Enabled bool `json:"enabled"`
+	} `json:"enforce_admins"`
+	Restrictions any `json:"restrictions"`
+}
 
 type repoSnapshot struct {
 	root     string
@@ -155,7 +190,7 @@ func checkProtectedMainBranch(_ repoSnapshot) *types.PolicyViolation {
 	if !protected {
 		return &types.PolicyViolation{
 			PolicyID: types.PolicyProtectedBranch,
-			Message:  fmt.Sprintf("Primary branch '%s' is not verified as PR-only/protected. Add branch protection evidence (e.g. branch-protection-setup.md with pull request + restrict pushes) or repository settings config.", primaryBranch),
+			Message:  fmt.Sprintf("Primary branch '%s' is not verified as PR-only/protected. Configure enforceable branch protection (required pull requests and restricted direct pushes).", primaryBranch),
 			Severity: types.SeverityBlock,
 		}
 	}
@@ -191,34 +226,48 @@ func checkCIPipeline(snapshot repoSnapshot) *types.PolicyViolation {
 
 	// Validate stronger CI obligations where config is parseable locally.
 	if len(workflowFiles) > 0 {
-		hasPRTrigger := false
-		hasTestExecution := false
+		hasPRWorkflow := false
+		hasPRWorkflowWithTests := false
+		parseableWorkflow := false
+
 		for _, workflow := range workflowFiles {
 			fullPath := filepath.Join(snapshot.root, filepath.FromSlash(workflow))
 			content, err := os.ReadFile(fullPath)
 			if err != nil {
 				continue
 			}
-			lower := strings.ToLower(string(content))
-			if containsPRTrigger(lower) {
-				hasPRTrigger = true
+
+			workflowHasPR, workflowHasTests, err := parseGitHubWorkflowRequirements(content)
+			if err != nil {
+				continue
 			}
-			if containsCITestExecution(lower) {
-				hasTestExecution = true
+			parseableWorkflow = true
+			if workflowHasPR {
+				hasPRWorkflow = true
+				if workflowHasTests {
+					hasPRWorkflowWithTests = true
+				}
 			}
 		}
 
-		if !hasPRTrigger {
+		if !parseableWorkflow {
+			return &types.PolicyViolation{
+				PolicyID: types.PolicyCIPipeline,
+				Message:  "GitHub Actions workflow exists but could not be parsed. Ensure workflow YAML is valid and includes pull_request test jobs.",
+				Severity: types.SeverityBlock,
+			}
+		}
+		if !hasPRWorkflow {
 			return &types.PolicyViolation{
 				PolicyID: types.PolicyCIPipeline,
 				Message:  "CI workflows must run on pull_request for protected branches.",
 				Severity: types.SeverityBlock,
 			}
 		}
-		if !hasTestExecution {
+		if !hasPRWorkflowWithTests {
 			return &types.PolicyViolation{
 				PolicyID: types.PolicyCIPipeline,
-				Message:  "CI workflows are present but do not appear to run automated tests.",
+				Message:  "CI workflows must execute automated tests within pull_request-triggered jobs.",
 				Severity: types.SeverityBlock,
 			}
 		}
@@ -989,40 +1038,133 @@ func listGitBranches() ([]string, error) {
 }
 
 func verifyProtectedBranchRequirement(primaryBranch string) (bool, error) {
-	docCandidates := []string{
-		"branch-protection-setup.md",
-		"docs/branch-protection.md",
-		".github/branch-protection.md",
+	protected, decided, err := verifyProtectedBranchViaGitHubAPI(primaryBranch)
+	if err != nil {
+		return false, err
 	}
-	for _, candidate := range docCandidates {
-		content, err := os.ReadFile(candidate)
-		if err != nil {
-			continue
-		}
-		lower := strings.ToLower(string(content))
-		if strings.Contains(lower, primaryBranch) &&
-			strings.Contains(lower, "pull request") &&
-			(strings.Contains(lower, "restrict pushes") || strings.Contains(lower, "require pull request reviews before merging")) {
-			return true, nil
-		}
+	if decided {
+		return protected, nil
 	}
 
-	// Support repository settings manifests managed as code.
+	return verifyProtectedBranchFromConfig(primaryBranch)
+}
+
+func verifyProtectedBranchViaGitHubAPI(primaryBranch string) (protected bool, decided bool, err error) {
+	remoteURL, err := gitRemoteOriginReader()
+	if err != nil {
+		return false, false, nil
+	}
+
+	owner, repo, ok := parseGitHubRepoFromRemote(remoteURL)
+	if !ok {
+		return false, false, nil
+	}
+
+	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("GH_TOKEN"))
+	}
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/branches/%s/protection",
+		strings.TrimRight(githubAPIBaseURL, "/"),
+		neturl.PathEscape(owner),
+		neturl.PathEscape(repo),
+		neturl.PathEscape(primaryBranch)), nil)
+	if err != nil {
+		return false, true, fmt.Errorf("unable to build branch protection request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := httpClientFactory().Do(req)
+	if err != nil {
+		if token == "" {
+			return false, false, nil
+		}
+		return false, true, fmt.Errorf("unable to query GitHub branch protection API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var payload githubBranchProtectionResponse
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return false, true, fmt.Errorf("unable to parse GitHub branch protection response: %w", err)
+		}
+		hasPRRequirement := payload.RequiredPullRequestReviews != nil
+		hasPushRestriction := payload.EnforceAdmins.Enabled || payload.Restrictions != nil
+		return hasPRRequirement && hasPushRestriction, true, nil
+	case http.StatusNotFound:
+		return false, true, nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		if token == "" {
+			// For public repos this endpoint often requires authentication.
+			return false, false, nil
+		}
+		return false, true, fmt.Errorf("GitHub branch protection API returned %d; verify GITHUB_TOKEN/GH_TOKEN permissions", resp.StatusCode)
+	default:
+		if token == "" {
+			return false, false, nil
+		}
+		return false, true, fmt.Errorf("GitHub branch protection API returned %d", resp.StatusCode)
+	}
+}
+
+func parseGitHubRepoFromRemote(remoteURL string) (owner string, repo string, ok bool) {
+	trimmed := strings.TrimSpace(remoteURL)
+	if trimmed == "" {
+		return "", "", false
+	}
+
+	matches := githubRemotePattern.FindStringSubmatch(trimmed)
+	if len(matches) != 3 {
+		return "", "", false
+	}
+	owner = strings.TrimSpace(matches[1])
+	repo = strings.TrimSpace(matches[2])
+	if owner == "" || repo == "" {
+		return "", "", false
+	}
+	return owner, repo, true
+}
+
+func verifyProtectedBranchFromConfig(primaryBranch string) (bool, error) {
 	settingsCandidates := []string{
 		".github/settings.yml",
 		".github/settings.yaml",
-		".github/branch-protection.yml",
-		".github/branch-protection.yaml",
 	}
 	for _, candidate := range settingsCandidates {
 		content, err := os.ReadFile(candidate)
 		if err != nil {
 			continue
 		}
-		lower := strings.ToLower(string(content))
-		if strings.Contains(lower, primaryBranch) &&
-			(strings.Contains(lower, "required_pull_request_reviews") || strings.Contains(lower, "require_pull_request")) &&
-			(strings.Contains(lower, "restrict_pushes") || strings.Contains(lower, "enforce_admins")) {
+		protected, parseErr := branchProtectionDeclaredInSettings(content, primaryBranch)
+		if parseErr != nil {
+			return false, fmt.Errorf("invalid branch protection settings in %s: %w", candidate, parseErr)
+		}
+		if protected {
+			return true, nil
+		}
+	}
+
+	branchProtectionCandidates := []string{
+		".github/branch-protection.yml",
+		".github/branch-protection.yaml",
+	}
+	for _, candidate := range branchProtectionCandidates {
+		content, err := os.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+		protected, parseErr := branchProtectionDeclaredInGenericYAML(content, primaryBranch)
+		if parseErr != nil {
+			return false, fmt.Errorf("invalid branch protection config in %s: %w", candidate, parseErr)
+		}
+		if protected {
 			return true, nil
 		}
 	}
@@ -1030,11 +1172,126 @@ func verifyProtectedBranchRequirement(primaryBranch string) (bool, error) {
 	return false, nil
 }
 
-func containsPRTrigger(contentLower string) bool {
-	return strings.Contains(contentLower, "pull_request:") ||
-		strings.Contains(contentLower, "pull_request\n") ||
-		strings.Contains(contentLower, "on: [pull_request") ||
-		strings.Contains(contentLower, "on:[pull_request")
+func branchProtectionDeclaredInSettings(content []byte, primaryBranch string) (bool, error) {
+	var settings struct {
+		Branches []struct {
+			Name       string         `yaml:"name"`
+			Protection map[string]any `yaml:"protection"`
+		} `yaml:"branches"`
+	}
+	if err := yaml.Unmarshal(content, &settings); err != nil {
+		return false, err
+	}
+
+	for _, branch := range settings.Branches {
+		if !strings.EqualFold(strings.TrimSpace(branch.Name), strings.TrimSpace(primaryBranch)) {
+			continue
+		}
+
+		hasPRRequirement := keyPresent(branch.Protection, "required_pull_request_reviews") ||
+			keyPresent(branch.Protection, "require_pull_request")
+		hasPushRestriction := keyPresent(branch.Protection, "restrict_pushes") ||
+			keyPresent(branch.Protection, "restrictions") ||
+			boolTrue(branch.Protection["enforce_admins"])
+		return hasPRRequirement && hasPushRestriction, nil
+	}
+
+	return false, nil
+}
+
+func branchProtectionDeclaredInGenericYAML(content []byte, primaryBranch string) (bool, error) {
+	lower := strings.ToLower(string(content))
+	branchToken := strings.ToLower(strings.TrimSpace(primaryBranch))
+	if branchToken == "" {
+		return false, errors.New("empty primary branch")
+	}
+
+	if !strings.Contains(lower, branchToken) {
+		return false, nil
+	}
+	hasPRRequirement := strings.Contains(lower, "required_pull_request_reviews") ||
+		strings.Contains(lower, "require_pull_request")
+	hasPushRestriction := strings.Contains(lower, "restrict_pushes") ||
+		strings.Contains(lower, "restrictions") ||
+		strings.Contains(lower, "enforce_admins: true")
+	return hasPRRequirement && hasPushRestriction, nil
+}
+
+func defaultGitRemoteOriginReader() (string, error) {
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func parseGitHubWorkflowRequirements(content []byte) (hasPRTrigger bool, hasTests bool, err error) {
+	var workflow githubWorkflow
+	if err := yaml.Unmarshal(content, &workflow); err != nil {
+		return false, false, err
+	}
+
+	hasPRTrigger = workflowHasPullRequestTrigger(workflow.On)
+	if !hasPRTrigger {
+		return false, false, nil
+	}
+
+	for _, job := range workflow.Jobs {
+		for _, step := range job.Steps {
+			if containsCITestExecution(strings.ToLower(step.Run)) {
+				return true, true, nil
+			}
+		}
+	}
+
+	return true, false, nil
+}
+
+func workflowHasPullRequestTrigger(raw any) bool {
+	switch v := raw.(type) {
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "pull_request")
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(s), "pull_request") {
+				return true
+			}
+		}
+	case map[string]any:
+		for key := range v {
+			if strings.EqualFold(strings.TrimSpace(key), "pull_request") {
+				return true
+			}
+		}
+	case map[any]any:
+		for key := range v {
+			if strings.EqualFold(strings.TrimSpace(fmt.Sprint(key)), "pull_request") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func keyPresent(values map[string]any, key string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	_, ok := values[key]
+	return ok
+}
+
+func boolTrue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case map[string]any:
+		if v, ok := typed["enabled"].(bool); ok {
+			return v
+		}
+	}
+	return false
 }
 
 func containsCITestExecution(contentLower string) bool {

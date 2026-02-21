@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign Up - Baseline</title>
+  <meta name="description" content="Sign up for Baseline to start managing production policies and releases.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" sizes="32x32" href="../img/baseline favicon.png">
+  <link rel="apple-touch-icon" href="../img/baseline favicon.png">
+  <link rel="shortcut icon" href="../img/baseline favicon.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body class="landing-body experience-page">
+  <div class="landing-wrap">
+    <header class="topbar">
+      <a class="brand" href="./index.html">
+        <img src="../img/baseline logo.png" alt="Baseline logo" class="brand-logo">
+        <div class="brand-text">
+          <strong>Baseline</strong>
+          <span>Production Policy Engine</span>
+        </div>
+      </a>
+    </header>
+
+    <section class="signup-section">
+      <div class="signup-form">
+        <h2>Sign Up</h2>
+        <p>Create your Baseline account to start managing production policies and releases.</p>
+        
+        <form class="auth-form">
+          <div class="form-group">
+            <label for="name">Full Name</label>
+            <input type="text" id="name" name="name" required placeholder="John Doe">
+          </div>
+          
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required placeholder="your.email@company.com">
+          </div>
+          
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required placeholder="Create a strong password">
+          </div>
+          
+          <div class="form-group">
+            <label for="company">Company</label>
+            <input type="text" id="company" name="company" placeholder="Your Company Name">
+          </div>
+          
+          <div class="form-actions">
+            <button type="submit" class="btn primary full-width">Sign Up</button>
+          </div>
+        </form>
+        
+        <div class="auth-links">
+          <p>Already have an account? <a href="./signin.html">Sign in</a></p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>&copy; 2026 Baseline. Production Policy Engine.</p>
+    </footer>
+  </div>
+  <script src="./auth.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

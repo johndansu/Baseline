@@ -37,6 +37,14 @@ type Config struct {
 	GitHubAPIBaseURL             string
 	GitLabAPIToken               string
 	GitLabAPIBaseURL             string
+	RateLimitEnabled             bool
+	RateLimitRequests            int
+	RateLimitWindow              time.Duration
+	AuthRateLimitRequests        int
+	AuthRateLimitWindow          time.Duration
+	UnauthRateLimitRequests      int
+	UnauthRateLimitWindow        time.Duration
+	APIKeyHashSecret             string
 	AIEnabled                    bool
 }
 
@@ -71,6 +79,14 @@ func DefaultConfig() Config {
 		GitHubAPIBaseURL:             "https://api.github.com",
 		GitLabAPIToken:               "",
 		GitLabAPIBaseURL:             "https://gitlab.com/api/v4",
+		RateLimitEnabled:             true,
+		RateLimitRequests:            120,
+		RateLimitWindow:              1 * time.Minute,
+		AuthRateLimitRequests:        20,
+		AuthRateLimitWindow:          1 * time.Minute,
+		UnauthRateLimitRequests:      30,
+		UnauthRateLimitWindow:        1 * time.Minute,
+		APIKeyHashSecret:             "",
 		AIEnabled:                    false,
 	}
 }
@@ -184,6 +200,42 @@ func ConfigFromEnv() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITLAB_API_URL")); v != "" {
 		cfg.GitLabAPIBaseURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_RATE_LIMIT_ENABLED")); v != "" {
+		cfg.RateLimitEnabled = parseBool(v, cfg.RateLimitEnabled)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_RATE_LIMIT_REQUESTS")); v != "" {
+		if maxRequests, ok := parseInt(v); ok && maxRequests > 0 {
+			cfg.RateLimitRequests = maxRequests
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_RATE_LIMIT_WINDOW_SECONDS")); v != "" {
+		if seconds, ok := parseInt(v); ok && seconds > 0 {
+			cfg.RateLimitWindow = time.Duration(seconds) * time.Second
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH_RATE_LIMIT_REQUESTS")); v != "" {
+		if maxRequests, ok := parseInt(v); ok && maxRequests > 0 {
+			cfg.AuthRateLimitRequests = maxRequests
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH_RATE_LIMIT_WINDOW_SECONDS")); v != "" {
+		if seconds, ok := parseInt(v); ok && seconds > 0 {
+			cfg.AuthRateLimitWindow = time.Duration(seconds) * time.Second
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_UNAUTH_RATE_LIMIT_REQUESTS")); v != "" {
+		if maxRequests, ok := parseInt(v); ok && maxRequests > 0 {
+			cfg.UnauthRateLimitRequests = maxRequests
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_UNAUTH_RATE_LIMIT_WINDOW_SECONDS")); v != "" {
+		if seconds, ok := parseInt(v); ok && seconds > 0 {
+			cfg.UnauthRateLimitWindow = time.Duration(seconds) * time.Second
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_KEY_HASH_SECRET")); v != "" {
+		cfg.APIKeyHashSecret = v
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AI_ENABLED")); v != "" {
 		cfg.AIEnabled = parseBool(v, cfg.AIEnabled)

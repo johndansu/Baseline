@@ -45,7 +45,7 @@
       </a>
       <div class="topbar-actions">
         <a class="btn secondary" href="https://github.com/baseline/baseline">GitHub</a>
-        <a class="btn primary" href="./dashboard.html">Open Dashboard</a>
+        <a class="btn primary" href="./signin.html">Get Started</a>
       </div>
     </header>
 
@@ -74,7 +74,7 @@
             AI-assisted remediation, human approvals, and compliance evidence attached to every release.
           </p>
           <div class="actions">
-            <a class="btn primary" href="./dashboard.html">Launch Dashboard</a>
+            <a class="btn primary" href="./signin.html">Get Started</a>
             <a class="btn secondary" href="https://github.com/baseline/baseline/blob/main/README.md">Read the Guide</a>
           </div>
         </div>
@@ -86,12 +86,12 @@
             <span>LIVE</span>
           </div>
           <div class="console-body">
-            <div class="console-row">scan started: <code>checkout-service</code></div>
-            <div class="console-row">policy pack loaded: <code>baseline-prod-v12</code></div>
-            <div class="console-row">secret leak detector: <strong>blocked</strong></div>
-            <div class="console-row">remediation branch generated: <code>fix/secret-rotation</code></div>
-            <div class="console-row">approval requested from: <code>security-reviewers</code></div>
-            <div class="console-row">deployment gate state: <strong>cleared</strong></div>
+            <div class="console-row is-live">scan started: <code>baseline scan</code></div>
+            <div class="console-row is-live">policy pack loaded: <code>baseline-prod-v12</code></div>
+            <div class="console-row is-live">secret leak detector: <strong>blocked</strong></div>
+            <div class="console-row is-live">remediation branch generated: <code>fix/secret-rotation</code></div>
+            <div class="console-row is-live">approval requested from: <code>security-reviewers</code></div>
+            <div class="console-row is-live">deployment gate state: <strong>cleared</strong></div>
           </div>
           <div class="chip-row">
             <span>Deterministic policies</span>
@@ -364,6 +364,7 @@
       <p>&copy; 2026 Baseline. Production Policy Engine.</p>
     </footer>
   </div>
+  <script src="./auth.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

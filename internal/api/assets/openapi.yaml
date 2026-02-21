@@ -20,6 +20,20 @@ paths:
                   status:
                     type: string
                     example: ok
+  /livez:
+    get:
+      summary: Liveness probe alias
+      responses:
+        "200":
+          description: API is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
   /readyz:
     get:
       summary: Readiness probe
@@ -34,6 +48,30 @@ paths:
                   status:
                     type: string
                     example: ready
+                  checks:
+                    type: object
+        "503":
+          description: API is not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: not_ready
+                  checks:
+                    type: object
+  /metrics:
+    get:
+      summary: Prometheus-style metrics
+      responses:
+        "200":
+          description: Metrics in text format
+          content:
+            text/plain:
+              schema:
+                type: string
   /v1/auth/session:
     post:
       summary: Create dashboard session cookie
@@ -139,6 +177,11 @@ paths:
           schema:
             type: string
             enum: ["1"]
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -420,6 +463,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScanSummary"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
   /v1/scans/{scan_id}:
     get:
       summary: Get scan by id
@@ -487,6 +534,8 @@ paths:
       responses:
         "200":
           description: Policy versions
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
     post:
       summary: Publish policy version (admin)
       security:
@@ -513,7 +562,11 @@ paths:
       responses:
         "201":
           description: Version created
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
         "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
           $ref: "#/components/responses/ErrorResponse"
   /v1/policies/{name}/latest:
     get:
@@ -530,6 +583,8 @@ paths:
       responses:
         "200":
           description: Latest policy
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
         "404":
           $ref: "#/components/responses/ErrorResponse"
   /v1/rulesets:
@@ -554,7 +609,11 @@ paths:
       responses:
         "201":
           description: Ruleset created
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
         "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
           $ref: "#/components/responses/ErrorResponse"
   /v1/rulesets/latest:
     get:
@@ -582,6 +641,8 @@ paths:
       responses:
         "200":
           description: Ruleset
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
         "404":
           $ref: "#/components/responses/ErrorResponse"
   /v1/audit/events:

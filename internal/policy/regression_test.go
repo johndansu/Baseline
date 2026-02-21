@@ -157,7 +157,7 @@ func message() string {
 	}
 }
 
-func TestVerifyProtectedBranchRequirementFromDocumentation(t *testing.T) {
+func TestVerifyProtectedBranchRequirementFromDocumentationProxyFails(t *testing.T) {
 	origDir, _ := os.Getwd()
 	defer os.Chdir(origDir)
 
@@ -183,12 +183,12 @@ func TestVerifyProtectedBranchRequirementFromDocumentation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verifyProtectedBranchRequirement returned error: %v", err)
 	}
-	if !ok {
-		t.Fatal("expected branch protection verification to succeed from documentation evidence")
+	if ok {
+		t.Fatal("expected docs-only branch protection evidence to fail verification")
 	}
 }
 
-func TestContainsPRTriggerAndCITestExecution(t *testing.T) {
+func TestParseGitHubWorkflowRequirements(t *testing.T) {
 	workflow := `name: CI
 on:
   pull_request:
@@ -199,11 +199,14 @@ jobs:
     steps:
       - run: go test ./...
 `
-	lower := workflow
-	if !containsPRTrigger(lower) {
+	hasPR, hasTests, err := parseGitHubWorkflowRequirements([]byte(workflow))
+	if err != nil {
+		t.Fatalf("parseGitHubWorkflowRequirements returned error: %v", err)
+	}
+	if !hasPR {
 		t.Fatal("expected PR trigger detection")
 	}
-	if !containsCITestExecution(lower) {
+	if !hasTests {
 		t.Fatal("expected CI test execution detection")
 	}
 }
