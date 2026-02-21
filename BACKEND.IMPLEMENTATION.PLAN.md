@@ -24,7 +24,7 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: OpenAPI/runtime contract regression harness (`internal/api/contract_test.go`).
 - Completed: Core response-shape contract checks for dashboard/scans/reports/policies/audit.
 - Completed: OpenAPI drift fix for liveness alias (`/livez`) in `internal/api/assets/openapi.yaml`.
-- In progress: `server.go` decomposition (handlers + router + middleware + errors extraction completed; auth/body helpers, integration handlers, and integration worker/persistence utilities now extracted to dedicated modules, remaining file-size reduction still pending).
+- Completed: `server.go` decomposition into focused modules (`handlers_*`, `auth_helpers.go`, `integration_worker.go`, `scan_report_helpers.go`, `api_key_management.go`, `integration_utils.go`) with green compatibility tests.
 - Completed: Versioned SQLite migration runner with legacy upgrade coverage (`internal/api/store.go`, `internal/api/store_migration_test.go`).
 - Completed: API key hash-at-rest migration with keyed hashing support and compatibility tests.
 - Completed: Middleware rate limits and abuse controls for unauth/authenticated/auth endpoints with deterministic `429` behavior.
@@ -59,7 +59,7 @@ Done when:
 - Runtime routes and OpenAPI are aligned with deterministic tests.
 
 ## Phase 1: API Server Refactor for Maintainability (Week 1-2)
-- [ ] Split `internal/api/server.go` into focused files without behavior change:
+- [x] Split `internal/api/server.go` into focused files without behavior change:
 - [x] `internal/api/handlers_auth.go`
 - [x] `internal/api/handlers_projects_scans.go`
 - [x] `internal/api/handlers_policies_rulesets.go`
