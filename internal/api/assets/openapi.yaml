@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Baseline API
   version: "1.0.0"
-  description: Baseline policy and dashboard API contract for implemented /v1 endpoints.
+  description: "Baseline policy and dashboard API contract for implemented /v1 endpoints. Fields marked with x-baseline-implementation=reserved_noop are accepted for forward compatibility but not currently enforced."
 servers:
   - url: http://127.0.0.1:8080
 paths:
@@ -180,6 +180,8 @@ paths:
         - in: header
           name: Idempotency-Key
           required: false
+          description: Reserved for future idempotent API key issuance. Currently accepted but not enforced.
+          x-baseline-implementation: reserved_noop
           schema:
             type: string
       requestBody:
@@ -450,6 +452,12 @@ paths:
           schema:
             type: string
             enum: ["1"]
+        - in: header
+          name: Idempotency-Key
+          required: false
+          description: Idempotency key for safe scan ingestion retries.
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -558,7 +566,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: "#/components/schemas/CreatePolicyVersionRequest"
       responses:
         "201":
           description: Version created
@@ -605,7 +613,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: "#/components/schemas/CreateRulesetRequest"
       responses:
         "201":
           description: Ruleset created
@@ -813,14 +821,18 @@ components:
       properties:
         id:
           type: string
+          description: Optional caller-provided identifier. If omitted, server generates one.
         name:
           type: string
         repository_url:
           type: string
+          description: Optional repository metadata field used for display and audit context.
         default_branch:
           type: string
+          description: Optional project default branch. Defaults to main.
         policy_set:
           type: string
+          description: Optional policy set label. Defaults to baseline:prod.
     ScanViolation:
       type: object
       properties:
@@ -854,6 +866,7 @@ components:
       properties:
         id:
           type: string
+          description: Optional caller-provided scan id. If omitted, server generates one.
         project_id:
           type: string
         commit_sha:
@@ -864,6 +877,32 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ScanViolation"
+    CreatePolicyVersionRequest:
+      type: object
+      required: [content]
+      properties:
+        version:
+          type: string
+        description:
+          type: string
+        content:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+    CreateRulesetRequest:
+      type: object
+      required: [policy_names]
+      properties:
+        version:
+          type: string
+        description:
+          type: string
+        policy_names:
+          type: array
+          items:
+            type: string
     DashboardMetrics:
       type: object
       properties:

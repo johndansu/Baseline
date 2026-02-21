@@ -45,7 +45,7 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - In progress: Contract/e2e checks exposed as dedicated CI gate (`Release Gates`); branch protection enforcement still requires repository settings.
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
-- [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
+- [x] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
 - [x] Add route-to-contract regression tests in `internal/api/contract_test.go`.
 - [x] Add response shape checks for key endpoints:
 - `GET /v1/dashboard`
@@ -149,18 +149,18 @@ Done when:
 - Backend changes are script-safe, test-gated, and release-ready.
 
 ## Ticket List by File (Execution Backlog)
-- [ ] `internal/api/server.go`: extract handlers, enforce strict validation, idempotency, stable errors.
-- [ ] `internal/api/store.go`: migrations, hashed API keys, indexed queries, safer writes.
-- [ ] `internal/api/middleware.go` (new): auth guards, rate limits, headers, request IDs.
-- [ ] `internal/api/router.go` (new): route registration, middleware chain, versioned API mount.
-- [ ] `internal/api/errors.go` (new): unified API error schema and helpers.
-- [ ] `internal/api/types.go`: lock response models and request payload structs.
-- [ ] `internal/api/assets/openapi.yaml`: keep in sync with implemented runtime contract.
-- [ ] `internal/api/server_test.go`: contract + security + regression coverage.
-- [ ] `internal/api/config.go`: defaults for body limits, timeouts, security toggles.
-- [ ] `.github/workflows/ci.yml`: enforce contract tests and backend e2e gates.
-- [ ] `README.md`: operator-facing API behavior and security defaults.
-- [ ] `README.REMAINING.md`: progress/state tracking and release gates.
+- [x] `internal/api/server.go`: extract handlers, enforce strict validation, idempotency, stable errors.
+- [x] `internal/api/store.go`: migrations, hashed API keys, indexed queries, safer writes.
+- [x] `internal/api/middleware.go` (new): auth guards, rate limits, headers, request IDs.
+- [x] `internal/api/router.go` (new): route registration, middleware chain, versioned API mount.
+- [x] `internal/api/errors.go` (new): unified API error schema and helpers.
+- [x] `internal/api/types.go`: lock response models and request payload structs.
+- [x] `internal/api/assets/openapi.yaml`: keep in sync with implemented runtime contract.
+- [x] `internal/api/server_test.go`: contract + security + regression coverage.
+- [x] `internal/api/config.go`: defaults for body limits, timeouts, security toggles.
+- [x] `.github/workflows/ci.yml`: enforce contract tests and backend e2e gates.
+- [x] `README.md`: operator-facing API behavior and security defaults.
+- [x] `README.REMAINING.md`: progress/state tracking and release gates.
 
 ## Risk Register
 - Risk: Refactor regressions in a large handler surface.
