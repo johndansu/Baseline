@@ -113,6 +113,79 @@ func TestOpenAPIOperationsReturnDocumentedStatuses(t *testing.T) {
 	}
 }
 
+func TestContractResponseShapesForCoreEndpoints(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	fixture := seedContractFixture(t, client, ts.URL)
+	headers := map[string]string{
+		"Authorization": "Bearer admin-key",
+	}
+
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("dashboard response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "metrics", "recent_scans", "top_violations", "recent_events", "policies")
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans?project_id="+fixture.projectID, nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("scans list response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "scans")
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"project_id": fixture.projectID,
+		"commit_sha": "shapecheck-commit",
+		"status":     "warn",
+	}, headers)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("scan create response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "id", "project_id", "commit_sha", "status", "violations", "created_at")
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans/"+fixture.scanID+"/report?format=json", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("scan json report response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "scan")
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans/"+fixture.scanID+"/report?format=text", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("scan text report response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "scan_id:") {
+		t.Fatalf("text report missing scan_id line: body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans/"+fixture.scanID+"/report?format=sarif", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("scan sarif report response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "version", "$schema", "runs")
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/policies", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("policies response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "policies")
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events?project_id="+fixture.projectID, nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("audit events response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "events")
+}
+
 func seedContractFixture(t *testing.T, client *http.Client, baseURL string) contractFixture {
 	t.Helper()
 
@@ -312,4 +385,17 @@ func sortedStatusList(in map[int]struct{}) []int {
 	}
 	sort.Ints(out)
 	return out
+}
+
+func assertJSONContainsTopLevelKeys(t *testing.T, raw string, keys ...string) {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("invalid JSON payload: %v raw=%s", err, raw)
+	}
+	for _, key := range keys {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("missing top-level key %q in payload: %s", key, raw)
+		}
+	}
 }

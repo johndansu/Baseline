@@ -22,19 +22,20 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 
 ## Progress Snapshot
 - Completed: OpenAPI/runtime contract regression harness (`internal/api/contract_test.go`).
+- Completed: Core response-shape contract checks for dashboard/scans/reports/policies/audit.
 - Completed: OpenAPI drift fix for liveness alias (`/livez`) in `internal/api/assets/openapi.yaml`.
-- In progress: `server.go` decomposition (auth handlers + projects/scans handlers extracted).
+- In progress: `server.go` decomposition (handlers + router + middleware + errors extraction completed; remaining file-size reduction still pending).
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
 - [x] Add route-to-contract regression tests in `internal/api/contract_test.go`.
-- [ ] Add response shape checks for key endpoints:
+- [x] Add response shape checks for key endpoints:
 - `GET /v1/dashboard`
 - `GET|POST /v1/scans`
 - `GET /v1/scans/{id}/report?format=json|text|sarif`
 - `GET /v1/policies`
 - `GET /v1/audit/events`
-- [ ] Add CI job to fail on spec/runtime drift in `.github/workflows/ci.yml`.
+- [x] Add CI job to fail on spec/runtime drift in `.github/workflows/ci.yml`.
 
 Done when:
 - Runtime routes and OpenAPI are aligned with deterministic tests.
@@ -43,11 +44,11 @@ Done when:
 - [ ] Split `internal/api/server.go` into focused files without behavior change:
 - [x] `internal/api/handlers_auth.go`
 - [x] `internal/api/handlers_projects_scans.go`
-- `internal/api/handlers_policies_rulesets.go`
-- `internal/api/handlers_audit_dashboard.go`
-- `internal/api/middleware.go`
-- `internal/api/errors.go`
-- `internal/api/router.go`
+- [x] `internal/api/handlers_policies_rulesets.go`
+- [x] `internal/api/handlers_audit_dashboard.go`
+- [x] `internal/api/middleware.go`
+- [x] `internal/api/errors.go`
+- [x] `internal/api/router.go`
 - [ ] Keep shared types in `internal/api/types.go`.
 - [ ] Keep backward compatibility of existing endpoints and auth flow.
 - [ ] Update tests to target per-handler modules in `internal/api/server_test.go`.

@@ -37,6 +37,9 @@ jobs:
       - name: Run tests
         run: go test -v -race -coverprofile=coverage.out ./...
 
+      - name: Run API contract checks
+        run: go test ./internal/api -run "TestOpenAPIOperationsReturnDocumentedStatuses|TestContractResponseShapesForCoreEndpoints" -count=1
+
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4.4.3
         with:
