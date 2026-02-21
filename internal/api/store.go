@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -76,6 +77,14 @@ func (s *Store) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+// Ping verifies database connectivity for readiness checks.
+func (s *Store) Ping(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return errors.New("store is not initialized")
+	}
+	return s.db.PingContext(ctx)
 }
 
 func migrateStore(db *sql.DB) error {

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	baselinelog "github.com/baseline/baseline/internal/log"
 )
 
 func TestDashboardSessionLifecycleAndProjectFlow(t *testing.T) {
@@ -128,6 +131,310 @@ func TestAPIKeyRolesAreEnforced(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 for operator create, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestRequestIDHeaderPropagationAndGeneration(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+		requestIDHeader: "client-request-123",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for projects list, got %d body=%s", resp.StatusCode, body)
+	}
+	if got := strings.TrimSpace(resp.Header.Get(requestIDHeader)); got != "client-request-123" {
+		t.Fatalf("expected echoed request id, got %q", got)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+		requestIDHeader: "invalid request id",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for projects list with invalid request id header, got %d body=%s", resp.StatusCode, body)
+	}
+	generated := strings.TrimSpace(resp.Header.Get(requestIDHeader))
+	if generated == "" {
+		t.Fatal("expected generated request id in response")
+	}
+	if generated == "invalid request id" {
+		t.Fatalf("expected sanitized/generated request id, got %q", generated)
+	}
+}
+
+func TestRequestLoggingIncludesStructuredFields(t *testing.T) {
+	var output bytes.Buffer
+	originalLogger := baselinelog.Logger
+	baselinelog.Logger = slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	defer func() {
+		baselinelog.Logger = originalLogger
+	}()
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	reqID := "req-log-001"
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+		requestIDHeader: reqID,
+		"User-Agent":    "baseline-test-client",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for projects list, got %d body=%s", resp.StatusCode, body)
+	}
+
+	logged := output.String()
+	expectedFields := []string{
+		"msg=api_request",
+		"request_id=" + reqID,
+		"method=GET",
+		"path=/v1/projects",
+		"status=200",
+	}
+	for _, field := range expectedFields {
+		if !strings.Contains(logged, field) {
+			t.Fatalf("expected request log to contain %q, got logs:\n%s", field, logged)
+		}
+	}
+}
+
+func TestMutatingEndpointsRBACMatrix(t *testing.T) {
+	githubUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer githubUpstream.Close()
+
+	gitlabUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer gitlabUpstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key":    RoleAdmin,
+		"operator-key": RoleOperator,
+		"viewer-key":   RoleViewer,
+	}
+	cfg.GitHubAPIToken = "gh-token"
+	cfg.GitHubAPIBaseURL = githubUpstream.URL
+	cfg.GitLabAPIToken = "gl-token"
+	cfg.GitLabAPIBaseURL = gitlabUpstream.URL
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_rbac",
+		"name": "rbac-seed-project",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 seeding project, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/policies/rbac-policy/versions", map[string]any{
+		"version": "v-seed",
+		"content": map[string]any{"rule": "seed"},
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 seeding policy, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/api-keys", map[string]any{
+		"name": "rbac-revoke-target",
+		"role": "viewer",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 seeding key for revoke test, got %d body=%s", resp.StatusCode, body)
+	}
+	var seededKey struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &seededKey); err != nil {
+		t.Fatalf("failed to decode seeded key response: %v body=%s", err, body)
+	}
+	if strings.TrimSpace(seededKey.ID) == "" {
+		t.Fatalf("expected seeded key id, body=%s", body)
+	}
+
+	type rbacCase struct {
+		name           string
+		method         string
+		path           string
+		payload        any
+		viewerStatus   int
+		operatorStatus int
+		adminStatus    int
+	}
+
+	cases := []rbacCase{
+		{
+			name:           "projects_create",
+			method:         http.MethodPost,
+			path:           "/v1/projects",
+			payload:        map[string]any{"name": "rbac-project"},
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusCreated,
+			adminStatus:    http.StatusCreated,
+		},
+		{
+			name:   "scans_create",
+			method: http.MethodPost,
+			path:   "/v1/scans",
+			payload: map[string]any{
+				"project_id": "proj_rbac",
+				"commit_sha": "rbac123",
+				"status":     "pass",
+			},
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusCreated,
+			adminStatus:    http.StatusCreated,
+		},
+		{
+			name:   "policy_publish",
+			method: http.MethodPost,
+			path:   "/v1/policies/rbac-policy/versions",
+			payload: map[string]any{
+				"version": "v-rbac-2",
+				"content": map[string]any{"rule": "rbac"},
+			},
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusForbidden,
+			adminStatus:    http.StatusCreated,
+		},
+		{
+			name:   "ruleset_publish",
+			method: http.MethodPost,
+			path:   "/v1/rulesets",
+			payload: map[string]any{
+				"version":      "rbac-2026.02.21",
+				"description":  "rbac matrix ruleset",
+				"policy_names": []string{"rbac-policy"},
+			},
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusForbidden,
+			adminStatus:    http.StatusCreated,
+		},
+		{
+			name:   "api_key_issue",
+			method: http.MethodPost,
+			path:   "/v1/api-keys",
+			payload: map[string]any{
+				"name": "rbac-issued",
+				"role": "viewer",
+			},
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusForbidden,
+			adminStatus:    http.StatusCreated,
+		},
+		{
+			name:           "github_check_run_publish",
+			method:         http.MethodPost,
+			path:           "/v1/integrations/github/check-runs",
+			payload:        map[string]any{"owner": "acme", "repository": "rbac", "head_sha": "abc123", "name": "baseline/rbac"},
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusAccepted,
+			adminStatus:    http.StatusAccepted,
+		},
+		{
+			name:   "gitlab_status_publish",
+			method: http.MethodPost,
+			path:   "/v1/integrations/gitlab/statuses",
+			payload: map[string]any{
+				"project_id": "acme/rbac",
+				"sha":        "def456",
+				"state":      "success",
+				"name":       "baseline/rbac",
+			},
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusAccepted,
+			adminStatus:    http.StatusAccepted,
+		},
+		{
+			name:           "api_key_revoke",
+			method:         http.MethodDelete,
+			path:           "/v1/api-keys/" + seededKey.ID,
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusForbidden,
+			adminStatus:    http.StatusOK,
+		},
+	}
+
+	roles := []struct {
+		name   string
+		token  string
+		expect func(rbacCase) int
+	}{
+		{
+			name:  "viewer",
+			token: "viewer-key",
+			expect: func(tc rbacCase) int {
+				return tc.viewerStatus
+			},
+		},
+		{
+			name:  "operator",
+			token: "operator-key",
+			expect: func(tc rbacCase) int {
+				return tc.operatorStatus
+			},
+		},
+		{
+			name:  "admin",
+			token: "admin-key",
+			expect: func(tc rbacCase) int {
+				return tc.adminStatus
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		for _, role := range roles {
+			resp, body := mustRequest(t, client, tc.method, ts.URL+tc.path, tc.payload, map[string]string{
+				"Authorization": "Bearer " + role.token,
+			})
+			expected := role.expect(tc)
+			if resp.StatusCode != expected {
+				t.Fatalf("%s role=%s expected status %d, got %d body=%s", tc.name, role.name, expected, resp.StatusCode, body)
+			}
+		}
 	}
 }
 
@@ -895,6 +1202,273 @@ func TestOpenAPISpecRoute(t *testing.T) {
 	}
 	if !strings.Contains(body, "openapi: 3.0.3") {
 		t.Fatalf("expected OpenAPI document body, got: %s", body)
+	}
+}
+
+func TestMetricsEndpointExposesOperationalCounters(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_metrics",
+		"name": "metrics-project",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 project create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"project_id": "proj_metrics",
+		"commit_sha": "metrics123",
+		"status":     "fail",
+		"violations": []map[string]any{
+			{
+				"policy_id": "G1",
+				"severity":  "block",
+				"message":   "blocking failure for metrics",
+			},
+		},
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 scan create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/metrics", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 metrics endpoint, got %d body=%s", resp.StatusCode, body)
+	}
+	if got := strings.ToLower(resp.Header.Get("Content-Type")); !strings.Contains(got, "text/plain") {
+		t.Fatalf("expected text/plain metrics content-type, got %q", got)
+	}
+
+	expectedLines := []string{
+		"baseline_projects_total 1",
+		"baseline_scans_total 1",
+		"baseline_failing_scans_total 1",
+		"baseline_blocking_violations_total 1",
+		"baseline_api_keys_active_total 1",
+		"baseline_api_keys_revoked_total 0",
+	}
+	for _, line := range expectedLines {
+		if !strings.Contains(body, line) {
+			t.Fatalf("expected metrics output to contain %q, body=%s", line, body)
+		}
+	}
+}
+
+func TestMetricsEndpointMethodNotAllowed(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/metrics", map[string]any{
+		"unexpected": true,
+	}, nil)
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for metrics POST, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "method_not_allowed") {
+		t.Fatalf("expected method_not_allowed error body, got %s", body)
+	}
+}
+
+func TestReadyEndpointInMemoryModeIsReady(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/readyz", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 readyz response for in-memory mode, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Checks map[string]struct {
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("failed to decode readiness payload: %v body=%s", err, body)
+	}
+	if payload.Status != "ready" {
+		t.Fatalf("expected readiness status=ready, got %q", payload.Status)
+	}
+	if payload.Checks["database"].Status != "ready" {
+		t.Fatalf("expected database ready in in-memory mode, checks=%v", payload.Checks)
+	}
+	if payload.Checks["integration_worker"].Status != "ready" {
+		t.Fatalf("expected integration worker ready in in-memory mode, checks=%v", payload.Checks)
+	}
+}
+
+func TestReadyEndpointPersistentStoreRequiresWorker(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "readyz_requires_worker.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/readyz", nil, nil)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when persistent store worker is not running, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Checks map[string]struct {
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("failed to decode readiness payload: %v body=%s", err, body)
+	}
+	if payload.Status != "not_ready" {
+		t.Fatalf("expected readiness status=not_ready, got %q", payload.Status)
+	}
+	if payload.Checks["database"].Status != "ready" {
+		t.Fatalf("expected database readiness check to pass, checks=%v", payload.Checks)
+	}
+	if payload.Checks["integration_worker"].Status != "not_ready" {
+		t.Fatalf("expected integration_worker not_ready, checks=%v", payload.Checks)
+	}
+}
+
+func TestReadyEndpointPersistentStoreWithWorkerIsReady(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "readyz_worker_running.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	server.startIntegrationWorker()
+	defer server.stopIntegrationWorker()
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/readyz", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 with persistent store and running worker, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Checks map[string]struct {
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("failed to decode readiness payload: %v body=%s", err, body)
+	}
+	if payload.Status != "ready" {
+		t.Fatalf("expected readiness status=ready, got %q", payload.Status)
+	}
+	if payload.Checks["database"].Status != "ready" {
+		t.Fatalf("expected database ready, checks=%v", payload.Checks)
+	}
+	if payload.Checks["integration_worker"].Status != "ready" {
+		t.Fatalf("expected integration_worker ready, checks=%v", payload.Checks)
+	}
+}
+
+func TestReadyEndpointReportsDatabaseFailure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "readyz_db_failure.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	defer store.Close()
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("failed to close store for failure test: %v", err)
+	}
+
+	client := &http.Client{}
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/readyz", nil, nil)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when database is unavailable, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+		Checks map[string]struct {
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("failed to decode readiness payload: %v body=%s", err, body)
+	}
+	if payload.Checks["database"].Status != "not_ready" {
+		t.Fatalf("expected database check to be not_ready after close, checks=%v", payload.Checks)
 	}
 }
 

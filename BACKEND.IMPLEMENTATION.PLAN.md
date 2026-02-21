@@ -32,6 +32,10 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: Strict scan payload validation with stable `invalid_scan_payload` errors.
 - Completed: Policy publish/list/latest validation and conflict hardening with deterministic error codes.
 - Completed: Ruleset publish/latest/version validation hardening (including unknown-policy rejection).
+- Completed: Mutating-route RBAC matrix enforcement tests across viewer/operator/admin roles.
+- Completed: Request ID propagation and structured API request logging in middleware.
+- Completed: Lightweight Prometheus-style `/metrics` endpoint with operational counters and tests.
+- Completed: Readiness semantics now validate database connectivity and integration worker state.
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
@@ -56,9 +60,9 @@ Done when:
 - [x] `internal/api/middleware.go`
 - [x] `internal/api/errors.go`
 - [x] `internal/api/router.go`
-- [ ] Keep shared types in `internal/api/types.go`.
-- [ ] Keep backward compatibility of existing endpoints and auth flow.
-- [ ] Update tests to target per-handler modules in `internal/api/server_test.go`.
+- [x] Keep shared types in `internal/api/types.go`.
+- [x] Keep backward compatibility of existing endpoints and auth flow.
+- [x] Update tests to target per-handler modules in `internal/api/server_test.go`.
 
 Done when:
 - `server.go` is no longer monolithic and test suite remains green.
@@ -78,7 +82,7 @@ Done when:
 ## Phase 3: Security Hardening (Week 2-3)
 - [x] Move API key storage from plaintext to hashed-at-rest in `internal/api/store.go`.
 - [x] Preserve one-time key return semantics at creation endpoints in `internal/api/server.go`.
-- [ ] Enforce RBAC on all mutating routes (admin-only where required).
+- [x] Enforce RBAC on all mutating routes (admin-only where required).
 - [x] Add request rate limits in middleware (`internal/api/middleware.go`).
 - [x] Enforce strict body limits and payload validation (`internal/api/server.go`, `internal/api/config.go`).
 - [x] Ensure secure default headers and cookie settings for dashboard sessions (`internal/api/middleware.go`).
@@ -101,9 +105,9 @@ Done when:
 - Repeated submissions are safe and report outputs are contract-consistent.
 
 ## Phase 5: Observability and Ops (Week 3-4)
-- [ ] Add request IDs and structured request logs in `internal/api/middleware.go`.
-- [ ] Add lightweight metrics endpoint (`/metrics`) in `internal/api/server.go`.
-- [ ] Strengthen readiness semantics to include DB and worker health.
+- [x] Add request IDs and structured request logs in `internal/api/middleware.go`.
+- [x] Add lightweight metrics endpoint (`/metrics`) in `internal/api/server.go`.
+- [x] Strengthen readiness semantics to include DB and worker health.
 - [ ] Improve audit event coverage for key lifecycle and policy changes.
 - [ ] Add operator-oriented runbook snippets to `README.md` and `command.md`.
 

@@ -48,6 +48,30 @@ paths:
                   status:
                     type: string
                     example: ready
+                  checks:
+                    type: object
+        "503":
+          description: API is not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: not_ready
+                  checks:
+                    type: object
+  /metrics:
+    get:
+      summary: Prometheus-style metrics
+      responses:
+        "200":
+          description: Metrics in text format
+          content:
+            text/plain:
+              schema:
+                type: string
   /v1/auth/session:
     post:
       summary: Create dashboard session cookie
