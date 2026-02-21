@@ -56,6 +56,21 @@ type CreateScanRequest struct {
 	Violations []ScanViolation `json:"violations"`
 }
 
+// CreatePolicyVersionRequest is the accepted payload for POST /v1/policies/{name}/versions.
+type CreatePolicyVersionRequest struct {
+	Version     string                 `json:"version"`
+	Description string                 `json:"description"`
+	Content     map[string]any         `json:"content"`
+	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// CreateRulesetRequest is the accepted payload for POST /v1/rulesets.
+type CreateRulesetRequest struct {
+	Version     string   `json:"version"`
+	Description string   `json:"description"`
+	PolicyNames []string `json:"policy_names"`
+}
+
 // DashboardMetrics contains top-level dashboard counters.
 type DashboardMetrics struct {
 	Projects           int `json:"projects"`

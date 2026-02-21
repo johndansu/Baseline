@@ -30,6 +30,8 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: Middleware rate limits and abuse controls for unauth/authenticated/auth endpoints with deterministic `429` behavior.
 - Completed: Scan ingestion idempotency guard (`Idempotency-Key`) with replay/conflict tests.
 - Completed: Strict scan payload validation with stable `invalid_scan_payload` errors.
+- Completed: Policy publish/list/latest validation and conflict hardening with deterministic error codes.
+- Completed: Ruleset publish/latest/version validation hardening (including unknown-policy rejection).
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
@@ -88,12 +90,12 @@ Done when:
 ## Phase 4: Workflow Reliability (Scans, Policies, Rulesets) (Week 3)
 - [x] Add idempotency safeguards for `POST /v1/scans` in `internal/api/server.go`.
 - [x] Validate scan payload schema and reject malformed payloads with stable errors.
-- [ ] Stabilize policy version publish/list/read path behavior in:
+- [x] Stabilize policy version publish/list/read path behavior in:
 - `internal/api/server.go`
 - `internal/api/types.go`
 - `internal/api/store.go`
-- [ ] Stabilize ruleset publish/latest/version retrieval behavior and tests.
-- [ ] Add contract-level SARIF/text/json report tests for scan reports.
+- [x] Stabilize ruleset publish/latest/version retrieval behavior and tests.
+- [x] Add contract-level SARIF/text/json report tests for scan reports.
 
 Done when:
 - Repeated submissions are safe and report outputs are contract-consistent.

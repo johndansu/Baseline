@@ -492,6 +492,68 @@ func TestPolicyAndRulesetEndpoints(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "\"baseline-prod\"") {
 		t.Fatalf("expected ruleset by version, got %d body=%s", resp.StatusCode, body)
 	}
+
+	// Duplicate policy version should be rejected deterministically.
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/policies/baseline-prod/versions", map[string]any{
+		"version": "v1",
+		"content": map[string]any{"rule": "no-secrets"},
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(body, "\"code\":\"conflict\"") {
+		t.Fatalf("expected 409 conflict for duplicate policy version, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Invalid policy payload should be rejected with stable code.
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/policies/baseline-prod/versions", map[string]any{
+		"version": "v2",
+		"content": map[string]any{},
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "invalid_policy_payload") {
+		t.Fatalf("expected 400 invalid_policy_payload, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Invalid policy name token should be rejected.
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/policies/bad*name/latest", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "invalid_policy_name") {
+		t.Fatalf("expected 400 invalid_policy_name, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Ruleset referencing unknown policy should be rejected.
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/rulesets", map[string]any{
+		"version":      "2026.02.18",
+		"description":  "invalid policy ref",
+		"policy_names": []string{"unknown-policy"},
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "invalid_ruleset_payload") {
+		t.Fatalf("expected 400 invalid_ruleset_payload for unknown policy, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Duplicate ruleset version should be rejected.
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/rulesets", map[string]any{
+		"version":      "2026.02.17",
+		"description":  "duplicate version",
+		"policy_names": []string{"baseline-prod"},
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(body, "\"code\":\"conflict\"") {
+		t.Fatalf("expected 409 conflict for duplicate ruleset version, got %d body=%s", resp.StatusCode, body)
+	}
+
+	// Invalid ruleset version token should be rejected.
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/rulesets/invalid*version", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "invalid_ruleset_version") {
+		t.Fatalf("expected 400 invalid_ruleset_version, got %d body=%s", resp.StatusCode, body)
+	}
 }
 
 func TestUnauthorizedResponseIncludesBearerChallenge(t *testing.T) {

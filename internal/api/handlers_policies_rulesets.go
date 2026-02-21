@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -39,6 +40,10 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "policy not found")
 		return
 	}
+	if !isValidPolicyName(policyName) {
+		writeError(w, http.StatusBadRequest, "invalid_policy_name", "invalid policy name")
+		return
+	}
 
 	switch action {
 	case "versions":
@@ -47,6 +52,12 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 			s.dataMu.RLock()
 			versions := append([]PolicyVersion(nil), s.policies[policyName]...)
 			s.dataMu.RUnlock()
+			sort.Slice(versions, func(i, j int) bool {
+				if versions[i].PublishedAt.Equal(versions[j].PublishedAt) {
+					return versions[i].Version < versions[j].Version
+				}
+				return versions[i].PublishedAt.Before(versions[j].PublishedAt)
+			})
 			writeJSON(w, http.StatusOK, map[string]any{"name": policyName, "versions": versions})
 		case http.MethodPost:
 			if role != RoleAdmin {
@@ -59,18 +70,22 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 			if !s.enforceSessionCSRF(w, r, authSource) {
 				return
 			}
-			var req struct {
-				Version     string                 `json:"version"`
-				Description string                 `json:"description"`
-				Content     map[string]any         `json:"content"`
-				Metadata    map[string]interface{} `json:"metadata"`
-			}
+			var req CreatePolicyVersionRequest
 			if !s.decodeJSONBody(w, r, &req) {
 				return
 			}
-			version := strings.TrimSpace(req.Version)
+			validated, ok := validateCreatePolicyVersionRequest(req)
+			if !ok {
+				writeError(w, http.StatusBadRequest, "invalid_policy_payload", "invalid policy payload")
+				return
+			}
+			version := validated.Version
 			if version == "" {
 				version = "v" + time.Now().UTC().Format("20060102150405")
+			}
+			if !isValidVersionToken(version) {
+				writeError(w, http.StatusBadRequest, "invalid_policy_version", "policy version format is invalid")
+				return
 			}
 
 			s.dataMu.Lock()
@@ -85,9 +100,9 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 			item := PolicyVersion{
 				Name:        policyName,
 				Version:     version,
-				Description: strings.TrimSpace(req.Description),
-				Content:     req.Content,
-				Metadata:    req.Metadata,
+				Description: validated.Description,
+				Content:     validated.Content,
+				Metadata:    validated.Metadata,
 				PublishedAt: time.Now().UTC(),
 				PublishedBy: "api",
 			}
@@ -113,6 +128,12 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "policy not found")
 			return
 		}
+		sort.Slice(versions, func(i, j int) bool {
+			if versions[i].PublishedAt.Equal(versions[j].PublishedAt) {
+				return versions[i].Version < versions[j].Version
+			}
+			return versions[i].PublishedAt.Before(versions[j].PublishedAt)
+		})
 		writeJSON(w, http.StatusOK, versions[len(versions)-1])
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
@@ -144,20 +165,32 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 		if !s.enforceSessionCSRF(w, r, authSource) {
 			return
 		}
-		var req struct {
-			Version     string   `json:"version"`
-			Description string   `json:"description"`
-			PolicyNames []string `json:"policy_names"`
-		}
+		var req CreateRulesetRequest
 		if !s.decodeJSONBody(w, r, &req) {
 			return
 		}
-		version := strings.TrimSpace(req.Version)
+		validated, ok := validateCreateRulesetRequest(req)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid_ruleset_payload", "invalid ruleset payload")
+			return
+		}
+		version := validated.Version
 		if version == "" {
 			version = "v" + time.Now().UTC().Format("20060102150405")
 		}
+		if !isValidVersionToken(version) {
+			writeError(w, http.StatusBadRequest, "invalid_ruleset_version", "ruleset version format is invalid")
+			return
+		}
 
 		s.dataMu.Lock()
+		for _, policyName := range validated.PolicyNames {
+			if len(s.policies[policyName]) == 0 {
+				s.dataMu.Unlock()
+				writeError(w, http.StatusBadRequest, "invalid_ruleset_payload", "ruleset references unknown policy")
+				return
+			}
+		}
 		for _, existing := range s.rulesets {
 			if existing.Version == version {
 				s.dataMu.Unlock()
@@ -167,8 +200,8 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 		}
 		item := RulesetVersion{
 			Version:     version,
-			Description: strings.TrimSpace(req.Description),
-			PolicyNames: dedupeNonEmpty(req.PolicyNames),
+			Description: validated.Description,
+			PolicyNames: validated.PolicyNames,
 			CreatedAt:   time.Now().UTC(),
 			CreatedBy:   "api",
 		}
@@ -190,6 +223,12 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 	s.dataMu.RLock()
 	rulesets := append([]RulesetVersion(nil), s.rulesets...)
 	s.dataMu.RUnlock()
+	sort.Slice(rulesets, func(i, j int) bool {
+		if rulesets[i].CreatedAt.Equal(rulesets[j].CreatedAt) {
+			return rulesets[i].Version < rulesets[j].Version
+		}
+		return rulesets[i].CreatedAt.Before(rulesets[j].CreatedAt)
+	})
 
 	if pathSuffix == "latest" {
 		if len(rulesets) == 0 {
@@ -197,6 +236,10 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, rulesets[len(rulesets)-1])
+		return
+	}
+	if !isValidVersionToken(pathSuffix) {
+		writeError(w, http.StatusBadRequest, "invalid_ruleset_version", "ruleset version format is invalid")
 		return
 	}
 
@@ -207,4 +250,96 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeError(w, http.StatusNotFound, "not_found", "ruleset not found")
+}
+
+func validateCreatePolicyVersionRequest(req CreatePolicyVersionRequest) (CreatePolicyVersionRequest, bool) {
+	description := strings.TrimSpace(req.Description)
+	if len(description) > 1024 {
+		return CreatePolicyVersionRequest{}, false
+	}
+	version := strings.TrimSpace(req.Version)
+	if len(version) > 128 {
+		return CreatePolicyVersionRequest{}, false
+	}
+	if len(req.Content) == 0 {
+		return CreatePolicyVersionRequest{}, false
+	}
+	if len(req.Content) > 256 {
+		return CreatePolicyVersionRequest{}, false
+	}
+	metadata := map[string]interface{}{}
+	for key, value := range req.Metadata {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" || len(trimmedKey) > 128 {
+			return CreatePolicyVersionRequest{}, false
+		}
+		metadata[trimmedKey] = value
+	}
+	return CreatePolicyVersionRequest{
+		Version:     version,
+		Description: description,
+		Content:     req.Content,
+		Metadata:    metadata,
+	}, true
+}
+
+func validateCreateRulesetRequest(req CreateRulesetRequest) (CreateRulesetRequest, bool) {
+	version := strings.TrimSpace(req.Version)
+	if len(version) > 128 {
+		return CreateRulesetRequest{}, false
+	}
+	description := strings.TrimSpace(req.Description)
+	if len(description) > 1024 {
+		return CreateRulesetRequest{}, false
+	}
+	policyNames := dedupeNonEmpty(req.PolicyNames)
+	if len(policyNames) == 0 || len(policyNames) > 128 {
+		return CreateRulesetRequest{}, false
+	}
+	for _, name := range policyNames {
+		if !isValidPolicyName(name) {
+			return CreateRulesetRequest{}, false
+		}
+	}
+	return CreateRulesetRequest{
+		Version:     version,
+		Description: description,
+		PolicyNames: policyNames,
+	}, true
+}
+
+func isValidPolicyName(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || len(trimmed) > 128 {
+		return false
+	}
+	for _, ch := range trimmed {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+		case ch >= 'A' && ch <= 'Z':
+		case ch >= '0' && ch <= '9':
+		case ch == '-' || ch == '_' || ch == '.' || ch == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isValidVersionToken(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || len(trimmed) > 128 {
+		return false
+	}
+	for _, ch := range trimmed {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+		case ch >= 'A' && ch <= 'Z':
+		case ch >= '0' && ch <= '9':
+		case ch == '-' || ch == '_' || ch == '.' || ch == ':':
+		default:
+			return false
+		}
+	}
+	return true
 }
