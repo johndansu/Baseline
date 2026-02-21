@@ -47,6 +47,15 @@ type ScanSummary struct {
 	CreatedAt  time.Time       `json:"created_at"`
 }
 
+// CreateScanRequest is the accepted payload for POST /v1/scans.
+type CreateScanRequest struct {
+	ID         string          `json:"id"`
+	ProjectID  string          `json:"project_id"`
+	CommitSHA  string          `json:"commit_sha"`
+	Status     string          `json:"status"`
+	Violations []ScanViolation `json:"violations"`
+}
+
 // DashboardMetrics contains top-level dashboard counters.
 type DashboardMetrics struct {
 	Projects           int `json:"projects"`

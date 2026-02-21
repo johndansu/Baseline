@@ -28,6 +28,8 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: Versioned SQLite migration runner with legacy upgrade coverage (`internal/api/store.go`, `internal/api/store_migration_test.go`).
 - Completed: API key hash-at-rest migration with keyed hashing support and compatibility tests.
 - Completed: Middleware rate limits and abuse controls for unauth/authenticated/auth endpoints with deterministic `429` behavior.
+- Completed: Scan ingestion idempotency guard (`Idempotency-Key`) with replay/conflict tests.
+- Completed: Strict scan payload validation with stable `invalid_scan_payload` errors.
 
 ## Phase 0: Contract Freeze and Route Validation (Week 1)
 - [ ] Freeze API contract and mark unsupported fields in `internal/api/assets/openapi.yaml`.
@@ -84,8 +86,8 @@ Done when:
 - Key exfiltration risk is reduced and auth failures are deterministic.
 
 ## Phase 4: Workflow Reliability (Scans, Policies, Rulesets) (Week 3)
-- [ ] Add idempotency safeguards for `POST /v1/scans` in `internal/api/server.go`.
-- [ ] Validate scan payload schema and reject malformed payloads with stable errors.
+- [x] Add idempotency safeguards for `POST /v1/scans` in `internal/api/server.go`.
+- [x] Validate scan payload schema and reject malformed payloads with stable errors.
 - [ ] Stabilize policy version publish/list/read path behavior in:
 - `internal/api/server.go`
 - `internal/api/types.go`

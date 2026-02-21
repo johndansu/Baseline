@@ -47,12 +47,15 @@ type Server struct {
 	rateState map[string]rateWindowCounter
 	rateSweep time.Time
 
-	dataMu   sync.RWMutex
-	projects []Project
-	scans    []ScanSummary
-	policies map[string][]PolicyVersion
-	rulesets []RulesetVersion
-	events   []AuditEvent
+	dataMu               sync.RWMutex
+	projects             []Project
+	scans                []ScanSummary
+	scanIdempotency      map[string]scanIdempotencyEntry
+	scanIdempotencyTTL   time.Duration
+	scanIdempotencySweep time.Time
+	policies             map[string][]PolicyVersion
+	rulesets             []RulesetVersion
+	events               []AuditEvent
 
 	workerMu                sync.Mutex
 	workerCancel            context.CancelFunc
@@ -116,18 +119,20 @@ func NewServer(config Config, store *Store) (*Server, error) {
 
 	now := time.Now().UTC()
 	s := &Server{
-		config:    config,
-		store:     store,
-		client:    &http.Client{Timeout: 10 * time.Second},
-		keyIndex:  map[string]string{},
-		keyHashes: map[string]string{},
-		keysByID:  map[string]APIKeyMetadata{},
-		sessions:  map[string]dashboardSession{},
-		rateState: map[string]rateWindowCounter{},
-		projects:  []Project{},
-		scans:     []ScanSummary{},
-		policies:  map[string][]PolicyVersion{},
-		rulesets:  []RulesetVersion{},
+		config:             config,
+		store:              store,
+		client:             &http.Client{Timeout: 10 * time.Second},
+		keyIndex:           map[string]string{},
+		keyHashes:          map[string]string{},
+		keysByID:           map[string]APIKeyMetadata{},
+		sessions:           map[string]dashboardSession{},
+		rateState:          map[string]rateWindowCounter{},
+		projects:           []Project{},
+		scans:              []ScanSummary{},
+		scanIdempotency:    map[string]scanIdempotencyEntry{},
+		scanIdempotencyTTL: 24 * time.Hour,
+		policies:           map[string][]PolicyVersion{},
+		rulesets:           []RulesetVersion{},
 		events: []AuditEvent{
 			{EventType: "dashboard_initialized", CreatedAt: now},
 		},

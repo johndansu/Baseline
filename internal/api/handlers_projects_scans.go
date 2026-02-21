@@ -1,6 +1,9 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -166,24 +169,32 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var req struct {
-			ID         string          `json:"id"`
-			ProjectID  string          `json:"project_id"`
-			CommitSHA  string          `json:"commit_sha"`
-			Status     string          `json:"status"`
-			Violations []ScanViolation `json:"violations"`
-		}
+		var req CreateScanRequest
 		if !s.decodeJSONBody(w, r, &req) {
 			return
 		}
-		if strings.TrimSpace(req.ProjectID) == "" {
-			writeError(w, http.StatusBadRequest, "bad_request", "project_id is required")
+		normalized, ok := validateCreateScanRequest(req)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid_scan_payload", "invalid scan payload")
 			return
 		}
+
+		idempotencyKey, hasIdempotency, idempotencyKeyValid := parseIdempotencyKey(r.Header.Get("Idempotency-Key"))
+		if !idempotencyKeyValid {
+			writeError(w, http.StatusBadRequest, "invalid_idempotency_key", "invalid Idempotency-Key header")
+			return
+		}
+		idempotencyScope := ""
+		requestHash := ""
+		if hasIdempotency {
+			idempotencyScope = buildScanIdempotencyScope(r, authSource)
+			requestHash = hashCreateScanRequest(normalized)
+		}
+
 		projectExists := false
 		s.dataMu.RLock()
 		for _, project := range s.projects {
-			if project.ID == strings.TrimSpace(req.ProjectID) {
+			if project.ID == normalized.ProjectID {
 				projectExists = true
 				break
 			}
@@ -193,21 +204,13 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "bad_request", "project_id does not exist")
 			return
 		}
-		status := strings.ToLower(strings.TrimSpace(req.Status))
-		if status == "" {
-			status = "pass"
-		}
-		if status != "pass" && status != "fail" && status != "warn" {
-			writeError(w, http.StatusBadRequest, "bad_request", "status must be one of pass|fail|warn")
-			return
-		}
 
 		scan := ScanSummary{
-			ID:         strings.TrimSpace(req.ID),
-			ProjectID:  strings.TrimSpace(req.ProjectID),
-			CommitSHA:  strings.TrimSpace(req.CommitSHA),
-			Status:     status,
-			Violations: normalizeViolations(req.Violations),
+			ID:         normalized.ID,
+			ProjectID:  normalized.ProjectID,
+			CommitSHA:  normalized.CommitSHA,
+			Status:     normalized.Status,
+			Violations: normalized.Violations,
 			CreatedAt:  time.Now().UTC(),
 		}
 		if scan.ID == "" {
@@ -215,6 +218,22 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.dataMu.Lock()
+		if hasIdempotency {
+			s.pruneScanIdempotencyLocked(scan.CreatedAt)
+			mapKey := scanIdempotencyMapKey(idempotencyScope, idempotencyKey)
+			if entry, exists := s.scanIdempotency[mapKey]; exists {
+				if entry.RequestHash != requestHash {
+					s.dataMu.Unlock()
+					writeError(w, http.StatusConflict, "idempotency_conflict", "Idempotency-Key already used for a different scan payload")
+					return
+				}
+				replayed := entry.Scan
+				s.dataMu.Unlock()
+				w.Header().Set("X-Idempotency-Replayed", "true")
+				writeJSON(w, http.StatusCreated, replayed)
+				return
+			}
+		}
 		s.scans = append([]ScanSummary{scan}, s.scans...)
 		s.appendEventLocked(AuditEvent{
 			EventType: "scan_uploaded",
@@ -230,12 +249,149 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 				CreatedAt: time.Now().UTC(),
 			})
 		}
+		if hasIdempotency {
+			if s.scanIdempotency == nil {
+				s.scanIdempotency = map[string]scanIdempotencyEntry{}
+			}
+			s.scanIdempotency[scanIdempotencyMapKey(idempotencyScope, idempotencyKey)] = scanIdempotencyEntry{
+				RequestHash: requestHash,
+				Scan:        scan,
+				CreatedAt:   scan.CreatedAt,
+			}
+		}
 		s.dataMu.Unlock()
 
 		writeJSON(w, http.StatusCreated, scan)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
+}
+
+type scanIdempotencyEntry struct {
+	RequestHash string
+	Scan        ScanSummary
+	CreatedAt   time.Time
+}
+
+func validateCreateScanRequest(req CreateScanRequest) (CreateScanRequest, bool) {
+	normalized := CreateScanRequest{
+		ID:         strings.TrimSpace(req.ID),
+		ProjectID:  strings.TrimSpace(req.ProjectID),
+		CommitSHA:  strings.TrimSpace(req.CommitSHA),
+		Status:     strings.ToLower(strings.TrimSpace(req.Status)),
+		Violations: make([]ScanViolation, 0, len(req.Violations)),
+	}
+	if normalized.ProjectID == "" || len(normalized.ProjectID) > 128 {
+		return CreateScanRequest{}, false
+	}
+	if len(normalized.ID) > 128 || strings.ContainsAny(normalized.ID, " \t\r\n") {
+		return CreateScanRequest{}, false
+	}
+	if len(normalized.CommitSHA) > 128 || strings.ContainsAny(normalized.CommitSHA, " \t\r\n") {
+		return CreateScanRequest{}, false
+	}
+	if normalized.Status == "" {
+		normalized.Status = "pass"
+	}
+	if normalized.Status != "pass" && normalized.Status != "fail" && normalized.Status != "warn" {
+		return CreateScanRequest{}, false
+	}
+	if len(req.Violations) > 500 {
+		return CreateScanRequest{}, false
+	}
+	for _, item := range req.Violations {
+		policyID := strings.TrimSpace(item.PolicyID)
+		if policyID == "" || len(policyID) > 128 {
+			return CreateScanRequest{}, false
+		}
+		severity := strings.ToLower(strings.TrimSpace(item.Severity))
+		if severity == "" {
+			severity = "block"
+		}
+		if severity != "block" && severity != "warn" && severity != "info" {
+			return CreateScanRequest{}, false
+		}
+		message := strings.TrimSpace(item.Message)
+		if message == "" || len(message) > 2048 {
+			return CreateScanRequest{}, false
+		}
+		normalized.Violations = append(normalized.Violations, ScanViolation{
+			PolicyID: policyID,
+			Severity: severity,
+			Message:  message,
+		})
+	}
+	return normalized, true
+}
+
+func parseIdempotencyKey(raw string) (string, bool, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false, true
+	}
+	if len(trimmed) > 128 {
+		return "", false, false
+	}
+	for _, ch := range trimmed {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+		case ch >= 'A' && ch <= 'Z':
+		case ch >= '0' && ch <= '9':
+		case ch == '-' || ch == '_' || ch == '.' || ch == ':':
+		default:
+			return "", false, false
+		}
+	}
+	return trimmed, true, true
+}
+
+func buildScanIdempotencyScope(r *http.Request, authSource string) string {
+	switch strings.TrimSpace(authSource) {
+	case "api_key":
+		authz := strings.TrimSpace(r.Header.Get("Authorization"))
+		parts := strings.SplitN(authz, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			if token := strings.TrimSpace(parts[1]); token != "" {
+				return "api_key:" + legacyAPIKeyHash(token)
+			}
+		}
+	case "session":
+		if cookie, err := r.Cookie(dashboardSessionCookieName); err == nil && cookie != nil {
+			if token := strings.TrimSpace(cookie.Value); token != "" {
+				return "session:" + legacyAPIKeyHash(token)
+			}
+		}
+	}
+	return "remote:" + strings.TrimSpace(r.RemoteAddr)
+}
+
+func hashCreateScanRequest(req CreateScanRequest) string {
+	payload, _ := json.Marshal(req)
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func scanIdempotencyMapKey(scope, key string) string {
+	return strings.TrimSpace(scope) + "|" + strings.TrimSpace(key)
+}
+
+func (s *Server) pruneScanIdempotencyLocked(now time.Time) {
+	if s == nil {
+		return
+	}
+	if now.Sub(s.scanIdempotencySweep) < 1*time.Minute {
+		return
+	}
+	ttl := s.scanIdempotencyTTL
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	for key, entry := range s.scanIdempotency {
+		if entry.CreatedAt.IsZero() || now.Sub(entry.CreatedAt) > ttl {
+			delete(s.scanIdempotency, key)
+		}
+	}
+	s.scanIdempotencySweep = now
 }
 
 func (s *Server) handleScanReport(w http.ResponseWriter, r *http.Request, scanID string) {

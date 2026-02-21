@@ -235,6 +235,185 @@ func TestScanIngestionAndReports(t *testing.T) {
 	}
 }
 
+func TestScanIngestionSupportsIdempotencyReplay(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"operator-key": RoleOperator,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]string{
+		"id":   "proj_idem",
+		"name": "idempotency-project",
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 project create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	headers := map[string]string{
+		"Authorization":   "Bearer operator-key",
+		"Idempotency-Key": "scan-idem-001",
+	}
+	payload := map[string]any{
+		"project_id": "proj_idem",
+		"commit_sha": "abc123def",
+		"status":     "fail",
+		"violations": []map[string]any{
+			{
+				"policy_id": "G1",
+				"severity":  "block",
+				"message":   "hardcoded secret",
+			},
+		},
+	}
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", payload, headers)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 on first idempotent scan create, got %d body=%s", resp.StatusCode, body)
+	}
+	if got := strings.TrimSpace(resp.Header.Get("X-Idempotency-Replayed")); got != "" {
+		t.Fatalf("did not expect replay header on first request, got %q", got)
+	}
+	var first ScanSummary
+	if err := json.Unmarshal([]byte(body), &first); err != nil {
+		t.Fatalf("failed to decode first scan response: %v", err)
+	}
+	if strings.TrimSpace(first.ID) == "" {
+		t.Fatalf("expected first scan id to be populated")
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", payload, headers)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 on replayed scan create, got %d body=%s", resp.StatusCode, body)
+	}
+	if got := strings.TrimSpace(resp.Header.Get("X-Idempotency-Replayed")); got != "true" {
+		t.Fatalf("expected replay header on idempotent replay, got %q", got)
+	}
+	var replayed ScanSummary
+	if err := json.Unmarshal([]byte(body), &replayed); err != nil {
+		t.Fatalf("failed to decode replayed scan response: %v", err)
+	}
+	if replayed.ID != first.ID {
+		t.Fatalf("expected replayed scan id %q to match first scan id %q", replayed.ID, first.ID)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans?project_id=proj_idem", nil, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 scans list, got %d body=%s", resp.StatusCode, body)
+	}
+	var listed struct {
+		Scans []ScanSummary `json:"scans"`
+	}
+	if err := json.Unmarshal([]byte(body), &listed); err != nil {
+		t.Fatalf("failed to decode scans list: %v", err)
+	}
+	if len(listed.Scans) != 1 {
+		t.Fatalf("expected exactly one scan after idempotent replay, got %d", len(listed.Scans))
+	}
+}
+
+func TestScanIngestionIdempotencyConflictOnDifferentPayload(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"operator-key": RoleOperator,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]string{
+		"id":   "proj_conflict",
+		"name": "conflict-project",
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 project create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	headers := map[string]string{
+		"Authorization":   "Bearer operator-key",
+		"Idempotency-Key": "scan-idem-conflict",
+	}
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"project_id": "proj_conflict",
+		"commit_sha": "abc123def",
+		"status":     "pass",
+	}, headers)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 first scan, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"project_id": "proj_conflict",
+		"commit_sha": "zzz999999",
+		"status":     "fail",
+	}, headers)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 idempotency conflict, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "idempotency_conflict") {
+		t.Fatalf("expected idempotency_conflict error code, body=%s", body)
+	}
+}
+
+func TestScanIngestionRejectsMalformedPayload(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"operator-key": RoleOperator,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]string{
+		"id":   "proj_malformed",
+		"name": "malformed-project",
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 project create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"project_id": "proj_malformed",
+		"status":     "warn",
+		"violations": []map[string]any{
+			{
+				"policy_id": "",
+				"severity":  "block",
+				"message":   "missing policy id",
+			},
+		},
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed scan payload, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "invalid_scan_payload") {
+		t.Fatalf("expected invalid_scan_payload error code, body=%s", body)
+	}
+}
+
 func TestPolicyAndRulesetEndpoints(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.APIKeys = map[string]Role{

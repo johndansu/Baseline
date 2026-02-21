@@ -153,6 +153,11 @@ paths:
           schema:
             type: string
             enum: ["1"]
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -434,6 +439,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScanSummary"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
   /v1/scans/{scan_id}:
     get:
       summary: Get scan by id
