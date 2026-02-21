@@ -61,6 +61,30 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
+## Branch Protection (GitHub)
+Required checks for `main`:
+- `Test`
+- `Security Scan`
+- `Release Gates`
+- `API Smoke`
+
+GitHub CLI example:
+```bash
+gh api \
+  -X PUT \
+  repos/<owner>/<repo>/branches/main/protection \
+  -H "Accept: application/vnd.github+json" \
+  -F required_status_checks.strict=true \
+  -F required_status_checks.contexts[]="Test" \
+  -F required_status_checks.contexts[]="Security Scan" \
+  -F required_status_checks.contexts[]="Release Gates" \
+  -F required_status_checks.contexts[]="API Smoke" \
+  -F enforce_admins=true \
+  -F required_pull_request_reviews.required_approving_review_count=1 \
+  -F required_pull_request_reviews.dismiss_stale_reviews=true \
+  -F restrictions=
+```
+
 ## Final Release Gate
 ```bash
 bash ./scripts/release-gate.sh
@@ -68,6 +92,15 @@ bash ./scripts/release-gate.sh
 
 ```powershell
 .\scripts\release-gate.ps1
+```
+
+## API Smoke Gate (Production-like)
+```bash
+bash ./scripts/api-smoke.sh
+```
+
+```powershell
+.\scripts\api-smoke.ps1
 ```
 
 ## Operator Runbook (API Ops)

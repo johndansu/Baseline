@@ -240,6 +240,32 @@ Windows PowerShell:
 .\scripts\release-gate.ps1
 ```
 
+Production-like API smoke:
+
+```bash
+bash ./scripts/api-smoke.sh
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\api-smoke.ps1
+```
+
+Artifacts are written under `.artifacts/api-smoke/<timestamp>`.
+
+### GitHub Branch Protection (Required)
+
+For `main`, enable branch protection with:
+- pull requests required before merge
+- direct pushes restricted
+- force pushes disabled
+- required checks:
+  - `Test`
+  - `Security Scan`
+  - `Release Gates`
+  - `API Smoke`
+
 ## Dashboard Options
 
 ### 1) Embedded Dashboard (API-hosted)

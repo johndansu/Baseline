@@ -41,6 +41,8 @@ Ship a production-grade Baseline backend that is contract-stable, secure-by-defa
 - Completed: Dashboard runtime fetch/auth/error flows aligned with implemented API routes and contract tests.
 - Completed: Dedicated backend e2e suite covering auth/projects/scans/policies/rulesets/audit flows.
 - Completed: API high-read performance smoke tests and CI release-gate execution flow.
+- Completed: Production-like API smoke gate scripts (`scripts/api-smoke.ps1`, `scripts/api-smoke.sh`) with artifact output.
+- Completed: CI `API Smoke` workflow job wired to run production-like API smoke gate on Linux.
 - Completed: Rollback procedure and release checklist documented in `README.REMAINING.md`.
 - In progress: Contract/e2e checks exposed as dedicated CI gate (`Release Gates`); branch protection enforcement still requires repository settings.
 
@@ -136,8 +138,10 @@ Done when:
 
 ## Phase 7: Release Gates and Production Readiness (Week 4-5)
 - [x] Add backend e2e suite (auth, projects, scans, policies, rulesets, audit).
+- [x] Add dedicated CI API smoke gate job (`API Smoke`) with uploaded artifacts.
 - [ ] Add contract checks to required CI branch protections.
 - [x] Add performance smoke tests for high-read endpoints.
+- [x] Add production-like API smoke script for key workflows and dashboard payload probes.
 - [x] Run hardening gate before release:
 - `go test ./...`
 - `baseline check`
@@ -176,5 +180,5 @@ Done when:
 - [ ] No spec/runtime drift.
 - [ ] Security defaults enabled and tested.
 - [ ] End-to-end API flows covered by automated tests.
-- [ ] Dashboard integration passes against production-like API config.
+- [x] Dashboard integration passes against production-like API config.
 - [ ] CI/CD required checks pass on `main` with branch protection enabled.

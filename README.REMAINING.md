@@ -65,14 +65,29 @@ Detailed backend execution plan: `BACKEND.IMPLEMENTATION.PLAN.md`
   - `Test`
   - `Security Scan`
   - `Release Gates`
-  - `Build`
+  - `API Smoke`
 - Enforce PR-only merges and restrict direct pushes.
 
-4. Security and secrets validated.
+4. Branch protection configuration applied on GitHub.
+- Branch: `main`
+- Require a pull request before merging: enabled
+- Require approvals: enabled (recommended: at least 1)
+- Dismiss stale approvals on new commits: enabled
+- Require status checks to pass before merging: enabled
+- Required checks:
+  - `Test`
+  - `Security Scan`
+  - `Release Gates`
+  - `API Smoke`
+- Restrict who can push to matching branches: enabled
+- Allow force pushes: disabled
+- Allow deletions: disabled
+
+5. Security and secrets validated.
 - No plaintext secrets committed.
 - Runtime credentials rotated/active.
 
-5. Artifact and release integrity confirmed.
+6. Artifact and release integrity confirmed.
 - Release binaries built.
 - `SHA256SUMS` published.
 - Cosign signatures/certificates attached.
