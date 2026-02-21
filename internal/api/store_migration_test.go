@@ -32,6 +32,7 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 	}
 
 	for _, index := range []string{
+		"idx_api_keys_key_hash",
 		"idx_audit_events_created_at",
 		"idx_integration_jobs_due",
 		"idx_api_keys_revoked_created_at",
@@ -65,6 +66,9 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 	}
 	if len(keys) != 1 || keys[0].Metadata.ID != meta.ID {
 		t.Fatalf("unexpected api keys after bootstrap: %+v", keys)
+	}
+	if keys[0].KeyHash != hashAPIKey(apiKey, "") {
+		t.Fatalf("expected hashed api key material, got %q", keys[0].KeyHash)
 	}
 
 	event := AuditEvent{
@@ -104,6 +108,7 @@ func TestNewStoreMigratesLegacySchemaAndPreservesData(t *testing.T) {
 		assertSQLiteObjectExists(t, store.db, "table", table)
 	}
 	for _, index := range []string{
+		"idx_api_keys_key_hash",
 		"idx_api_keys_revoked_created_at",
 		"idx_api_keys_id_revoked",
 		"idx_audit_events_project_created_at",
@@ -119,9 +124,11 @@ func TestNewStoreMigratesLegacySchemaAndPreservesData(t *testing.T) {
 	if len(keys) != 1 {
 		t.Fatalf("expected one legacy key after migration, got %d", len(keys))
 	}
-	if keys[0].Metadata.ID != "legacy_key_id" || keys[0].Key != "legacy-key-value" {
+	if keys[0].Metadata.ID != "legacy_key_id" || keys[0].KeyHash != hashAPIKey("legacy-key-value", "") {
 		t.Fatalf("legacy api key was not preserved: %+v", keys[0])
 	}
+	assertSQLiteColumnMissing(t, store.db, "api_keys", "key_value")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "key_hash")
 
 	events, err := store.LoadAuditEvents(10)
 	if err != nil {
@@ -236,4 +243,47 @@ func assertSQLiteObjectExists(t *testing.T, db *sql.DB, objectType, objectName s
 	if err != nil {
 		t.Fatalf("expected %s %q to exist: %v", objectType, objectName, err)
 	}
+}
+
+func assertSQLiteColumnExists(t *testing.T, db *sql.DB, tableName, columnName string) {
+	t.Helper()
+	if !sqliteTableHasColumn(t, db, tableName, columnName) {
+		t.Fatalf("expected table %q to include column %q", tableName, columnName)
+	}
+}
+
+func assertSQLiteColumnMissing(t *testing.T, db *sql.DB, tableName, columnName string) {
+	t.Helper()
+	if sqliteTableHasColumn(t, db, tableName, columnName) {
+		t.Fatalf("expected table %q to exclude column %q", tableName, columnName)
+	}
+}
+
+func sqliteTableHasColumn(t *testing.T, db *sql.DB, tableName, columnName string) bool {
+	t.Helper()
+	rows, err := db.Query("PRAGMA table_info(" + tableName + ");")
+	if err != nil {
+		t.Fatalf("failed to inspect table %q columns: %v", tableName, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			dataType string
+			notNull  int
+			dflt     sql.NullString
+			pk       int
+		)
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("failed to scan column metadata for table %q: %v", tableName, err)
+		}
+		if name == columnName {
+			return true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("failed reading table %q metadata: %v", tableName, err)
+	}
+	return false
 }

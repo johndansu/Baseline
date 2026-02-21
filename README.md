@@ -143,6 +143,7 @@ baseline api verify-prod --strict
 - `BASELINE_API_DB_PATH`
 - `BASELINE_API_KEY`
 - `BASELINE_API_KEYS`
+- `BASELINE_API_KEY_HASH_SECRET`
 - `BASELINE_API_REQUIRE_HTTPS`
 - `BASELINE_API_SELF_SERVICE_ENABLED`
 - `BASELINE_API_ENROLLMENT_TOKENS`
@@ -171,6 +172,8 @@ baseline api verify-prod --strict
 
 Env files are auto-loaded in this order:
 `BASELINE_API_ENV_FILE` (if set), `.env.production`, `.env`, `api.env`.
+
+For managed API key rotation, use `scripts/api-key-rotate.ps1`.
 
 ## Dashboard Options
 

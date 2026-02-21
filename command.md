@@ -32,6 +32,24 @@ baseline api serve --addr :8080
 baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
 ```
 
+## API Key Rotation (Managed Keys)
+```powershell
+# create a new operator key
+.\scripts\api-key-rotate.ps1 `
+  -ApiBaseUrl http://127.0.0.1:8080 `
+  -AdminApiKey "<current_admin_key>" `
+  -Role operator `
+  -Name "ops-rotation-01"
+
+# create new key and revoke previous key id
+.\scripts\api-key-rotate.ps1 `
+  -ApiBaseUrl http://127.0.0.1:8080 `
+  -AdminApiKey "<current_admin_key>" `
+  -Role operator `
+  -Name "ops-rotation-02" `
+  -RevokeKeyId "<old_key_id>"
+```
+
 ## Git and Release
 ```bash
 git status

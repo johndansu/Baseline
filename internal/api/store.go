@@ -1,7 +1,11 @@
 package api
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -12,23 +16,25 @@ import (
 )
 
 type persistedAPIKey struct {
-	Key      string
+	KeyHash  string
 	Metadata APIKeyMetadata
 }
 
 const (
 	storeSchemaVersionKey     = "schema_version"
-	currentStoreSchemaVersion = 2
+	currentStoreSchemaVersion = 3
 )
 
 type storeMigration struct {
 	version    int
 	statements []string
+	apply      func(tx *sql.Tx) error
 }
 
 // Store manages persistent API state.
 type Store struct {
-	db *sql.DB
+	db               *sql.DB
+	apiKeyHashSecret string
 }
 
 // NewStore opens a SQLite-backed store and applies schema migrations.
@@ -54,6 +60,14 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{db: db}, nil
+}
+
+// SetAPIKeyHashSecret configures keyed hashing used when persisting API keys.
+func (s *Store) SetAPIKeyHashSecret(secret string) {
+	if s == nil {
+		return
+	}
+	s.apiKeyHashSecret = strings.TrimSpace(secret)
 }
 
 // Close releases database resources.
@@ -150,6 +164,12 @@ func migrateStore(db *sql.DB) error {
 				`CREATE INDEX IF NOT EXISTS idx_scans_created_at ON scans(created_at DESC);`,
 			},
 		},
+		{
+			version: 3,
+			apply: func(tx *sql.Tx) error {
+				return migrateAPIKeysToHashedStorageTx(tx)
+			},
+		},
 	}
 
 	for _, migration := range migrations {
@@ -162,6 +182,12 @@ func migrateStore(db *sql.DB) error {
 		}
 		for _, stmt := range migration.statements {
 			if _, err := tx.Exec(stmt); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		if migration.apply != nil {
+			if err := migration.apply(tx); err != nil {
 				_ = tx.Rollback()
 				return err
 			}
@@ -236,6 +262,181 @@ func upsertStoreSchemaVersionTx(tx *sql.Tx, version int) error {
 	return err
 }
 
+func migrateAPIKeysToHashedStorageTx(tx *sql.Tx) error {
+	hasKeyHash, err := tableHasColumnTx(tx, "api_keys", "key_hash")
+	if err != nil {
+		return err
+	}
+	hasKeyValue, err := tableHasColumnTx(tx, "api_keys", "key_value")
+	if err != nil {
+		return err
+	}
+	if hasKeyHash && !hasKeyValue {
+		return ensureAPIKeyIndexesTx(tx)
+	}
+	if !hasKeyValue && !hasKeyHash {
+		return errors.New("api_keys table is missing both key_hash and key_value columns")
+	}
+
+	if _, err := tx.Exec(`DROP TABLE IF EXISTS api_keys_v3;`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`CREATE TABLE api_keys_v3 (
+			id TEXT PRIMARY KEY,
+			key_hash TEXT NOT NULL UNIQUE,
+			name TEXT,
+			role TEXT NOT NULL,
+			prefix TEXT NOT NULL,
+			source TEXT,
+			created_at TEXT NOT NULL,
+			created_by TEXT,
+			revoked INTEGER NOT NULL DEFAULT 0,
+			revoked_at TEXT
+		);`,
+	); err != nil {
+		return err
+	}
+
+	query := `SELECT id, `
+	if hasKeyHash {
+		query += `key_hash`
+	} else {
+		query += `'' AS key_hash`
+	}
+	query += `, `
+	if hasKeyValue {
+		query += `key_value`
+	} else {
+		query += `'' AS key_value`
+	}
+	query += `,
+		name, role, prefix, source, created_at, created_by, revoked, revoked_at
+		FROM api_keys
+		ORDER BY created_at DESC`
+	rows, err := tx.Query(query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			id, name, roleRaw, prefix, source, createdRaw, createdBy string
+			revoked                                                  int
+			hashRaw, valueRaw, revokedRaw                            sql.NullString
+		)
+		if err := rows.Scan(
+			&id,
+			&hashRaw,
+			&valueRaw,
+			&name,
+			&roleRaw,
+			&prefix,
+			&source,
+			&createdRaw,
+			&createdBy,
+			&revoked,
+			&revokedRaw,
+		); err != nil {
+			return err
+		}
+		keyHash := normalizeStoredAPIKeyHash(hashRaw.String)
+		if keyHash == "" {
+			raw := strings.TrimSpace(valueRaw.String)
+			if raw == "" {
+				return fmt.Errorf("api key row %s has no key material to hash", strings.TrimSpace(id))
+			}
+			keyHash = hashAPIKey(raw, "")
+		}
+		if keyHash == "" {
+			return fmt.Errorf("api key row %s resolved to empty key hash", strings.TrimSpace(id))
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO api_keys_v3 (id, key_hash, name, role, prefix, source, created_at, created_by, revoked, revoked_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(key_hash) DO UPDATE SET
+			   id=excluded.id,
+			   name=excluded.name,
+			   role=excluded.role,
+			   prefix=excluded.prefix,
+			   source=excluded.source,
+			   created_at=excluded.created_at,
+			   created_by=excluded.created_by,
+			   revoked=excluded.revoked,
+			   revoked_at=excluded.revoked_at`,
+			strings.TrimSpace(id),
+			keyHash,
+			strings.TrimSpace(name),
+			string(Role(strings.ToLower(strings.TrimSpace(roleRaw)))),
+			strings.TrimSpace(prefix),
+			strings.TrimSpace(source),
+			strings.TrimSpace(createdRaw),
+			strings.TrimSpace(createdBy),
+			revoked,
+			strings.TrimSpace(revokedRaw.String),
+		); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`DROP TABLE api_keys;`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE api_keys_v3 RENAME TO api_keys;`); err != nil {
+		return err
+	}
+	return ensureAPIKeyIndexesTx(tx)
+}
+
+func ensureAPIKeyIndexesTx(tx *sql.Tx) error {
+	indexStatements := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);`,
+		`CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_created_at ON api_keys(revoked, created_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_api_keys_id_revoked ON api_keys(id, revoked);`,
+		`CREATE INDEX IF NOT EXISTS idx_api_keys_source_created_at ON api_keys(source, created_at DESC);`,
+	}
+	for _, stmt := range indexStatements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tableHasColumnTx(tx *sql.Tx, tableName, columnName string) (bool, error) {
+	rows, err := tx.Query(fmt.Sprintf(`PRAGMA table_info(%s);`, tableName))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	normalized := strings.ToLower(strings.TrimSpace(columnName))
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			dataType string
+			notNull  int
+			dflt     sql.NullString
+			pk       int
+		)
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if strings.ToLower(strings.TrimSpace(name)) == normalized {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 func (s *Store) UpsertAPIKey(rawKey string, metadata APIKeyMetadata) error {
 	if s == nil || s.db == nil {
 		return nil
@@ -244,13 +445,17 @@ func (s *Store) UpsertAPIKey(rawKey string, metadata APIKeyMetadata) error {
 	if key == "" {
 		return errors.New("empty API key")
 	}
+	keyHash := hashAPIKey(key, s.apiKeyHashSecret)
+	if keyHash == "" {
+		return errors.New("empty API key hash")
+	}
 	if strings.TrimSpace(metadata.ID) == "" {
 		return errors.New("missing API key id")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO api_keys (id, key_value, name, role, prefix, source, created_at, created_by, revoked, revoked_at)
+		`INSERT INTO api_keys (id, key_hash, name, role, prefix, source, created_at, created_by, revoked, revoked_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(key_value) DO UPDATE SET
+		 ON CONFLICT(key_hash) DO UPDATE SET
 		   id=excluded.id,
 		   name=excluded.name,
 		   role=excluded.role,
@@ -261,7 +466,7 @@ func (s *Store) UpsertAPIKey(rawKey string, metadata APIKeyMetadata) error {
 		   revoked=excluded.revoked,
 		   revoked_at=excluded.revoked_at`,
 		metadata.ID,
-		key,
+		keyHash,
 		strings.TrimSpace(metadata.Name),
 		string(metadata.Role),
 		strings.TrimSpace(metadata.Prefix),
@@ -282,15 +487,19 @@ func (s *Store) EnsureBootstrapAPIKey(rawKey string, metadata APIKeyMetadata) er
 	if key == "" {
 		return errors.New("empty API key")
 	}
+	keyHash := hashAPIKey(key, s.apiKeyHashSecret)
+	if keyHash == "" {
+		return errors.New("empty API key hash")
+	}
 	if strings.TrimSpace(metadata.ID) == "" {
 		return errors.New("missing API key id")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO api_keys (id, key_value, name, role, prefix, source, created_at, created_by, revoked, revoked_at)
+		`INSERT INTO api_keys (id, key_hash, name, role, prefix, source, created_at, created_by, revoked, revoked_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(key_value) DO NOTHING`,
+		 ON CONFLICT(key_hash) DO NOTHING`,
 		metadata.ID,
-		key,
+		keyHash,
 		strings.TrimSpace(metadata.Name),
 		string(metadata.Role),
 		strings.TrimSpace(metadata.Prefix),
@@ -308,7 +517,7 @@ func (s *Store) LoadAPIKeys() ([]persistedAPIKey, error) {
 		return []persistedAPIKey{}, nil
 	}
 	rows, err := s.db.Query(
-		`SELECT id, key_value, name, role, prefix, source, created_at, created_by, revoked, revoked_at
+		`SELECT id, key_hash, name, role, prefix, source, created_at, created_by, revoked, revoked_at
 		 FROM api_keys
 		 ORDER BY created_at DESC`,
 	)
@@ -320,13 +529,13 @@ func (s *Store) LoadAPIKeys() ([]persistedAPIKey, error) {
 	out := []persistedAPIKey{}
 	for rows.Next() {
 		var (
-			id, keyValue, name, roleRaw, prefix, source, createdRaw, createdBy string
-			revoked                                                            int
-			revokedRaw                                                         sql.NullString
+			id, keyHash, name, roleRaw, prefix, source, createdRaw, createdBy string
+			revoked                                                           int
+			revokedRaw                                                        sql.NullString
 		)
 		if err := rows.Scan(
 			&id,
-			&keyValue,
+			&keyHash,
 			&name,
 			&roleRaw,
 			&prefix,
@@ -351,7 +560,7 @@ func (s *Store) LoadAPIKeys() ([]persistedAPIKey, error) {
 			revokedAt = &parsed
 		}
 		out = append(out, persistedAPIKey{
-			Key: keyValue,
+			KeyHash: normalizeStoredAPIKeyHash(keyHash),
 			Metadata: APIKeyMetadata{
 				ID:        id,
 				Name:      name,
@@ -718,6 +927,84 @@ func parseStoredTime(value string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return parsed.UTC(), nil
+}
+
+func hashAPIKey(rawKey, hashSecret string) string {
+	trimmed := strings.TrimSpace(rawKey)
+	if trimmed == "" {
+		return ""
+	}
+	secret := strings.TrimSpace(hashSecret)
+	if secret != "" {
+		mac := hmac.New(sha256.New, []byte(secret))
+		_, _ = mac.Write([]byte(trimmed))
+		return "hmac-sha256:" + hex.EncodeToString(mac.Sum(nil))
+	}
+	return "sha256:" + legacyAPIKeyHash(trimmed)
+}
+
+func legacyAPIKeyHash(rawKey string) string {
+	trimmed := strings.TrimSpace(rawKey)
+	if trimmed == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(trimmed))
+	return hex.EncodeToString(sum[:])
+}
+
+func normalizeStoredAPIKeyHash(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	parts := strings.SplitN(trimmed, ":", 2)
+	if len(parts) == 2 {
+		algo := strings.ToLower(strings.TrimSpace(parts[0]))
+		digest := strings.ToLower(strings.TrimSpace(parts[1]))
+		if algo == "" || digest == "" {
+			return ""
+		}
+		return algo + ":" + digest
+	}
+	return strings.ToLower(trimmed)
+}
+
+func apiKeyHashCandidates(rawKey, hashSecret string) []string {
+	trimmed := strings.TrimSpace(rawKey)
+	if trimmed == "" {
+		return []string{}
+	}
+	legacy := legacyAPIKeyHash(trimmed)
+	out := []string{
+		hashAPIKey(trimmed, hashSecret),
+		"sha256:" + legacy,
+		legacy,
+	}
+	seen := map[string]struct{}{}
+	deduped := make([]string, 0, len(out))
+	for _, candidate := range out {
+		normalized := normalizeStoredAPIKeyHash(candidate)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		deduped = append(deduped, normalized)
+	}
+	return deduped
+}
+
+func constantTimeAPIKeyHashEqual(a, b string) bool {
+	left := normalizeStoredAPIKeyHash(a)
+	right := normalizeStoredAPIKeyHash(b)
+	if left == "" || right == "" {
+		return false
+	}
+	leftDigest := sha256.Sum256([]byte(left))
+	rightDigest := sha256.Sum256([]byte(right))
+	return subtle.ConstantTimeCompare(leftDigest[:], rightDigest[:]) == 1
 }
 
 func boolToInt(value bool) int {

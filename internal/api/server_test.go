@@ -552,6 +552,7 @@ func TestAPIStatePersistsAcrossServerRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "baseline_api_test.db")
 	cfg := DefaultConfig()
 	cfg.DBPath = dbPath
+	cfg.APIKeyHashSecret = "test-api-key-hash-secret"
 	cfg.APIKeys = map[string]Role{
 		"admin-key": RoleAdmin,
 	}
@@ -585,6 +586,15 @@ func TestAPIStatePersistsAcrossServerRestart(t *testing.T) {
 	}
 	if created.ID == "" || created.APIKey == "" {
 		t.Fatalf("expected created key id + secret, got id=%q key=%q", created.ID, created.APIKey)
+	}
+	assertSQLiteColumnMissing(t, store1.db, "api_keys", "key_value")
+	assertSQLiteColumnExists(t, store1.db, "api_keys", "key_hash")
+	var hashedRowCount int
+	if err := store1.db.QueryRow(`SELECT COUNT(1) FROM api_keys WHERE key_hash = ?`, hashAPIKey(created.APIKey, cfg.APIKeyHashSecret)).Scan(&hashedRowCount); err != nil {
+		t.Fatalf("failed to verify persisted key hash: %v", err)
+	}
+	if hashedRowCount == 0 {
+		t.Fatalf("expected persisted managed key hash in database")
 	}
 	ts1.Close()
 	_ = store1.Close()
@@ -969,6 +979,7 @@ func TestWebhookEnqueuesPersistentIntegrationJob(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.DBPath = dbPath
+	cfg.APIKeyHashSecret = "test-api-key-hash-secret"
 	cfg.APIKeys = map[string]Role{
 		"admin-key": RoleAdmin,
 	}

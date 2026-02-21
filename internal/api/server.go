@@ -39,6 +39,7 @@ type Server struct {
 
 	authMu    sync.RWMutex
 	keyIndex  map[string]string
+	keyHashes map[string]string
 	keysByID  map[string]APIKeyMetadata
 	sessionMu sync.RWMutex
 	sessions  map[string]dashboardSession
@@ -78,6 +79,9 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	if config.APIKeys == nil {
 		config.APIKeys = map[string]Role{}
 	}
+	if store != nil {
+		store.SetAPIKeyHashSecret(config.APIKeyHashSecret)
+	}
 	copiedAPIKeys := make(map[string]Role, len(config.APIKeys))
 	for key, role := range config.APIKeys {
 		copiedAPIKeys[key] = role
@@ -91,16 +95,17 @@ func NewServer(config Config, store *Store) (*Server, error) {
 
 	now := time.Now().UTC()
 	s := &Server{
-		config:   config,
-		store:    store,
-		client:   &http.Client{Timeout: 10 * time.Second},
-		keyIndex: map[string]string{},
-		keysByID: map[string]APIKeyMetadata{},
-		sessions: map[string]dashboardSession{},
-		projects: []Project{},
-		scans:    []ScanSummary{},
-		policies: map[string][]PolicyVersion{},
-		rulesets: []RulesetVersion{},
+		config:    config,
+		store:     store,
+		client:    &http.Client{Timeout: 10 * time.Second},
+		keyIndex:  map[string]string{},
+		keyHashes: map[string]string{},
+		keysByID:  map[string]APIKeyMetadata{},
+		sessions:  map[string]dashboardSession{},
+		projects:  []Project{},
+		scans:     []ScanSummary{},
+		policies:  map[string][]PolicyVersion{},
+		rulesets:  []RulesetVersion{},
 		events: []AuditEvent{
 			{EventType: "dashboard_initialized", CreatedAt: now},
 		},
@@ -109,10 +114,11 @@ func NewServer(config Config, store *Store) (*Server, error) {
 		integrationRetryMax:     30 * time.Second,
 	}
 	for key, role := range config.APIKeys {
-		id := nextKeyID()
-		if id == "" {
-			id = "key_bootstrap"
+		keyHash := hashAPIKey(key, config.APIKeyHashSecret)
+		if keyHash == "" {
+			continue
 		}
+		id := bootstrapKeyID(legacyAPIKeyHash(key))
 		for {
 			if _, exists := s.keysByID[id]; !exists {
 				break
@@ -124,6 +130,7 @@ func NewServer(config Config, store *Store) (*Server, error) {
 			}
 		}
 		s.keyIndex[key] = id
+		s.keyHashes[keyHash] = id
 		s.keysByID[id] = APIKeyMetadata{
 			ID:        id,
 			Role:      role,
@@ -293,6 +300,12 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		metadata.Revoked = true
 		metadata.RevokedAt = &now
 		s.keysByID[pathSuffix] = metadata
+		for keyHash, id := range s.keyHashes {
+			if id == pathSuffix {
+				delete(s.keyHashes, keyHash)
+				break
+			}
+		}
 		for key, id := range s.keyIndex {
 			if id != pathSuffix {
 				continue
@@ -906,12 +919,23 @@ func (s *Server) loadPersistentState() error {
 		return err
 	}
 	for _, item := range keys {
-		s.keysByID[item.Metadata.ID] = item.Metadata
-		if item.Metadata.Revoked {
-			continue
+		keyHash := normalizeStoredAPIKeyHash(item.KeyHash)
+		if keyHash != "" {
+			if currentID, exists := s.keyHashes[keyHash]; exists && currentID != item.Metadata.ID {
+				delete(s.keysByID, currentID)
+				for rawKey, indexedID := range s.keyIndex {
+					if indexedID == currentID {
+						s.keyIndex[rawKey] = item.Metadata.ID
+					}
+				}
+			}
+			if item.Metadata.Revoked {
+				delete(s.keyHashes, keyHash)
+			} else {
+				s.keyHashes[keyHash] = item.Metadata.ID
+			}
 		}
-		s.keyIndex[item.Key] = item.Metadata.ID
-		s.config.APIKeys[item.Key] = item.Metadata.Role
+		s.keysByID[item.Metadata.ID] = item.Metadata
 	}
 
 	events, err := s.store.LoadAuditEvents(500)
@@ -1081,6 +1105,12 @@ func (s *Server) authenticateWithSource(r *http.Request) (Role, string, error) {
 			if role, ok := s.config.APIKeys[token]; ok {
 				s.authMu.RUnlock()
 				return role, "api_key", nil
+			}
+			if keyID, ok := s.findKeyIDByTokenLocked(token); ok {
+				if metadata, exists := s.keysByID[keyID]; exists && !metadata.Revoked {
+					s.authMu.RUnlock()
+					return metadata.Role, "api_key", nil
+				}
 			}
 			s.authMu.RUnlock()
 		}
@@ -1289,6 +1319,9 @@ func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string,
 	if s.keyIndex == nil {
 		s.keyIndex = map[string]string{}
 	}
+	if s.keyHashes == nil {
+		s.keyHashes = map[string]string{}
+	}
 	if s.keysByID == nil {
 		s.keysByID = map[string]APIKeyMetadata{}
 	}
@@ -1302,11 +1335,21 @@ func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string,
 		if _, exists := s.config.APIKeys[candidate]; exists {
 			continue
 		}
+		if s.hasTokenHashCollisionLocked(candidate) {
+			continue
+		}
 		key = candidate
 		break
 	}
 	if key == "" {
 		return "", APIKeyMetadata{}, errors.New("unable to create unique key")
+	}
+	keyHash := hashAPIKey(key, s.config.APIKeyHashSecret)
+	if keyHash == "" {
+		return "", APIKeyMetadata{}, errors.New("unable to hash generated API key")
+	}
+	if s.hasTokenHashCollisionLocked(key) {
+		return "", APIKeyMetadata{}, errors.New("unable to create unique key hash")
 	}
 
 	id := ""
@@ -1338,16 +1381,38 @@ func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string,
 	}
 	s.config.APIKeys[key] = role
 	s.keyIndex[key] = id
+	s.keyHashes[keyHash] = id
 	s.keysByID[id] = metadata
 	if s.store != nil {
 		if err := s.store.UpsertAPIKey(key, metadata); err != nil {
 			delete(s.config.APIKeys, key)
 			delete(s.keyIndex, key)
+			delete(s.keyHashes, keyHash)
 			delete(s.keysByID, id)
 			return "", APIKeyMetadata{}, err
 		}
 	}
 	return key, metadata, nil
+}
+
+func (s *Server) findKeyIDByTokenLocked(token string) (string, bool) {
+	candidates := apiKeyHashCandidates(token, s.config.APIKeyHashSecret)
+	if len(candidates) == 0 {
+		return "", false
+	}
+	for storedHash, keyID := range s.keyHashes {
+		for _, candidate := range candidates {
+			if constantTimeAPIKeyHashEqual(storedHash, candidate) {
+				return keyID, true
+			}
+		}
+	}
+	return "", false
+}
+
+func (s *Server) hasTokenHashCollisionLocked(token string) bool {
+	_, exists := s.findKeyIDByTokenLocked(token)
+	return exists
 }
 
 func nextKeyID() string {
@@ -1356,6 +1421,14 @@ func nextKeyID() string {
 		return ""
 	}
 	return "key_" + fragment
+}
+
+func bootstrapKeyID(keyHash string) string {
+	trimmed := strings.TrimSpace(keyHash)
+	if len(trimmed) < 12 {
+		return "key_bootstrap"
+	}
+	return "key_bootstrap_" + trimmed[:12]
 }
 
 func keyPrefix(key string) string {

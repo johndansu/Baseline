@@ -11,6 +11,7 @@ func TestConfigFromEnvSecurityToggles(t *testing.T) {
 	t.Setenv("BASELINE_API_GITHUB_API_URL", "https://gh.example.test")
 	t.Setenv("BASELINE_API_GITLAB_TOKEN", "gl-api-token")
 	t.Setenv("BASELINE_API_GITLAB_API_URL", "https://gl.example.test")
+	t.Setenv("BASELINE_API_KEY_HASH_SECRET", "test-hash-secret-value")
 
 	cfg := ConfigFromEnv()
 	if !cfg.RequireHTTPS {
@@ -36,5 +37,8 @@ func TestConfigFromEnvSecurityToggles(t *testing.T) {
 	}
 	if cfg.GitLabAPIBaseURL != "https://gl.example.test" {
 		t.Fatalf("expected gitlab api url to load, got %q", cfg.GitLabAPIBaseURL)
+	}
+	if cfg.APIKeyHashSecret != "test-hash-secret-value" {
+		t.Fatalf("expected api key hash secret to load, got %q", cfg.APIKeyHashSecret)
 	}
 }

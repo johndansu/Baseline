@@ -37,6 +37,7 @@ type Config struct {
 	GitHubAPIBaseURL             string
 	GitLabAPIToken               string
 	GitLabAPIBaseURL             string
+	APIKeyHashSecret             string
 	AIEnabled                    bool
 }
 
@@ -71,6 +72,7 @@ func DefaultConfig() Config {
 		GitHubAPIBaseURL:             "https://api.github.com",
 		GitLabAPIToken:               "",
 		GitLabAPIBaseURL:             "https://gitlab.com/api/v4",
+		APIKeyHashSecret:             "",
 		AIEnabled:                    false,
 	}
 }
@@ -184,6 +186,9 @@ func ConfigFromEnv() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITLAB_API_URL")); v != "" {
 		cfg.GitLabAPIBaseURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_KEY_HASH_SECRET")); v != "" {
+		cfg.APIKeyHashSecret = v
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AI_ENABLED")); v != "" {
 		cfg.AIEnabled = parseBool(v, cfg.AIEnabled)
