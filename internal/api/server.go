@@ -12,9 +12,12 @@ import (
 )
 
 type dashboardSession struct {
-	Role      Role
-	User      string
-	ExpiresAt time.Time
+	Role       Role
+	User       string
+	Subject    string
+	Email      string
+	AuthSource string
+	ExpiresAt  time.Time
 }
 
 const dashboardSessionCookieName = "baseline_dashboard_session"
@@ -34,6 +37,9 @@ type Server struct {
 	keysByID  map[string]APIKeyMetadata
 	sessionMu sync.RWMutex
 	sessions  map[string]dashboardSession
+	oidcMu    sync.Mutex
+	oidc      *oidcRuntime
+	oidcState map[string]pendingOIDCLogin
 	rateMu    sync.Mutex
 	rateState map[string]rateWindowCounter
 	rateSweep time.Time
@@ -61,6 +67,9 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	if !isValidRole(config.DashboardSessionRole) {
 		config.DashboardSessionRole = RoleViewer
 	}
+	if !isValidRole(config.OIDCDefaultRole) {
+		config.OIDCDefaultRole = RoleViewer
+	}
 	if config.DashboardSessionTTL <= 0 {
 		config.DashboardSessionTTL = 12 * time.Hour
 	}
@@ -82,14 +91,28 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	if config.UnauthRateLimitWindow <= 0 {
 		config.UnauthRateLimitWindow = 1 * time.Minute
 	}
-	if !config.SelfServiceEnabled && len(config.APIKeys) == 0 && !config.DashboardSessionEnabled {
-		return nil, errors.New("no API keys configured. Set BASELINE_API_KEY/BASELINE_API_KEYS or enable BASELINE_API_DASHBOARD_SESSION_ENABLED")
+	if !config.SelfServiceEnabled && len(config.APIKeys) == 0 && !config.DashboardSessionEnabled && !config.OIDCEnabled {
+		return nil, errors.New("no auth mechanism configured. Set BASELINE_API_KEY/BASELINE_API_KEYS, enable BASELINE_API_DASHBOARD_SESSION_ENABLED, or enable BASELINE_API_OIDC_ENABLED")
 	}
 	if config.SelfServiceEnabled && len(config.EnrollmentTokens) == 0 {
 		return nil, errors.New("self-service enabled but no enrollment tokens configured. Set BASELINE_API_ENROLLMENT_TOKENS")
 	}
 	if config.DashboardAuthProxyEnabled && !config.TrustProxyHeaders {
 		return nil, errors.New("dashboard auth proxy requires BASELINE_API_TRUST_PROXY_HEADERS=true")
+	}
+	if config.OIDCEnabled {
+		if strings.TrimSpace(config.OIDCIssuerURL) == "" {
+			return nil, errors.New("OIDC enabled but BASELINE_API_OIDC_ISSUER_URL is not set")
+		}
+		if strings.TrimSpace(config.OIDCClientID) == "" {
+			return nil, errors.New("OIDC enabled but BASELINE_API_OIDC_CLIENT_ID is not set")
+		}
+		if strings.TrimSpace(config.OIDCClientSecret) == "" {
+			return nil, errors.New("OIDC enabled but BASELINE_API_OIDC_CLIENT_SECRET is not set")
+		}
+		if strings.TrimSpace(config.OIDCRedirectURL) == "" {
+			return nil, errors.New("OIDC enabled but BASELINE_API_OIDC_REDIRECT_URL is not set")
+		}
 	}
 	if config.APIKeys == nil {
 		config.APIKeys = map[string]Role{}
@@ -117,6 +140,7 @@ func NewServer(config Config, store *Store) (*Server, error) {
 		keyHashes:          map[string]string{},
 		keysByID:           map[string]APIKeyMetadata{},
 		sessions:           map[string]dashboardSession{},
+		oidcState:          map[string]pendingOIDCLogin{},
 		rateState:          map[string]rateWindowCounter{},
 		projects:           []Project{},
 		scans:              []ScanSummary{},

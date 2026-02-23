@@ -7,13 +7,17 @@ import (
 )
 
 func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
-	if !s.config.DashboardSessionEnabled {
+	if !s.config.DashboardSessionEnabled && !s.config.OIDCEnabled {
 		writeError(w, http.StatusForbidden, "session_disabled", "dashboard session auth is disabled")
 		return
 	}
 
 	switch r.Method {
 	case http.MethodPost:
+		if !s.config.DashboardSessionEnabled {
+			writeError(w, http.StatusForbidden, "session_disabled", "local dashboard session creation is disabled")
+			return
+		}
 		if !s.requestBodyAllowed(w, r) {
 			return
 		}
@@ -31,39 +35,27 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		secureCookie := s.shouldUseSecureSessionCookie(r)
-		if secureCookie && !s.isRequestSecure(r) {
-			writeError(w, http.StatusForbidden, "https_required", "secure dashboard sessions require HTTPS")
-			return
+		session := dashboardSession{
+			Role:       role,
+			User:       user,
+			AuthSource: "session_cookie",
+			ExpiresAt:  time.Now().UTC().Add(s.config.DashboardSessionTTL),
 		}
-		token := randomToken(32)
-		if token == "" {
+		if err := s.issueDashboardSession(w, r, session); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "https") {
+				writeError(w, http.StatusForbidden, "https_required", err.Error())
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "system_error", "unable to create dashboard session")
 			return
 		}
-		s.sessionMu.Lock()
-		s.sessions[token] = dashboardSession{
-			Role:      role,
-			User:      user,
-			ExpiresAt: time.Now().UTC().Add(s.config.DashboardSessionTTL),
-		}
-		s.sessionMu.Unlock()
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     dashboardSessionCookieName,
-			Value:    token,
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
-			Secure:   secureCookie,
-			Expires:  time.Now().UTC().Add(s.config.DashboardSessionTTL),
-		})
 
 		writeJSON(w, http.StatusCreated, map[string]any{
-			"user":      user,
-			"role":      role,
-			"auth_mode": s.dashboardAuthMode(),
-			"active":    true,
+			"user":            user,
+			"role":            role,
+			"auth_mode":       s.dashboardAuthMode(),
+			"identity_source": "session_cookie",
+			"active":          true,
 		})
 	case http.MethodGet:
 		session, err := s.getDashboardSession(r)
@@ -72,10 +64,11 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"user":      session.User,
-			"role":      session.Role,
-			"auth_mode": s.dashboardAuthMode(),
-			"active":    true,
+			"user":            session.User,
+			"role":            session.Role,
+			"auth_mode":       s.dashboardAuthMode(),
+			"identity_source": session.AuthSource,
+			"active":          true,
 		})
 	case http.MethodDelete:
 		if !s.validCSRFSentinel(r) {

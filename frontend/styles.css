@@ -3025,6 +3025,14 @@ code {
   line-height: 1.5;
 }
 
+.signin-form .auth-page-note,
+.signup-form .auth-page-note {
+  margin-top: -12px;
+  margin-bottom: 18px;
+  font-size: 0.85rem;
+  color: rgba(42, 24, 16, 0.72);
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -3062,6 +3070,82 @@ code {
 
 .form-actions {
   margin-top: 8px;
+}
+
+/* OAuth Styles */
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.oauth-divider span {
+  padding: 0 15px;
+  font-weight: 500;
+}
+
+.oauth-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.oauth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.oauth-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.oauth-btn svg {
+  flex-shrink: 0;
+}
+
+.google-btn:hover {
+  border-color: #4285f4;
+  background: #f8f9fa;
+}
+
+.github-btn:hover {
+  border-color: #333;
+  background: #f6f8fa;
+}
+
+.github-btn {
+  color: #24292f;
+}
+
+.google-btn {
+  color: #3c4043;
+}
+
+.full-width {
+  width: 100%;
 }
 
 .full-width {
