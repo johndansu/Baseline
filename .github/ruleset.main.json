@@ -34,16 +34,16 @@
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
           {
-            "context": "CI/CD Pipeline / Test"
+            "context": "Test"
           },
           {
-            "context": "CI/CD Pipeline / Security Scan"
+            "context": "Security Scan"
           },
           {
-            "context": "CI/CD Pipeline / Release Gates"
+            "context": "Release Gates"
           },
           {
-            "context": "CI/CD Pipeline / API Smoke"
+            "context": "API Smoke"
           }
         ]
       }
