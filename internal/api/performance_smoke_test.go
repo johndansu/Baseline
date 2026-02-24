@@ -31,14 +31,6 @@ func TestHighReadEndpointsPerformanceSmoke(t *testing.T) {
 		headers        map[string]string
 	}{
 		{
-			name:           "dashboard_summary",
-			path:           "/v1/dashboard",
-			expectedStatus: http.StatusOK,
-			headers: map[string]string{
-				"Authorization": "Bearer admin-key",
-			},
-		},
-		{
 			name:           "projects_list",
 			path:           "/v1/projects",
 			expectedStatus: http.StatusOK,

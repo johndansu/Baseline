@@ -333,21 +333,6 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         "502":
           $ref: "#/components/responses/ErrorResponse"
-  /v1/dashboard:
-    get:
-      summary: Dashboard summary
-      security:
-        - bearerAuth: []
-        - cookieAuth: []
-      responses:
-        "200":
-          description: Dashboard metrics and recent activity
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DashboardSummary"
-        "401":
-          $ref: "#/components/responses/UnauthorizedError"
   /v1/projects:
     get:
       summary: List projects

@@ -42,7 +42,7 @@ func (s *Server) authenticateWithSource(r *http.Request) (Role, string, error) {
 }
 
 func (s *Server) getDashboardSession(r *http.Request) (dashboardSession, error) {
-	if !s.config.DashboardSessionEnabled {
+	if !s.config.DashboardSessionEnabled && !s.config.OIDCEnabled {
 		return dashboardSession{}, errors.New("dashboard sessions disabled")
 	}
 	cookie, err := r.Cookie(dashboardSessionCookieName)

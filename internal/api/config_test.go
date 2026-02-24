@@ -73,3 +73,63 @@ func TestConfigFromEnvSecurityToggles(t *testing.T) {
 		t.Fatalf("expected api key hash secret to load, got %q", cfg.APIKeyHashSecret)
 	}
 }
+
+func TestConfigFromEnvAuth0Aliases(t *testing.T) {
+	t.Setenv("BASELINE_API_AUTH0_ENABLED", "true")
+	t.Setenv("BASELINE_API_AUTH0_DOMAIN", "acme.us.auth0.com")
+	t.Setenv("BASELINE_API_AUTH0_CLIENT_ID", "auth0-client")
+	t.Setenv("BASELINE_API_AUTH0_CLIENT_SECRET", "auth0-secret")
+	t.Setenv("BASELINE_API_AUTH0_CALLBACK_URL", "https://api.example.com/v1/auth/oidc/callback")
+	t.Setenv("BASELINE_API_AUTH0_DEFAULT_ROLE", "operator")
+	t.Setenv("BASELINE_API_AUTH0_ALLOWED_EMAIL_DOMAINS", "example.com,acme.com")
+
+	cfg := ConfigFromEnv()
+	if !cfg.OIDCEnabled {
+		t.Fatal("expected Auth0 alias to enable OIDC")
+	}
+	if cfg.OIDCIssuerURL != "https://acme.us.auth0.com" {
+		t.Fatalf("expected normalized Auth0 issuer URL, got %q", cfg.OIDCIssuerURL)
+	}
+	if cfg.OIDCClientID != "auth0-client" || cfg.OIDCClientSecret != "auth0-secret" {
+		t.Fatalf("expected Auth0 client credentials to map to OIDC fields")
+	}
+	if cfg.OIDCRedirectURL != "https://api.example.com/v1/auth/oidc/callback" {
+		t.Fatalf("expected Auth0 callback alias to map to OIDC redirect URL, got %q", cfg.OIDCRedirectURL)
+	}
+	if cfg.OIDCDefaultRole != RoleOperator {
+		t.Fatalf("expected default role from Auth0 alias to be operator, got %q", cfg.OIDCDefaultRole)
+	}
+	if len(cfg.OIDCAllowedEmailDomains) != 2 {
+		t.Fatalf("expected allowed email domains from Auth0 alias, got %#v", cfg.OIDCAllowedEmailDomains)
+	}
+}
+
+func TestConfigFromEnvSupabaseAliases(t *testing.T) {
+	t.Setenv("BASELINE_API_SUPABASE_ENABLED", "true")
+	t.Setenv("BASELINE_API_SUPABASE_URL", "https://xyzcompany.supabase.co")
+	t.Setenv("BASELINE_API_SUPABASE_CLIENT_ID", "supabase-client")
+	t.Setenv("BASELINE_API_SUPABASE_CLIENT_SECRET", "supabase-secret")
+	t.Setenv("BASELINE_API_SUPABASE_CALLBACK_URL", "https://api.example.com/v1/auth/oidc/callback")
+	t.Setenv("BASELINE_API_SUPABASE_DEFAULT_ROLE", "viewer")
+	t.Setenv("BASELINE_API_SUPABASE_ALLOWED_EMAIL_DOMAINS", "example.com,acme.com")
+
+	cfg := ConfigFromEnv()
+	if !cfg.OIDCEnabled {
+		t.Fatal("expected Supabase alias to enable OIDC")
+	}
+	if cfg.OIDCIssuerURL != "https://xyzcompany.supabase.co/auth/v1" {
+		t.Fatalf("expected normalized Supabase issuer URL, got %q", cfg.OIDCIssuerURL)
+	}
+	if cfg.OIDCClientID != "supabase-client" || cfg.OIDCClientSecret != "supabase-secret" {
+		t.Fatalf("expected Supabase client credentials to map to OIDC fields")
+	}
+	if cfg.OIDCRedirectURL != "https://api.example.com/v1/auth/oidc/callback" {
+		t.Fatalf("expected Supabase callback alias to map to OIDC redirect URL, got %q", cfg.OIDCRedirectURL)
+	}
+	if cfg.OIDCDefaultRole != RoleViewer {
+		t.Fatalf("expected default role from Supabase alias to be viewer, got %q", cfg.OIDCDefaultRole)
+	}
+	if len(cfg.OIDCAllowedEmailDomains) != 2 {
+		t.Fatalf("expected allowed email domains from Supabase alias, got %#v", cfg.OIDCAllowedEmailDomains)
+	}
+}

@@ -67,15 +67,6 @@ func TestDashboardSessionLifecycleAndProjectFlow(t *testing.T) {
 		t.Fatalf("expected created project in list, body=%s", body)
 	}
 
-	// Dashboard summary should include metrics for created project.
-	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard", nil, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 for dashboard summary, got %d body=%s", resp.StatusCode, body)
-	}
-	if !strings.Contains(body, "\"projects\":1") {
-		t.Fatalf("expected dashboard metrics projects=1, body=%s", body)
-	}
-
 	// End session and confirm protected endpoint is denied.
 	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/auth/session", nil, map[string]string{
 		"X-Baseline-CSRF": "1",

@@ -23,13 +23,21 @@ baseline generate
 baseline pr
 ```
 
-## API and Dashboard
+## API and Auth (Current)
 ```bash
 baseline api keygen
 baseline api verify-prod
 baseline api verify-prod --strict
 baseline api serve --addr :8080
+# legacy proxy dashboard (rebuild in progress; not supported for auth flow)
 baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
+```
+
+## Auth Pages (API-hosted)
+```text
+http://127.0.0.1:8080/
+http://127.0.0.1:8080/signin.html
+http://127.0.0.1:8080/up.html
 ```
 
 ## API Key Rotation (Managed Keys)
@@ -115,9 +123,12 @@ curl http://127.0.0.1:8080/readyz
 # 3) operational metrics
 curl http://127.0.0.1:8080/metrics
 
-# 4) dashboard summary probe
+# 4) auth-protected API probe
 curl -H "Authorization: Bearer <admin_key>" \
-  http://127.0.0.1:8080/v1/dashboard
+  http://127.0.0.1:8080/v1/projects
+
+# optional: inspect current human session identity
+curl http://127.0.0.1:8080/v1/auth/me
 
 # 5) audit stream probe
 curl -H "Authorization: Bearer <admin_key>" \

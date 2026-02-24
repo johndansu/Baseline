@@ -131,13 +131,7 @@ func TestContractResponseShapesForCoreEndpoints(t *testing.T) {
 		"Authorization": "Bearer admin-key",
 	}
 
-	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard", nil, headers)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("dashboard response status mismatch: got %d body=%s", resp.StatusCode, body)
-	}
-	assertJSONContainsTopLevelKeys(t, body, "metrics", "recent_scans", "top_violations", "recent_events", "policies")
-
-	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans?project_id="+fixture.projectID, nil, headers)
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans?project_id="+fixture.projectID, nil, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("scans list response status mismatch: got %d body=%s", resp.StatusCode, body)
 	}

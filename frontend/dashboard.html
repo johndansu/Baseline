@@ -1,611 +1,1127 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Baseline - Operations Dashboard Template</title>
-  <meta name="description" content="Baseline dashboard template for policy status, scans, API key operations, and monitoring.">
-  <link rel="icon" type="image/png" sizes="32x32" href="../img/baseline favicon.png">
-  <link rel="apple-touch-icon" href="../img/baseline favicon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./dashboard.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baseline Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="icon" href="../img/baseline favicon.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .tab-content.hidden { display: none; }
+    </style>
 </head>
-<body class="dashboard-page">
-  <a class="skip-link" href="#dashboard-content">Skip to main content</a>
-  <div class="dashboard-shell">
-    <aside class="dashboard-sidebar">
-      <a class="dashboard-brand" href="./index.html">
-        <img src="../img/baseline logo.png" alt="Baseline logo">
-        <div>
-          <strong>Baseline</strong>
-          <span>Operations Dashboard</span>
-        </div>
-      </a>
-
-      <nav class="dashboard-nav" aria-label="Dashboard sections" role="tablist">
-        <button class="dashboard-nav-item active" id="tab-overview" type="button" role="tab" aria-selected="true" aria-controls="overview" tabindex="0" data-section="overview">Overview</button>
-        <button class="dashboard-nav-item" id="tab-policies" type="button" role="tab" aria-selected="false" aria-controls="policies" tabindex="-1" data-section="policies">Policies</button>
-        <button class="dashboard-nav-item" id="tab-scans" type="button" role="tab" aria-selected="false" aria-controls="scans" tabindex="-1" data-section="scans">Scans</button>
-        <button class="dashboard-nav-item" id="tab-api-keys" type="button" role="tab" aria-selected="false" aria-controls="api-keys" tabindex="-1" data-section="api-keys">API Keys</button>
-        <button class="dashboard-nav-item" id="tab-monitoring" type="button" role="tab" aria-selected="false" aria-controls="monitoring" tabindex="-1" data-section="monitoring">Monitoring</button>
-      </nav>
-
-      <p class="dashboard-note">Template mode aligned with implemented API contracts (`/v1/dashboard`, `/v1/projects`, `/v1/scans`, `/v1/audit/events`, `/metrics`).</p>
-    </aside>
-
-    <main class="dashboard-main" id="dashboard-content">
-      <header class="dashboard-header panel">
-        <div class="dashboard-header-primary">
-          <p class="eyebrow">Release Governance</p>
-          <h1>Operations Dashboard</h1>
-        </div>
-        <div class="header-actions">
-          <span class="pill">Environment: Production</span>
-          <button type="button">Run Scan</button>
-        </div>
-      </header>
-
-      <section class="dashboard-section active" id="overview" role="tabpanel" aria-labelledby="tab-overview" data-testid="section-overview">
-        <div class="kpi-grid">
-          <article class="kpi-card"><span>Policy Pass Rate</span><strong>96%</strong></article>
-          <article class="kpi-card"><span>Blocking Violations</span><strong>1</strong></article>
-          <article class="kpi-card"><span>Scans (24h)</span><strong>42</strong></article>
-          <article class="kpi-card"><span>Audit Events</span><strong>1,247</strong></article>
-        </div>
-
-        <article class="panel api-contract">
-          <h2>API Contract Snapshot</h2>
-          <pre><code>GET /v1/dashboard
-{
-  "metrics": {"projects": 3, "scans": 22, "failing_scans": 1, "blocking_violations": 2},
-  "recent_scans": [...],
-  "top_violations": [...],
-  "recent_events": [...],
-  "policies": [...]
-}
-
-GET /v1/projects
-{"projects": [...]}
-
-GET /v1/scans
-{"scans": [...]}
-
-GET /v1/audit/events?limit=20
-{"events": [...]}
-
-GET /metrics
-baseline_projects_total 3
-baseline_scans_total 22</code></pre>
-        </article>
-
-        <article class="panel">
-          <h2>Operational States</h2>
-          <div class="state-grid">
-            <div class="state-card">
-              <span class="state-label info">Loading</span>
-              <p>Collection job is running. Keep previous data visible until refresh completes.</p>
+<body class="bg-gray-50">
+    <!-- Main Container -->
+    <div id="app" class="min-h-screen">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="fixed left-0 top-0 h-full w-56 bg-white border-r border-gray-200 z-40">
+            <div class="p-6">
+                <div class="flex items-center gap-3 mb-8">
+                    <img src="../img/baseline logo.png" alt="Baseline" class="w-8 h-8">
+                    <h1 class="text-xl font-bold text-gray-900">Baseline</h1>
+                </div>
+                
+                <nav class="space-y-1">
+                    <a href="#" data-tab="overview" onclick="switchTab('overview'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg bg-blue-50 text-blue-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                        </svg>
+                        Dashboard
+                    </a>
+                    <a href="#" data-tab="scans" onclick="switchTab('scans'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Scan History
+                    </a>
+                    <a href="#" data-tab="policies" onclick="switchTab('policies'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        Policies
+                    </a>
+                    <a href="#" data-tab="projects" onclick="switchTab('projects'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        </svg>
+                        Projects
+                    </a>
+                    <a href="#" data-tab="keys" onclick="switchTab('keys'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                        </svg>
+                        API Keys
+                    </a>
+                    <a href="#" data-tab="integrations" onclick="switchTab('integrations'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                        </svg>
+                        Integrations
+                    </a>
+                    <a href="#" data-tab="audit" onclick="switchTab('audit'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Audit Log
+                    </a>
+                    <a href="#" data-tab="settings" onclick="switchTab('settings'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c.94-1.543-.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        Settings
+                    </a>
+                </nav>
             </div>
-            <div class="state-card">
-              <span class="state-label neutral">Empty</span>
-              <p>No events for this window. Show setup guidance rather than blank tables.</p>
-            </div>
-            <div class="state-card">
-              <span class="state-label warn">Stale</span>
-              <p>Snapshot older than SLA. Display warning and trigger quick health check.</p>
-            </div>
-            <div class="state-card">
-              <span class="state-label danger">Error</span>
-              <p>Data pipeline failed. Surface action owner and a one-click retry path.</p>
-            </div>
-            <div class="state-card">
-              <span class="state-label muted">Access Denied</span>
-              <p>Role lacks scope. Keep panel metadata visible and show required permission.</p>
-            </div>
-          </div>
-        </article>
+        </aside>
 
-        <div class="split-grid">
-          <article class="panel">
-            <h2>Current Release Status</h2>
-            <ul class="status-list">
-              <li><span class="ok">Pass</span><span>CI and security checks</span></li>
-              <li><span class="warn">Pending</span><span>One rollback documentation review</span></li>
-              <li><span class="ok">Pass</span><span>Signed release artifacts</span></li>
-            </ul>
-          </article>
-          <article class="panel">
-            <h2>Recent Activity</h2>
-            <ul class="status-list">
-              <li><span class="ok">16:42</span><span>Policy check completed</span></li>
-              <li><span class="ok">16:36</span><span>SARIF uploaded</span></li>
-              <li><span class="ok">16:28</span><span>API health check complete</span></li>
-            </ul>
-          </article>
+        <!-- Main Content -->
+        <main class="ml-56 p-8">
+            <div class="max-w-7xl mx-auto">
+                <!-- Header -->
+                <header class="flex items-center justify-between mb-8">
+                    <div>
+                        <h1 id="page-title" class="text-2xl font-bold text-gray-900">Dashboard</h1>
+                        <p id="page-subtitle" class="text-sm text-gray-600 mt-1">Monitor policy compliance and scan results</p>
+                    </div>
+                    
+                    <div class="flex items-center gap-3">
+                        <div class="relative">
+                            <input type="text" placeholder="Search policies, scans..." class="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                        </div>
+                        
+                        <button class="relative p-2.5 rounded-lg bg-white border border-gray-300 hover:border-blue-300 transition-colors">
+                            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                            </svg>
+                            <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500"></span>
+                        </button>
+                        
+                        <button class="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-300 hover:border-blue-300 transition-colors">
+                            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                            <span class="text-xs font-mono text-gray-600">CLI</span>
+                        </button>
+                        
+                        <button class="flex items-center gap-2.5 pl-1 pr-3 py-1 rounded-lg bg-white border border-gray-300 hover:border-blue-300 transition-colors">
+                            <div class="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                                OP
+                            </div>
+                            <span class="text-sm font-medium">Operator</span>
+                            <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Tab Content -->
+                <div id="tab-content">
+                    <!-- Overview Tab -->
+                    <div id="overview-tab" class="tab-content">
+                        <!-- Stats Cards -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div class="p-2 bg-blue-50 rounded-lg">
+                                        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                    </div>
+                                    <span class="text-sm font-medium text-green-600">+18%</span>
+                                </div>
+                                <h3 class="text-2xl font-bold text-gray-900">114</h3>
+                                <p class="text-sm text-gray-600">Total Scans</p>
+                            </div>
+                            
+                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div class="p-2 bg-green-50 rounded-lg">
+                                        <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                    </div>
+                                    <span class="text-sm font-medium text-green-600">+2</span>
+                                </div>
+                                <h3 class="text-2xl font-bold text-gray-900">11/13</h3>
+                                <p class="text-sm text-gray-600">Policies Passing</p>
+                            </div>
+                            
+                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div class="p-2 bg-red-50 rounded-lg">
+                                        <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                        </svg>
+                                    </div>
+                                    <span class="text-sm font-medium text-red-600">+1</span>
+                                </div>
+                                <h3 class="text-2xl font-bold text-gray-900">2</h3>
+                                <p class="text-sm text-gray-600">Blocking Violations</p>
+                            </div>
+                            
+                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div class="p-2 bg-purple-50 rounded-lg">
+                                        <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                                        </svg>
+                                    </div>
+                                    <span class="text-sm font-medium text-green-600">+1</span>
+                                </div>
+                                <h3 class="text-2xl font-bold text-gray-900">4</h3>
+                                <p class="text-sm text-gray-600">Projects Tracked</p>
+                            </div>
+                        </div>
+
+                        <!-- Charts Section -->
+                        <div class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 mb-8">
+                            <div class="bg-white p-6 rounded-lg border border-gray-200" style="height: 400px;">
+                                <h3 class="text-lg font-semibold text-gray-900 mb-4">Usage Trends</h3>
+                                <canvas id="usageChart"></canvas>
+                            </div>
+                            
+                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-900 mb-4">Quick Stats</h3>
+                                <div class="space-y-4">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">Scan Success Rate</span>
+                                        <span class="text-sm font-medium text-gray-900">92%</span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 rounded-full h-2">
+                                        <div class="bg-green-600 h-2 rounded-full" style="width: 92%"></div>
+                                    </div>
+                                    
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">Policy Compliance</span>
+                                        <span class="text-sm font-medium text-gray-900">85%</span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 rounded-full h-2">
+                                        <div class="bg-blue-600 h-2 rounded-full" style="width: 85%"></div>
+                                    </div>
+                                    
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm text-gray-600">API Response Time</span>
+                                        <span class="text-sm font-medium text-gray-900">124ms</span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 rounded-full h-2">
+                                        <div class="bg-yellow-600 h-2 rounded-full" style="width: 75%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Activity Log -->
+                        <div class="bg-white rounded-lg border border-gray-200">
+                            <div class="p-6 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-900">Recent Activity</h3>
+                            </div>
+                            <div class="divide-y divide-gray-200">
+                                <div class="p-4 flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Scan completed successfully</p>
+                                            <p class="text-xs text-gray-500">payments-service • 2 minutes ago</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-xs text-gray-500">12/23 3:45 PM</span>
+                                </div>
+                                <div class="p-4 flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-2 h-2 bg-red-500 rounded-full"></div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Policy violation detected</p>
+                                            <p class="text-xs text-gray-500">user-service • D1: Secret detected</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-xs text-gray-500">12/23 3:30 PM</span>
+                                </div>
+                                <div class="p-4 flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">New project added</p>
+                                            <p class="text-xs text-gray-500">analytics-service • 1 hour ago</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-xs text-gray-500">12/23 2:45 PM</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Scan History Tab -->
+                    <div id="scans-tab" class="tab-content hidden">
+                        <div class="bg-white rounded-lg border border-gray-200">
+                            <div class="p-6 border-b border-gray-200 flex justify-between items-center">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-gray-900">Scan History</h3>
+                                    <p class="text-sm text-gray-600 mt-1">Recent scan results across all projects</p>
+                                </div>
+                                <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                    Run New Scan
+                                </button>
+                            </div>
+                            <div class="divide-y divide-gray-200">
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">payments-service</p>
+                                            <p class="text-xs text-gray-500">Passed • 2 hours ago</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Passed</span>
+                                        <span class="text-sm text-gray-600">0 violations</span>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">user-service</p>
+                                            <p class="text-xs text-gray-500">Failed • 4 hours ago</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Failed</span>
+                                        <span class="text-sm text-gray-600">2 violations</span>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">analytics-service</p>
+                                            <p class="text-xs text-gray-500">Passed • 6 hours ago</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Passed</span>
+                                        <span class="text-sm text-gray-600">0 violations</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Policies Tab -->
+                    <div id="policies-tab" class="tab-content hidden">
+                        <div class="bg-white rounded-lg border border-gray-200">
+                            <div class="p-6 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-900">Policy Management</h3>
+                                <p class="text-sm text-gray-600 mt-1">Production-readiness checks enforced by Baseline</p>
+                            </div>
+                            <div class="divide-y divide-gray-200">
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">A1</div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Primary Branch Protection</p>
+                                            <p class="text-xs text-gray-500">Repository configuration</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Block</span>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">B1</div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">CI Workflows</p>
+                                            <p class="text-xs text-gray-500">Continuous integration</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Block</span>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">C1</div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Automated Tests</p>
+                                            <p class="text-xs text-gray-500">Test coverage requirement</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Block</span>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">D1</div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Secret Detection</p>
+                                            <p class="text-xs text-gray-500">Security scanning</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Block</span>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">E1</div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Dependency Management</p>
+                                            <p class="text-xs text-gray-500">Dependency scanning</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">Warn</span>
+                                    </div>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">F1</div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Documentation</p>
+                                            <p class="text-xs text-gray-500">README and docs check</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-4">
+                                        <span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Disabled</span>
+                                        <span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">Warn</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Projects Tab -->
+                    <div id="projects-tab" class="tab-content hidden">
+                        <!-- Projects Grid Compact -->
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <!-- Project 1 -->
+                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
+                                <div class="p-4">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
+                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <h3 class="text-base font-semibold text-gray-900">payments-service</h3>
+                                            </div>
+                                        </div>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1"></span>
+                                            Healthy
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 text-xs text-gray-600 mb-3">
+                                        <span class="truncate">github.com/company/payments</span>
+                                        <span class="text-gray-400">|</span>
+                                        <span>2h ago</span>
+                                    </div>
+
+                                    <div class="flex items-center gap-4 pt-3 border-t border-gray-100">
+                                        <div class="text-center">
+                                            <p class="text-lg font-bold text-gray-900">28</p>
+                                            <p class="text-xs text-gray-500">Scans</p>
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="flex items-center justify-between mb-0.5">
+                                                <span class="text-xs text-gray-500">Compliance</span>
+                                                <span class="text-xs font-semibold text-green-600">92%</span>
+                                            </div>
+                                            <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                                <div class="bg-green-500 h-1.5 rounded-full" style="width: 92%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">12/13 policies</span>
+                                    <button class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
+                                </div>
+                            </div>
+
+                            <!-- Project 2 -->
+                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
+                                <div class="p-4">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-sm">
+                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <h3 class="text-base font-semibold text-gray-900">user-service</h3>
+                                            </div>
+                                        </div>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-yellow-500 mr-1"></span>
+                                            Warning
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 text-xs text-gray-600 mb-3">
+                                        <span class="truncate">github.com/company/users</span>
+                                        <span class="text-gray-400">|</span>
+                                        <span>4h ago</span>
+                                    </div>
+
+                                    <div class="flex items-center gap-4 pt-3 border-t border-gray-100">
+                                        <div class="text-center">
+                                            <p class="text-lg font-bold text-gray-900">15</p>
+                                            <p class="text-xs text-gray-500">Scans</p>
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="flex items-center justify-between mb-0.5">
+                                                <span class="text-xs text-gray-500">Compliance</span>
+                                                <span class="text-xs font-semibold text-yellow-600">77%</span>
+                                            </div>
+                                            <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                                <div class="bg-yellow-500 h-1.5 rounded-full" style="width: 77%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">10/13 policies</span>
+                                    <button class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
+                                </div>
+                            </div>
+
+                            <!-- Project 3 -->
+                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
+                                <div class="p-4">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-sm">
+                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <h3 class="text-base font-semibold text-gray-900">analytics</h3>
+                                            </div>
+                                        </div>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1"></span>
+                                            Healthy
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 text-xs text-gray-600 mb-3">
+                                        <span class="truncate">github.com/company/analytics</span>
+                                        <span class="text-gray-400">|</span>
+                                        <span>6h ago</span>
+                                    </div>
+
+                                    <div class="flex items-center gap-4 pt-3 border-t border-gray-100">
+                                        <div class="text-center">
+                                            <p class="text-lg font-bold text-gray-900">31</p>
+                                            <p class="text-xs text-gray-500">Scans</p>
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="flex items-center justify-between mb-0.5">
+                                                <span class="text-xs text-gray-500">Compliance</span>
+                                                <span class="text-xs font-semibold text-green-600">100%</span>
+                                            </div>
+                                            <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                                <div class="bg-green-500 h-1.5 rounded-full" style="width: 100%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">13/13 policies</span>
+                                    <button class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
+                                </div>
+                            </div>
+
+                            <!-- Project 4 -->
+                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
+                                <div class="p-4">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center shadow-sm">
+                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <h3 class="text-base font-semibold text-gray-900">notifications</h3>
+                                            </div>
+                                        </div>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1"></span>
+                                            Healthy
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 text-xs text-gray-600 mb-3">
+                                        <span class="truncate">github.com/company/notifications</span>
+                                        <span class="text-gray-400">|</span>
+                                        <span>8h ago</span>
+                                    </div>
+
+                                    <div class="flex items-center gap-4 pt-3 border-t border-gray-100">
+                                        <div class="text-center">
+                                            <p class="text-lg font-bold text-gray-900">40</p>
+                                            <p class="text-xs text-gray-500">Scans</p>
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="flex items-center justify-between mb-0.5">
+                                                <span class="text-xs text-gray-500">Compliance</span>
+                                                <span class="text-xs font-semibold text-green-600">100%</span>
+                                            </div>
+                                            <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                                <div class="bg-green-500 h-1.5 rounded-full" style="width: 100%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                                    <span class="text-xs text-gray-500">13/13 policies</span>
+                                    <button class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- API Keys Tab REDESIGNED -->
+                    <div id="keys-tab" class="tab-content hidden">
+                        <div class="mb-4 flex justify-end">
+                            <button onclick="openModal('generateKeyModal')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2 shadow-sm">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                Generate Key
+                            </button>
+                        </div>
+
+                        <!-- API Keys Cards Compact -->
+                        <div class="space-y-3">
+                            <!-- Production Key -->
+                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
+                                <div class="p-4">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
+                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <div class="flex items-center gap-2">
+                                                    <h3 class="text-base font-semibold text-gray-900">Production Key</h3>
+                                                    <span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Operator</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-1">
+                                            <button class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 text-xs mb-3">
+                                        <code class="px-2 py-1 bg-gray-100 rounded font-mono text-gray-700">bl_prod_••••••</code>
+                                        <span class="text-gray-500">30d ago</span>
+                                        <span class="text-green-600">● 2h ago</span>
+                                    </div>
+
+                                    <div class="pt-3 border-t border-gray-100">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <span class="text-xs text-gray-500">Usage: 2,847 req</span>
+                                            <span class="text-xs font-semibold text-gray-700">65%</span>
+                                        </div>
+                                        <div class="w-full bg-gray-200 rounded-full h-1">
+                                            <div class="bg-amber-500 h-1 rounded-full" style="width: 65%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- CI/CD Key -->
+                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
+                                <div class="p-4">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-400 to-gray-600 flex items-center justify-center shadow-sm">
+                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <div class="flex items-center gap-2">
+                                                    <h3 class="text-base font-semibold text-gray-900">CI/CD Key</h3>
+                                                    <span class="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">Viewer</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-1">
+                                            <button class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 text-xs mb-3">
+                                        <code class="px-2 py-1 bg-gray-100 rounded font-mono text-gray-700">bl_ci_••••••</code>
+                                        <span class="text-gray-500">15d ago</span>
+                                        <span class="text-green-600">● 5h ago</span>
+                                    </div>
+
+                                    <div class="pt-3 border-t border-gray-100">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <span class="text-xs text-gray-500">Usage: 1,523 req</span>
+                                            <span class="text-xs font-semibold text-gray-700">35%</span>
+                                        </div>
+                                        <div class="w-full bg-gray-200 rounded-full h-1">
+                                            <div class="bg-slate-500 h-1 rounded-full" style="width: 35%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Development Key -->
+                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
+                                <div class="p-4">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
+                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <div class="flex items-center gap-2">
+                                                    <h3 class="text-base font-semibold text-gray-900">Development Key</h3>
+                                                    <span class="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">Admin</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-1">
+                                            <button class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 text-xs mb-3">
+                                        <code class="px-2 py-1 bg-gray-100 rounded font-mono text-gray-700">bl_dev_••••••</code>
+                                        <span class="text-gray-500">7d ago</span>
+                                        <span class="text-gray-400">● 1d ago</span>
+                                    </div>
+
+                                    <div class="pt-3 border-t border-gray-100">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <span class="text-xs text-gray-500">Usage: 892 req</span>
+                                            <span class="text-xs font-semibold text-gray-700">22%</span>
+                                        </div>
+                                        <div class="w-full bg-gray-200 rounded-full h-1">
+                                            <div class="bg-violet-500 h-1 rounded-full" style="width: 22%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Security Notice Compact -->
+                        <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-3">
+                            <div class="w-8 h-8 rounded bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-xs font-semibold text-amber-900">Security Notice</p>
+                                <p class="text-xs text-amber-700 mt-0.5">Keep API keys secure. Never share them. Revoke immediately if compromised.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Integrations Tab -->
+                    <div id="integrations-tab" class="tab-content hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="bg-white rounded-lg border border-gray-200 p-6">
+                                <div class="flex items-center gap-4 mb-4">
+                                    <div class="w-12 h-12 rounded-lg bg-gray-900 flex items-center justify-center">
+                                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900">GitHub</h3>
+                                        <p class="text-sm text-gray-600">Connect repositories</p>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-600 mb-4">Automatically scan GitHub repositories on pull requests and commits.</p>
+                                <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                    Configure GitHub
+                                </button>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg border border-gray-200 p-6">
+                                <div class="flex items-center gap-4 mb-4">
+                                    <div class="w-12 h-12 rounded-lg bg-orange-500 flex items-center justify-center">
+                                        <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                            <path d="M23.955 13.587l-1.342-4.135-2.664-8.189c-.135-.423-.73-.423-.865 0L16.418 9.45H7.582l-2.664-8.188c-.135-.423-.73-.423-.865 0L1.388 9.45.046 13.587c-.123.378.007.793.325 1.03l11.49 8.348 11.49-8.348c.318-.237.448-.652.325-1.03"/>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900">GitLab</h3>
+                                        <p class="text-sm text-gray-600">Connect projects</p>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-600 mb-4">Integrate with GitLab CI/CD pipelines for automated compliance checks.</p>
+                                <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                    Configure GitLab
+                                </button>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg border border-gray-200 p-6">
+                                <div class="flex items-center gap-4 mb-4">
+                                    <div class="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
+                                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900">Webhooks</h3>
+                                        <p class="text-sm text-gray-600">Custom endpoints</p>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-600 mb-4">Configure webhook endpoints to receive real-time scan results and notifications.</p>
+                                <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                    Manage Webhooks
+                                </button>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg border border-gray-200 p-6">
+                                <div class="flex items-center gap-4 mb-4">
+                                    <div class="w-12 h-12 rounded-lg bg-indigo-100 flex items-center justify-center">
+                                        <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900">CLI</h3>
+                                        <p class="text-sm text-gray-600">Command line tool</p>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-600 mb-4">Download and configure the Baseline CLI for local development workflows.</p>
+                                <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                    Download CLI
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Audit Log Tab -->
+                    <div id="audit-tab" class="tab-content hidden">
+                        <div class="bg-white rounded-lg border border-gray-200">
+                            <div class="p-6 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-900">Audit Log</h3>
+                                <p class="text-sm text-gray-600 mt-1">System activity and event history</p>
+                            </div>
+                            <div class="divide-y divide-gray-200">
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Scan completed</p>
+                                            <p class="text-xs text-gray-500">payments-service • 2 hours ago</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-xs text-gray-500">system</span>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Policy violation detected</p>
+                                            <p class="text-xs text-gray-500">D1: Secret detected in user-service • 4 hours ago</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-xs text-gray-500">system</span>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-yellow-100 flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">API key created</p>
+                                            <p class="text-xs text-gray-500">Production API Key • 1 day ago</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-xs text-gray-500">operator@baseline.local</span>
+                                </div>
+                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                                            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Project added</p>
+                                            <p class="text-xs text-gray-500">analytics-service • 2 days ago</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-xs text-gray-500">operator@baseline.local</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings Tab -->
+                    <div id="settings-tab" class="tab-content hidden">
+                        <div class="max-w-2xl">
+                            <div class="bg-white rounded-lg border border-gray-200 mb-6">
+                                <div class="p-6 border-b border-gray-200">
+                                    <h3 class="text-lg font-semibold text-gray-900">General Settings</h3>
+                                </div>
+                                <div class="p-6 space-y-6">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">API Server URL</label>
+                                        <input type="text" value="http://localhost:8080" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" readonly>
+                                        <p class="text-xs text-gray-500 mt-1">The base URL for the Baseline API server</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Database Path</label>
+                                        <input type="text" value=".baseline/baseline.db" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" readonly>
+                                        <p class="text-xs text-gray-500 mt-1">Location of the local SQLite database</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg border border-gray-200 mb-6">
+                                <div class="p-6 border-b border-gray-200">
+                                    <h3 class="text-lg font-semibold text-gray-900">Authentication</h3>
+                                </div>
+                                <div class="p-6 space-y-4">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">Session Authentication</p>
+                                            <p class="text-xs text-gray-500">Enable browser-based session auth</p>
+                                        </div>
+                                        <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Enabled</span>
+                                    </div>
+                                    <div class="border-t border-gray-200 pt-4 flex items-center justify-between">
+                                        <div>
+                                            <p class="text-sm font-medium text-gray-900">API Key Authentication</p>
+                                            <p class="text-xs text-gray-500">Enable API key-based access</p>
+                                        </div>
+                                        <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Enabled</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-white rounded-lg border border-gray-200">
+                                <div class="p-6 border-b border-gray-200">
+                                    <h3 class="text-lg font-semibold text-gray-900">Actions</h3>
+                                </div>
+                                <div class="p-6 space-y-3">
+                                    <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                        Export Configuration
+                                    </button>
+                                    <button class="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium">
+                                        View System Logs
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Project Modal -->
+    <div id="addProjectModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Add New Project</h3>
+                <button onclick="closeModal('addProjectModal')" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Project Name</label>
+                    <input type="text" placeholder="e.g., my-awesome-service" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Repository URL</label>
+                    <input type="text" placeholder="github.com/company/repo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea rows="3" placeholder="Brief description of the project..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('addProjectModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onclick="closeModal('addProjectModal')" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Add Project</button>
+            </div>
         </div>
+    </div>
 
-        <div class="split-grid">
-          <article class="panel">
-            <h2>Today Checklist</h2>
-            <ul class="plain-list">
-              <li>Run `baseline check` before merge window.</li>
-              <li>Review blocking policy queue.</li>
-              <li>Confirm release artifacts are signed.</li>
-            </ul>
-          </article>
-          <article class="panel">
-            <h2>Quick Links</h2>
-            <ul class="plain-list">
-              <li>Open latest CI run and inspect security job output.</li>
-              <li>Review `/v1/audit/events` for key lifecycle changes.</li>
-              <li>Run `baseline api verify-prod --strict` after config edits.</li>
-            </ul>
-          </article>
-        </div>
-
-        <article class="panel">
-          <div class="panel-head">
-            <h2>Open Items</h2>
-            <div class="table-controls">
-              <label>
-                Search
-                <input type="search" id="openItemsFilter" placeholder="Filter rows">
-              </label>
-              <label>
-                View State
-                <select id="openItemsState">
-                  <option value="table">Table</option>
-                  <option value="loading">Loading</option>
-                  <option value="empty">Empty</option>
-                  <option value="error">Error</option>
-                  <option value="stale">Stale</option>
-                  <option value="denied">Access Denied</option>
-                </select>
-              </label>
+    <!-- Generate API Key Modal -->
+    <div id="generateKeyModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Generate API Key</h3>
+                <button onclick="closeModal('generateKeyModal')" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
             </div>
-          </div>
-          <div class="table-states" id="openItemsStates" aria-live="polite" hidden>
-            <p class="table-state" data-state="loading">Loading open items snapshot...</p>
-            <p class="table-state" data-state="empty">No follow-up items in this window.</p>
-            <p class="table-state" data-state="error">Unable to load open items. Retry after pipeline check.</p>
-            <p class="table-state" data-state="stale">Snapshot is stale. Last refresh was over 15 minutes ago.</p>
-            <p class="table-state" data-state="denied">You do not have permission to view item-level data.</p>
-          </div>
-          <p class="table-state no-match" id="openItemsNoMatch" aria-live="polite" hidden>No rows match your current filter.</p>
-          <div class="table-wrap" id="openItemsWrap">
-            <table class="data-table" id="openItemsTable" data-testid="table-open-items">
-            <caption class="sr-only">Open delivery and release follow-up items</caption>
-            <thead>
-              <tr>
-                <th aria-sort="none"><button class="sort-button" type="button" data-table="openItemsTable" data-col="0">Item</button></th>
-                <th aria-sort="none"><button class="sort-button" type="button" data-table="openItemsTable" data-col="1">Owner</button></th>
-                <th aria-sort="none"><button class="sort-button" type="button" data-table="openItemsTable" data-col="2">Due</button></th>
-                <th aria-sort="none"><button class="sort-button" type="button" data-table="openItemsTable" data-col="3">Status</button></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td>Rollback doc review</td><td>Platform</td><td>Today</td><td class="warn-text">Pending</td></tr>
-              <tr><td>Key rotation confirmation</td><td>Security</td><td>Today</td><td class="ok-text">Complete</td></tr>
-              <tr><td>Release notes verification</td><td>Release Manager</td><td>Tomorrow</td><td class="warn-text">In Progress</td></tr>
-            </tbody>
-          </table>
-          </div>
-        </article>
-      </section>
-
-      <section class="dashboard-section" id="policies" role="tabpanel" aria-labelledby="tab-policies" data-testid="section-policies" hidden>
-        <article class="panel">
-          <h2>Policy Summary</h2>
-          <table class="data-table">
-            <caption class="sr-only">Policy obligation status across configured rules</caption>
-            <thead>
-              <tr>
-                <th>Policy</th>
-                <th>Description</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td>A1</td><td>Protected primary branch</td><td class="ok-text">Pass</td></tr>
-              <tr><td>B1</td><td>PR-triggered CI with tests</td><td class="ok-text">Pass</td></tr>
-              <tr><td>D1</td><td>No plaintext secrets</td><td class="ok-text">Pass</td></tr>
-              <tr><td>R1</td><td>Rollback plan required</td><td class="warn-text">Pending</td></tr>
-            </tbody>
-          </table>
-        </article>
-      </section>
-
-      <section class="dashboard-section" id="scans" role="tabpanel" aria-labelledby="tab-scans" data-testid="section-scans" hidden>
-        <article class="panel">
-          <h2>Scan Commands</h2>
-          <pre><code>baseline check
-baseline scan
-baseline report --json
-baseline report --sarif</code></pre>
-        </article>
-        <article class="panel">
-          <div class="panel-head">
-            <h2>Latest Scan Snapshot</h2>
-            <div class="table-controls compact">
-              <label>
-                Result
-                <select id="scanResultFilter">
-                  <option value="all">All</option>
-                  <option value="pass">Pass</option>
-                  <option value="blocked">Blocked</option>
-                </select>
-              </label>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
+                    <input type="text" placeholder="e.g., Production Server Key" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option>Viewer</option>
+                        <option>Operator</option>
+                        <option>Admin</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
+                    <input type="text" placeholder="What is this key for?" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                    <p class="font-medium mb-1">⚠️ Important</p>
+                    <p class="text-amber-700">Copy your API key immediately. Once generated, the full key will only be shown once.</p>
+                </div>
             </div>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table" id="scanTable" data-testid="table-scans">
-            <caption class="sr-only">Latest compliance scan execution summary</caption>
-            <thead>
-              <tr>
-                <th aria-sort="none"><button class="sort-button" type="button" data-table="scanTable" data-col="0">Time</button></th>
-                <th aria-sort="none"><button class="sort-button" type="button" data-table="scanTable" data-col="1">Files</button></th>
-                <th aria-sort="none"><button class="sort-button" type="button" data-table="scanTable" data-col="2">Violations</button></th>
-                <th aria-sort="none"><button class="sort-button" type="button" data-table="scanTable" data-col="3">Result</button></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td>16:42</td><td>247</td><td>1</td><td class="warn-text">Blocked</td></tr>
-              <tr><td>14:10</td><td>247</td><td>0</td><td class="ok-text">Pass</td></tr>
-            </tbody>
-          </table>
-          </div>
-        </article>
-      </section>
-
-      <section class="dashboard-section" id="api-keys" role="tabpanel" aria-labelledby="tab-api-keys" data-testid="section-api-keys" hidden>
-        <div class="split-grid">
-          <article class="panel">
-            <h2>Generate API Key (Dashboard Template)</h2>
-            <form class="keygen-form" id="keygenForm">
-              <label>
-                Key Name
-                <input id="keyName" type="text" value="dashboard-operator" required>
-              </label>
-              <label>
-                Role
-                <select id="keyRole">
-                  <option value="admin">admin</option>
-                  <option value="viewer">viewer</option>
-                </select>
-              </label>
-              <label>
-                Environment
-                <select id="keyEnv">
-                  <option value="production">production</option>
-                  <option value="staging">staging</option>
-                  <option value="development">development</option>
-                </select>
-              </label>
-              <button type="submit">Generate Template Key</button>
-            </form>
-            <p class="template-note">Template mode: this action does not create a backend key.</p>
-            <pre class="keygen-result" id="keygenResult" aria-live="polite"><code>Generated key preview will appear here.</code></pre>
-          </article>
-
-          <article class="panel">
-            <h2>CLI / API Method (Real)</h2>
-            <pre><code># CLI
-baseline api keygen
-
-# configure single key
-BASELINE_API_KEY=&lt;your_generated_key&gt;
-baseline api serve --addr :8080
-
-# API key lifecycle (admin required)
-curl -X POST \
-  -H "Authorization: Bearer &lt;admin_key&gt;" \
-  -H "Content-Type: application/json" \
-  -d "{\"name\":\"ci-runner\",\"role\":\"viewer\"}" \
-  http://127.0.0.1:8080/v1/api-keys
-
-# list key metadata
-curl -H "Authorization: Bearer &lt;admin_key&gt;" \
-  http://127.0.0.1:8080/v1/api-keys
-
-# revoke managed key
-curl -X DELETE \
-  -H "Authorization: Bearer &lt;admin_key&gt;" \
-  http://127.0.0.1:8080/v1/api-keys/&lt;key_id&gt;</code></pre>
-          </article>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('generateKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onclick="closeModal('generateKeyModal')" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Generate Key</button>
+            </div>
         </div>
+    </div>
 
-        <article class="panel">
-          <h2>Operational Rules</h2>
-          <ul class="plain-list">
-            <li>Create separate keys per environment and workload.</li>
-            <li>Use `viewer` keys for read-only automation.</li>
-            <li>Use `admin` keys only for lifecycle operations.</li>
-            <li>Rotate keys on schedule and after any exposure event.</li>
-            <li>Prefer managed API keys for revoke/audit visibility.</li>
-          </ul>
-        </article>
-      </section>
-
-      <section class="dashboard-section" id="monitoring" role="tabpanel" aria-labelledby="tab-monitoring" data-testid="section-monitoring" hidden>
-        <article class="panel">
-          <h2>Monitoring Commands</h2>
-          <pre><code>baseline api verify-prod --strict
-baseline check
-baseline report --json
-baseline report --sarif
-curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/readyz
-curl -H "Authorization: Bearer &lt;api_key&gt;" \
-  http://127.0.0.1:8080/v1/audit/events</code></pre>
-        </article>
-      </section>
-    </main>
-  </div>
-
-  <script>
-    (function () {
-      var navItems = Array.prototype.slice.call(document.querySelectorAll(".dashboard-nav-item"));
-      var sections = Array.prototype.slice.call(document.querySelectorAll(".dashboard-section"));
-      var keygenForm = document.getElementById("keygenForm");
-      var keygenResult = document.getElementById("keygenResult");
-      var openItemsFilter = document.getElementById("openItemsFilter");
-      var openItemsState = document.getElementById("openItemsState");
-      var openItemsStates = document.getElementById("openItemsStates");
-      var openItemsNoMatch = document.getElementById("openItemsNoMatch");
-      var openItemsWrap = document.getElementById("openItemsWrap");
-      var openItemsTable = document.getElementById("openItemsTable");
-      var scanResultFilter = document.getElementById("scanResultFilter");
-      var scanTable = document.getElementById("scanTable");
-      var sortState = {};
-
-      function validSectionId(id) {
-        return sections.some(function (section) { return section.id === id; });
-      }
-
-      function showSection(sectionId) {
-        if (!validSectionId(sectionId)) {
-          sectionId = "overview";
-        }
-
-        navItems.forEach(function (item) {
-          var isActive = item.getAttribute("data-section") === sectionId;
-          item.classList.toggle("active", isActive);
-          item.setAttribute("aria-selected", isActive ? "true" : "false");
-          item.setAttribute("tabindex", isActive ? "0" : "-1");
-        });
-        sections.forEach(function (section) {
-          var isVisible = section.id === sectionId;
-          section.classList.toggle("active", isVisible);
-          section.hidden = !isVisible;
-        });
-
-        if (window.location.hash !== "#" + sectionId) {
-          try {
-            history.replaceState(null, "", "#" + sectionId);
-          } catch (err) {
-            window.location.hash = sectionId;
-          }
-        }
-      }
-
-      navItems.forEach(function (item) {
-        item.addEventListener("click", function () {
-          showSection(item.getAttribute("data-section"));
-        });
-
-        item.addEventListener("keydown", function (event) {
-          var idx = navItems.indexOf(item);
-          var nextIdx = idx;
-
-          if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-            nextIdx = (idx + 1) % navItems.length;
-          } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-            nextIdx = (idx - 1 + navItems.length) % navItems.length;
-          } else if (event.key === "Home") {
-            nextIdx = 0;
-          } else if (event.key === "End") {
-            nextIdx = navItems.length - 1;
-          } else {
-            return;
-          }
-
-          event.preventDefault();
-          var target = navItems[nextIdx];
-          showSection(target.getAttribute("data-section"));
-          target.focus();
-        });
-      });
-
-      function parseSortableValue(value) {
-        var normalized = value.trim().toLowerCase();
-        if (/^\d+(\.\d+)?$/.test(normalized)) {
-          return { type: "number", value: Number(normalized) };
-        }
-        if (/^\d{1,2}:\d{2}$/.test(normalized)) {
-          var parts = normalized.split(":");
-          return { type: "number", value: Number(parts[0]) * 60 + Number(parts[1]) };
-        }
-        return { type: "string", value: normalized };
-      }
-
-      function sortTable(table, colIndex, direction) {
-        if (!table || !table.tBodies || !table.tBodies[0]) {
-          return;
-        }
-
-        var tbody = table.tBodies[0];
-        var rows = Array.prototype.slice.call(tbody.rows);
-        rows.sort(function (a, b) {
-          var left = parseSortableValue(a.cells[colIndex].textContent);
-          var right = parseSortableValue(b.cells[colIndex].textContent);
-          var result = 0;
-
-          if (left.type === "number" && right.type === "number") {
-            result = left.value - right.value;
-          } else {
-            if (left.value < right.value) {
-              result = -1;
-            } else if (left.value > right.value) {
-              result = 1;
-            }
-          }
-
-          return direction === "asc" ? result : -result;
-        });
-
-        rows.forEach(function (row) {
-          tbody.appendChild(row);
-        });
-      }
-
-      function bindSortButtons() {
-        var buttons = Array.prototype.slice.call(document.querySelectorAll(".sort-button"));
-        buttons.forEach(function (button) {
-          button.addEventListener("click", function () {
-            var tableId = button.getAttribute("data-table");
-            var col = Number(button.getAttribute("data-col"));
-            var table = document.getElementById(tableId);
-            if (!table) {
-              return;
-            }
-
-            var key = tableId + ":" + col;
-            var nextDirection = sortState[key] === "asc" ? "desc" : "asc";
-            sortState = {};
-            sortState[key] = nextDirection;
-
-            var headers = Array.prototype.slice.call(table.querySelectorAll("thead th"));
-            headers.forEach(function (th, index) {
-              th.setAttribute("aria-sort", index === col ? (nextDirection === "asc" ? "ascending" : "descending") : "none");
+    <script src="dashboard.js?v=2"></script>
+    <script>
+        // Simple tab switching function for inline onclick handlers
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.add('hidden');
             });
-
-            sortTable(table, col, nextDirection);
-            if (tableId === "openItemsTable") {
-              applyOpenItemsFilter();
+            
+            // Show selected tab
+            const selectedTab = document.getElementById(tabName + '-tab');
+            if (selectedTab) {
+                selectedTab.classList.remove('hidden');
             }
-            if (tableId === "scanTable") {
-              applyScanFilter();
+            
+            // Update sidebar styling
+            document.querySelectorAll('a[data-tab]').forEach(link => {
+                link.classList.remove('bg-blue-50', 'text-blue-700');
+                link.classList.add('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
+            });
+            
+            // Highlight active link
+            const activeLink = document.querySelector('[data-tab="' + tabName + '"]');
+            if (activeLink) {
+                activeLink.classList.remove('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
+                activeLink.classList.add('bg-blue-50', 'text-blue-700');
             }
-          });
-        });
-      }
-
-      function applyOpenItemsFilter() {
-        if (!openItemsTable || !openItemsFilter || !openItemsNoMatch) {
-          return;
         }
 
-        var query = openItemsFilter.value.trim().toLowerCase();
-        var rows = Array.prototype.slice.call(openItemsTable.tBodies[0].rows);
-        var visibleCount = 0;
-
-        rows.forEach(function (row) {
-          var text = row.textContent.toLowerCase();
-          var isVisible = query === "" || text.indexOf(query) !== -1;
-          row.hidden = !isVisible;
-          if (isVisible) {
-            visibleCount += 1;
-          }
-        });
-
-        var showNoMatch = openItemsState && openItemsState.value === "table" && visibleCount === 0;
-        openItemsNoMatch.hidden = !showNoMatch;
-      }
-
-      function setOpenItemsState(state) {
-        if (!openItemsWrap || !openItemsStates || !openItemsState) {
-          return;
+        // Modal functions
+        function openModal(modalId) {
+            console.log('Opening modal:', modalId);
+            const modal = document.getElementById(modalId);
+            console.log('Modal element:', modal);
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                console.log('Modal classes after:', modal.className);
+            } else {
+                console.error('Modal not found:', modalId);
+            }
         }
 
-        if (state === "table") {
-          openItemsWrap.hidden = false;
-          openItemsStates.hidden = true;
-          openItemsNoMatch.hidden = true;
-          applyOpenItemsFilter();
-          return;
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
         }
 
-        openItemsWrap.hidden = true;
-        openItemsNoMatch.hidden = true;
-        openItemsStates.hidden = false;
-
-        var messages = Array.prototype.slice.call(openItemsStates.querySelectorAll(".table-state"));
-        messages.forEach(function (msg) {
-          msg.hidden = msg.getAttribute("data-state") !== state;
+        // Close modal when clicking outside
+        document.addEventListener('click', function(e) {
+            if (e.target.id === 'addProjectModal' || e.target.id === 'generateKeyModal') {
+                closeModal(e.target.id);
+            }
         });
-      }
-
-      function applyScanFilter() {
-        if (!scanTable || !scanResultFilter) {
-          return;
-        }
-
-        var wanted = scanResultFilter.value.toLowerCase();
-        var rows = Array.prototype.slice.call(scanTable.tBodies[0].rows);
-        rows.forEach(function (row) {
-          var resultText = row.cells[3].textContent.trim().toLowerCase();
-          var isVisible = wanted === "all" || resultText === wanted;
-          row.hidden = !isVisible;
-        });
-      }
-
-      function randomToken(length) {
-        var chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-        var out = "";
-        for (var i = 0; i < length; i++) {
-          out += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        return out;
-      }
-
-      if (keygenForm && keygenResult) {
-        keygenForm.addEventListener("submit", function (event) {
-          event.preventDefault();
-          var name = document.getElementById("keyName").value.trim() || "dashboard-operator";
-          var role = document.getElementById("keyRole").value;
-          var env = document.getElementById("keyEnv").value;
-          var key = "bl_" + role.slice(0, 3) + "_" + randomToken(24);
-          var lines = [
-            "# Template key generated from dashboard UI",
-            "name=" + name,
-            "role=" + role,
-            "environment=" + env,
-            "key=" + key,
-            "",
-            "# Example env setup",
-            "BASELINE_API_KEYS=" + key + ":" + role
-          ];
-          keygenResult.textContent = lines.join("\n");
-        });
-      }
-
-      if (openItemsFilter) {
-        openItemsFilter.addEventListener("input", applyOpenItemsFilter);
-      }
-      if (openItemsState) {
-        openItemsState.addEventListener("change", function () {
-          setOpenItemsState(openItemsState.value);
-        });
-      }
-      if (scanResultFilter) {
-        scanResultFilter.addEventListener("change", applyScanFilter);
-      }
-
-      bindSortButtons();
-      setOpenItemsState(openItemsState ? openItemsState.value : "table");
-      applyScanFilter();
-
-      window.addEventListener("hashchange", function () {
-        var sectionFromHash = window.location.hash ? window.location.hash.slice(1) : "overview";
-        if (validSectionId(sectionFromHash)) {
-          showSection(sectionFromHash);
-        }
-      });
-
-      var initialSection = window.location.hash ? window.location.hash.slice(1) : "overview";
-      showSection(validSectionId(initialSection) ? initialSection : "overview");
-    })();
-  </script>
+    </script>
 </body>
 </html>

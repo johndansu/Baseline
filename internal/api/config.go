@@ -31,6 +31,15 @@ type Config struct {
 	DashboardAuthProxyEnabled    bool
 	DashboardAuthProxyUserHeader string
 	DashboardAuthProxyRoleHeader string
+	OIDCEnabled                  bool
+	OIDCIssuerURL                string
+	OIDCClientID                 string
+	OIDCClientSecret             string
+	OIDCRedirectURL              string
+	OIDCScopes                   []string
+	OIDCAllowedEmailDomains      []string
+	OIDCRequireVerifiedEmail     bool
+	OIDCDefaultRole              Role
 	GitHubWebhookSecret          string
 	GitLabWebhookToken           string
 	GitHubAPIToken               string
@@ -73,6 +82,15 @@ func DefaultConfig() Config {
 		DashboardAuthProxyEnabled:    false,
 		DashboardAuthProxyUserHeader: "X-Forwarded-User",
 		DashboardAuthProxyRoleHeader: "X-Forwarded-Role",
+		OIDCEnabled:                  false,
+		OIDCIssuerURL:                "",
+		OIDCClientID:                 "",
+		OIDCClientSecret:             "",
+		OIDCRedirectURL:              "",
+		OIDCScopes:                   []string{"openid", "profile", "email"},
+		OIDCAllowedEmailDomains:      []string{},
+		OIDCRequireVerifiedEmail:     true,
+		OIDCDefaultRole:              RoleViewer,
 		GitHubWebhookSecret:          "",
 		GitLabWebhookToken:           "",
 		GitHubAPIToken:               "",
@@ -182,6 +200,108 @@ func ConfigFromEnv() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER")); v != "" {
 		cfg.DashboardAuthProxyRoleHeader = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_ENABLED")); v != "" {
+		cfg.OIDCEnabled = parseBool(v, cfg.OIDCEnabled)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_ISSUER_URL")); v != "" {
+		cfg.OIDCIssuerURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_CLIENT_ID")); v != "" {
+		cfg.OIDCClientID = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_CLIENT_SECRET")); v != "" {
+		cfg.OIDCClientSecret = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_REDIRECT_URL")); v != "" {
+		cfg.OIDCRedirectURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_SCOPES")); v != "" {
+		scopes := parseCSV(v)
+		if len(scopes) > 0 {
+			cfg.OIDCScopes = scopes
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_ALLOWED_EMAIL_DOMAINS")); v != "" {
+		cfg.OIDCAllowedEmailDomains = parseCSV(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_REQUIRE_VERIFIED_EMAIL")); v != "" {
+		cfg.OIDCRequireVerifiedEmail = parseBool(v, cfg.OIDCRequireVerifiedEmail)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_DEFAULT_ROLE")); v != "" {
+		role := Role(strings.ToLower(v))
+		if isValidRole(role) {
+			cfg.OIDCDefaultRole = role
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_ENABLED")); v != "" {
+		cfg.OIDCEnabled = parseBool(v, cfg.OIDCEnabled)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_DOMAIN")); v != "" {
+		cfg.OIDCIssuerURL = normalizeAuth0Issuer(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_CLIENT_ID")); v != "" {
+		cfg.OIDCClientID = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_CLIENT_SECRET")); v != "" {
+		cfg.OIDCClientSecret = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_CALLBACK_URL")); v != "" {
+		cfg.OIDCRedirectURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_SCOPES")); v != "" {
+		scopes := parseCSV(v)
+		if len(scopes) > 0 {
+			cfg.OIDCScopes = scopes
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_ALLOWED_EMAIL_DOMAINS")); v != "" {
+		cfg.OIDCAllowedEmailDomains = parseCSV(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_REQUIRE_VERIFIED_EMAIL")); v != "" {
+		cfg.OIDCRequireVerifiedEmail = parseBool(v, cfg.OIDCRequireVerifiedEmail)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_AUTH0_DEFAULT_ROLE")); v != "" {
+		role := Role(strings.ToLower(v))
+		if isValidRole(role) {
+			cfg.OIDCDefaultRole = role
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_ENABLED")); v != "" {
+		cfg.OIDCEnabled = parseBool(v, cfg.OIDCEnabled)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_URL")); v != "" {
+		cfg.OIDCIssuerURL = normalizeSupabaseOIDCIssuer(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_ISSUER_URL")); v != "" {
+		cfg.OIDCIssuerURL = normalizeSupabaseOIDCIssuer(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_CLIENT_ID")); v != "" {
+		cfg.OIDCClientID = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_CLIENT_SECRET")); v != "" {
+		cfg.OIDCClientSecret = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_CALLBACK_URL")); v != "" {
+		cfg.OIDCRedirectURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_SCOPES")); v != "" {
+		scopes := parseCSV(v)
+		if len(scopes) > 0 {
+			cfg.OIDCScopes = scopes
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_ALLOWED_EMAIL_DOMAINS")); v != "" {
+		cfg.OIDCAllowedEmailDomains = parseCSV(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_REQUIRE_VERIFIED_EMAIL")); v != "" {
+		cfg.OIDCRequireVerifiedEmail = parseBool(v, cfg.OIDCRequireVerifiedEmail)
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_DEFAULT_ROLE")); v != "" {
+		role := Role(strings.ToLower(v))
+		if isValidRole(role) {
+			cfg.OIDCDefaultRole = role
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_GITHUB_WEBHOOK_SECRET")); v != "" {
 		cfg.GitHubWebhookSecret = v
@@ -311,4 +431,31 @@ func parseInt64(raw string) (int64, bool) {
 		return 0, false
 	}
 	return value, true
+}
+
+func normalizeAuth0Issuer(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(value), "http://") || strings.HasPrefix(strings.ToLower(value), "https://") {
+		return strings.TrimRight(value, "/")
+	}
+	return "https://" + strings.TrimRight(value, "/")
+}
+
+func normalizeSupabaseOIDCIssuer(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	lower := strings.ToLower(value)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		value = "https://" + value
+	}
+	value = strings.TrimRight(value, "/")
+	if strings.HasSuffix(strings.ToLower(value), "/auth/v1") {
+		return value
+	}
+	return value + "/auth/v1"
 }
