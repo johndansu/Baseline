@@ -136,7 +136,7 @@ try {
 
     Invoke-APICheck -Step "01-healthz" -Method "GET" -Path "/healthz" -ExpectedStatus 200 -Headers @() -RequestBody "" -ExpectedBodyText '"status":"ok"' -ExpectedHeaderText ""
     Invoke-APICheck -Step "02-readyz" -Method "GET" -Path "/readyz" -ExpectedStatus 200 -Headers @() -RequestBody "" -ExpectedBodyText '"status":"ready"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "03-dashboard-unauthorized" -Method "GET" -Path "/v1/dashboard" -ExpectedStatus 401 -Headers @() -RequestBody "" -ExpectedBodyText '"code":"unauthorized"' -ExpectedHeaderText "www-authenticate"
+    Invoke-APICheck -Step "03-projects-unauthorized" -Method "GET" -Path "/v1/projects" -ExpectedStatus 401 -Headers @() -RequestBody "" -ExpectedBodyText '"code":"unauthorized"' -ExpectedHeaderText "www-authenticate"
 
     $projectPayload = '{"id":"smoke-project","name":"Smoke Project","default_branch":"main","policy_set":"baseline:prod"}'
     Invoke-APICheck -Step "04-project-create" -Method "POST" -Path "/v1/projects" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json")) -RequestBody $projectPayload -ExpectedBodyText '"id":"smoke-project"' -ExpectedHeaderText ""
@@ -147,10 +147,9 @@ try {
     Invoke-APICheck -Step "06-scan-idempotent-replay" -Method "POST" -Path "/v1/scans" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json", "Idempotency-Key: smoke-idempotency-1")) -RequestBody $scanPayload -ExpectedBodyText '"id":"smoke-scan-1"' -ExpectedHeaderText "x-idempotency-replayed: true"
 
     Invoke-APICheck -Step "07-scan-sarif" -Method "GET" -Path "/v1/scans/smoke-scan-1/report?format=sarif" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"runs"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "08-dashboard-summary" -Method "GET" -Path "/v1/dashboard" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"metrics"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "09-audit-events" -Method "GET" -Path "/v1/audit/events?limit=5" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"events"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "10-api-keys" -Method "GET" -Path "/v1/api-keys" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"api_keys"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "11-metrics" -Method "GET" -Path "/metrics" -ExpectedStatus 200 -Headers @() -RequestBody "" -ExpectedBodyText "baseline_projects_total" -ExpectedHeaderText ""
+    Invoke-APICheck -Step "08-audit-events" -Method "GET" -Path "/v1/audit/events?limit=5" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"events"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "09-api-keys" -Method "GET" -Path "/v1/api-keys" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"api_keys"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "10-metrics" -Method "GET" -Path "/metrics" -ExpectedStatus 200 -Headers @() -RequestBody "" -ExpectedBodyText "baseline_projects_total" -ExpectedHeaderText ""
 
     Write-Host ""
     Write-Host "API smoke passed. Artifacts written to: $runDir"

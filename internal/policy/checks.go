@@ -792,6 +792,9 @@ func findSecretInFile(root, file string) *types.PolicyViolation {
 			}
 
 			rawValue := strings.TrimSpace(line[valueStart:valueEnd])
+			if strings.HasSuffix(file, ".go") && looksLikeGoSelectorValue(rawValue) {
+				continue
+			}
 			if isDynamicSecretExpression(rawValue) {
 				continue
 			}
@@ -1523,6 +1526,29 @@ func isDynamicSecretExpression(rawValue string) bool {
 
 	// Skip expressions and function calls; D1 should flag hardcoded literal values.
 	return strings.ContainsAny(trimmed, "()[]{}|&")
+}
+
+func looksLikeGoSelectorValue(rawValue string) bool {
+	trimmed := strings.TrimSpace(rawValue)
+	trimmed = strings.TrimRight(trimmed, ",")
+	if trimmed == "" {
+		return false
+	}
+
+	// Ignore common dynamic Go values in keyed struct literals, e.g.:
+	// ClientSecret: s.config.OIDCClientSecret
+	for _, ch := range trimmed {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+		case ch >= 'A' && ch <= 'Z':
+		case ch >= '0' && ch <= '9':
+		case ch == '_' || ch == '.':
+		default:
+			return false
+		}
+	}
+
+	return strings.Contains(trimmed, ".")
 }
 
 func isLikelySQLStatement(lowerLine string) bool {

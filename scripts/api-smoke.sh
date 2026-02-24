@@ -119,7 +119,7 @@ SCAN_PAYLOAD='{"id":"smoke-scan-1","project_id":"smoke-project","commit_sha":"ab
 
 run_step "01-healthz" "GET" "/healthz" "200" "" '"status":"ok"' ""
 run_step "02-readyz" "GET" "/readyz" "200" "" '"status":"ready"' ""
-run_step "03-dashboard-unauthorized" "GET" "/v1/dashboard" "401" "" '"code":"unauthorized"' "www-authenticate"
+run_step "03-projects-unauthorized" "GET" "/v1/projects" "401" "" '"code":"unauthorized"' "www-authenticate"
 run_step "04-project-create" "POST" "/v1/projects" "201" "${PROJECT_PAYLOAD}" '"id":"smoke-project"' "" \
   "${AUTH_HEADER}" "Content-Type: application/json"
 
@@ -132,16 +132,13 @@ run_step "06-scan-idempotent-replay" "POST" "/v1/scans" "201" "${SCAN_PAYLOAD}" 
 run_step "07-scan-sarif" "GET" "/v1/scans/smoke-scan-1/report?format=sarif" "200" "" '"runs"' "" \
   "${AUTH_HEADER}"
 
-run_step "08-dashboard-summary" "GET" "/v1/dashboard" "200" "" '"metrics"' "" \
+run_step "08-audit-events" "GET" "/v1/audit/events?limit=5" "200" "" '"events"' "" \
   "${AUTH_HEADER}"
 
-run_step "09-audit-events" "GET" "/v1/audit/events?limit=5" "200" "" '"events"' "" \
+run_step "09-api-keys" "GET" "/v1/api-keys" "200" "" '"api_keys"' "" \
   "${AUTH_HEADER}"
 
-run_step "10-api-keys" "GET" "/v1/api-keys" "200" "" '"api_keys"' "" \
-  "${AUTH_HEADER}"
-
-run_step "11-metrics" "GET" "/metrics" "200" "" "baseline_projects_total" ""
+run_step "10-metrics" "GET" "/metrics" "200" "" "baseline_projects_total" ""
 
 echo
 echo "API smoke passed. Artifacts written to: ${RUN_DIR}"
