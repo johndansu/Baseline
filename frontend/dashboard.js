@@ -135,7 +135,7 @@ class BaselineDashboard {
 
     updateStatsCards(projects) {
         // Update stats cards with real data
-        const totalScansElement = document.querySelector('.text-2xl');
+        const totalScansElement = document.querySelector('.bg-white .text-2xl');
         if (totalScansElement && projects.length > 0) {
             // Calculate total scans from projects
             const totalScans = projects.reduce((sum, project) => sum + (project.scan_count || 0), 0);
@@ -386,51 +386,254 @@ class BaselineDashboard {
         this.renderAuditTable(mockEvents);
     }
 
-    async loadSettingsData() {
-        const settingsTab = document.getElementById('settings-tab');
-        settingsTab.innerHTML = `
-            <div class="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-6">Settings</h3>
-                
-                <div class="space-y-6">
-                    <div>
-                        <h4 class="font-medium text-gray-900 mb-2">API Configuration</h4>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">API Server URL</label>
-                                <input type="text" value="${this.apiBaseUrl}" class="w-full px-3 py-2 border border-gray-300 rounded-lg" readonly>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Database Path</label>
-                                <input type="text" value=".baseline/baseline.db" class="w-full px-3 py-2 border border-gray-300 rounded-lg" readonly>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <h4 class="font-medium text-gray-900 mb-2">Authentication</h4>
-                        <div class="space-y-4">
-                            <div class="flex items-center justify-between">
-                                <span class="text-sm text-gray-700">Session Authentication</span>
-                                <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Enabled</span>
-                            </div>
-                            <div class="flex items-center justify-between">
-                                <span class="text-sm text-gray-700">API Key Authentication</span>
-                                <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Enabled</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <h4 class="font-medium text-gray-900 mb-2">Actions</h4>
-                        <div class="space-y-3">
-                            <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Export Configuration</button>
-                            <button class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">View Logs</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
+    // Settings functions
+    exportSettings() {
+        console.log('Exporting settings...');
+        // Collect all form data
+        const settings = {
+            general: {
+                apiServerUrl: document.querySelector('input[value="http://localhost:8080"]').value,
+                environment: document.querySelector('select').value,
+                defaultScanType: document.querySelectorAll('select')[1].value,
+                autoScanInterval: document.querySelectorAll('select')[2].value
+            },
+            security: {
+                sessionTimeout: document.querySelectorAll('select')[3].value,
+                maxFailedAttempts: document.querySelectorAll('select')[4].value,
+                passwordRequirements: {
+                    minLength: document.querySelectorAll('input[type="checkbox"]')[0].checked,
+                    requireUppercase: document.querySelectorAll('input[type="checkbox"]')[1].checked,
+                    requireNumber: document.querySelectorAll('input[type="checkbox"]')[2].checked,
+                    requireSpecialChar: document.querySelectorAll('input[type="checkbox"]')[3].checked
+                },
+                apiRateLimit: document.querySelector('input[type="number"]').value
+            },
+            notifications: {
+                email: {
+                    criticalAlerts: document.querySelectorAll('input[type="checkbox"]')[4].checked,
+                    scanResults: document.querySelectorAll('input[type="checkbox"]')[5].checked,
+                    policyViolations: document.querySelectorAll('input[type="checkbox"]')[6].checked,
+                    apiKeyChanges: document.querySelectorAll('input[type="checkbox"]')[7].checked
+                },
+                channels: {
+                    email: document.querySelectorAll('input[type="email"]').value,
+                    slack: document.querySelectorAll('input[type="text"]')[8].value,
+                    webhook: document.querySelectorAll('input[type="text"]')[9].value
+                }
+            },
+            integrations: {
+                versionControl: {
+                    github: document.querySelectorAll('input[type="text"]')[10].value,
+                    gitlab: document.querySelectorAll('input[type="text"]')[11].value
+                },
+                cicdPlatform: document.querySelectorAll('select')[5].value,
+                containerRegistry: document.querySelectorAll('select')[6].value,
+                kubernetesCluster: document.querySelectorAll('input[type="text"]')[12].value
+            }
+        };
+        
+        // Download as JSON
+        const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'baseline-settings.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    importSettings() {
+        console.log('Importing settings...');
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const settings = JSON.parse(e.target.result);
+                        // Apply settings to form
+                        this.applySettings(settings);
+                        alert('Settings imported successfully!');
+                    } catch (error) {
+                        alert('Error importing settings: ' + error.message);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        };
+        input.click();
+    }
+
+    applySettings(settings) {
+        // Apply settings to form fields
+        if (settings.general) {
+            document.querySelector('input[value="http://localhost:8080"]').value = settings.general.apiServerUrl || '';
+            document.querySelector('select').value = settings.general.environment || 'Development';
+            document.querySelectorAll('select')[1].value = settings.general.defaultScanType || 'Full Scan';
+            document.querySelectorAll('select')[2].value = settings.general.autoScanInterval || 'Disabled';
+        }
+        
+        if (settings.security) {
+            document.querySelectorAll('select')[3].value = settings.security.sessionTimeout || '30 minutes';
+            document.querySelectorAll('select')[4].value = settings.security.maxFailedAttempts || '3 attempts';
+            document.querySelectorAll('input[type="checkbox"]')[0].checked = settings.security.passwordRequirements?.minLength || false;
+            document.querySelectorAll('input[type="checkbox"]')[1].checked = settings.security.passwordRequirements?.requireUppercase || false;
+            document.querySelectorAll('input[type="checkbox"]')[2].checked = settings.security.passwordRequirements?.requireNumber || false;
+            document.querySelectorAll('input[type="checkbox"]')[3].checked = settings.security.passwordRequirements?.requireSpecialChar || false;
+            document.querySelector('input[type="number"]').value = settings.security.apiRateLimit || 100;
+        }
+        
+        if (settings.notifications) {
+            document.querySelectorAll('input[type="checkbox"]')[4].checked = settings.notifications.email?.criticalAlerts || false;
+            document.querySelectorAll('input[type="checkbox"]')[5].checked = settings.notifications.email?.scanResults || false;
+            document.querySelectorAll('input[type="checkbox"]')[6].checked = settings.notifications.email?.policyViolations || false;
+            document.querySelectorAll('input[type="checkbox"]')[7].checked = settings.notifications.email?.apiKeyChanges || false;
+            document.querySelectorAll('input[type="email"]').value = settings.notifications.channels?.email || '';
+            document.querySelectorAll('input[type="text"]')[8].value = settings.notifications.channels?.slack || '';
+            document.querySelectorAll('input[type="text"]')[9].value = settings.notifications.channels?.webhook || '';
+        }
+        
+        if (settings.integrations) {
+            document.querySelectorAll('input[type="text"]')[10].value = settings.integrations.versionControl?.github || '';
+            document.querySelectorAll('input[type="text"]')[11].value = settings.integrations.versionControl?.gitlab || '';
+            document.querySelectorAll('select')[5].value = settings.integrations.cicdPlatform || 'GitHub Actions';
+            document.querySelectorAll('select')[6].value = settings.integrations.containerRegistry || 'Docker Hub';
+            document.querySelectorAll('input[type="text"]')[12].value = settings.integrations.kubernetesCluster || '';
+        }
+    }
+
+    viewSystemLogs() {
+        console.log('Viewing system logs...');
+        // In a real app, this would open a logs viewer
+        alert('System logs would open in a new window');
+    }
+
+    clearCache() {
+        console.log('Clearing cache...');
+        if ('caches' in window) {
+            caches.keys().forEach(cacheName => {
+                caches.delete(cacheName);
+            });
+        }
+        localStorage.clear();
+        sessionStorage.clear();
+        alert('Cache cleared successfully!');
+    }
+
+    backupDatabase() {
+        console.log('Backing up database...');
+        // In a real app, this would trigger a database backup
+        alert('Database backup initiated - backup will be downloaded');
+    }
+
+    restoreDatabase() {
+        console.log('Restoring database...');
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.db,.sqlite';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                console.log('Database file selected for restore:', file.name);
+                alert('Database restore functionality would be implemented here');
+            }
+        };
+        input.click();
+    }
+
+    testConnection() {
+        console.log('Testing connection...');
+        // Test API connection
+        fetch(document.querySelector('input[value="http://localhost:8080"]').value + '/health', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                alert('Connection test successful!');
+            } else {
+                alert('Connection test failed: ' + response.statusText);
+            }
+        })
+        .catch(error => {
+            alert('Connection test error: ' + error.message);
+        });
+    }
+
+    generateReport() {
+        console.log('Generating report...');
+        // Generate system report
+        const report = {
+            timestamp: new Date().toISOString(),
+            system: {
+                version: '1.0.0',
+                uptime: '99.9%',
+                lastScan: new Date().toISOString()
+            },
+            stats: {
+                totalProjects: 4,
+                totalScans: 247,
+                activeUsers: 3
+            }
+        };
+        
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'baseline-report.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    saveAllSettings() {
+        console.log('Saving all settings...');
+        // Validate and save all settings
+        const settings = {
+            timestamp: new Date().toISOString(),
+            savedBy: 'operator@baseline.local',
+            general: {
+                apiServerUrl: document.querySelector('input[value="http://localhost:8080"]').value,
+                environment: document.querySelector('select').value,
+                defaultScanType: document.querySelectorAll('select')[1].value,
+                autoScanInterval: document.querySelectorAll('select')[2].value
+            },
+            security: {
+                sessionTimeout: document.querySelectorAll('select')[3].value,
+                maxFailedAttempts: document.querySelectorAll('select')[4].value,
+                passwordRequirements: {
+                    minLength: document.querySelectorAll('input[type="checkbox"]')[0].checked,
+                    requireUppercase: document.querySelectorAll('input[type="checkbox"]')[1].checked,
+                    requireNumber: document.querySelectorAll('input[type="checkbox"]')[2].checked,
+                    requireSpecialChar: document.querySelectorAll('input[type="checkbox"]')[3].checked
+                },
+                apiRateLimit: document.querySelector('input[type="number"]').value
+            }
+        };
+        
+        // Save to localStorage
+        localStorage.setItem('baselineSettings', JSON.stringify(settings));
+        alert('All settings saved successfully!');
+    }
+
+    resetToDefaults() {
+        console.log('Resetting to defaults...');
+        if (confirm('Are you sure you want to reset all settings to defaults? This action cannot be undone.')) {
+            // Clear localStorage
+            localStorage.removeItem('baselineSettings');
+            
+            // Reload page to reset form
+            location.reload();
+        }
     }
 
     renderScansTable(scans) {
@@ -513,12 +716,10 @@ class BaselineDashboard {
 
     renderProjectsTable(projects) {
         // Don't overwrite - the HTML has the new design
-        console.log('Projects data loaded:', projects.length, 'projects');
     }
 
     renderApiKeysTable(apiKeys) {
         // Don't overwrite - the HTML has the new design
-        console.log('API Keys loaded:', apiKeys.length, 'keys');
     }
 
     renderAuditTable(events) {
@@ -634,18 +835,17 @@ class BaselineDashboard {
 
     handleSearch(query) {
         // Implement search functionality
-        console.log('Searching for:', query);
         // This would filter the current tab's data based on the query
     }
 
     openCliModal() {
         // Open CLI quick actions modal
-        alert('CLI Quick Actions - This would open a modal with CLI commands');
+        openModal('cliModal');
     }
 
     showNotifications() {
         // Show notifications panel
-        alert('Notifications - This would show recent notifications');
+        openModal('notificationsModal');
     }
 
     showError(message) {

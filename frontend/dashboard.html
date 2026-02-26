@@ -9,6 +9,44 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         .tab-content.hidden { display: none; }
+        
+        /* FORCE ORANGE THEME - Override all conflicting styles */
+        .bg-blue-600 { background-color: #ea580c !important; }
+        .bg-blue-700 { background-color: #c2410c !important; }
+        .bg-blue-500 { background-color: #f97316 !important; }
+        .bg-blue-50 { background-color: #fff7ed !important; }
+        .hover\:bg-blue-600:hover { background-color: #ea580c !important; }
+        .hover\:bg-blue-700:hover { background-color: #c2410c !important; }
+        .hover\:bg-blue-500:hover { background-color: #f97316 !important; }
+        .text-blue-600 { color: #ea580c !important; }
+        .text-blue-700 { color: #c2410c !important; }
+        .text-blue-500 { color: #f97316 !important; }
+        .hover\:text-blue-600:hover { color: #ea580c !important; }
+        .hover\:text-blue-700:hover { color: #c2410c !important; }
+        .border-blue-500 { border-color: #f97316 !important; }
+        .focus\:ring-blue-500:focus { border-color: #f97316 !important; box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1) !important; }
+        
+        /* Progress bars */
+        .bg-green-600 { background-color: #ea580c !important; }
+        .bg-yellow-600 { background-color: #ea580c !important; }
+        
+        /* User avatar */
+        .from-blue-500 { background: linear-gradient(to bottom right, #f97316, #ea580c) !important; }
+        .to-blue-600 { background: linear-gradient(to bottom right, #f97316, #ea580c) !important; }
+        
+        /* Admin badge */
+        .bg-blue-100 { background-color: #fff7ed !important; }
+        .text-blue-800 { color: #9a3412 !important; }
+        
+        /* Debug indicator */
+        .debug-orange { 
+            background: #ea580c !important; 
+            color: white !important; 
+            padding: 10px !important; 
+            border-radius: 5px !important; 
+            margin-bottom: 10px !important;
+            font-weight: bold !important;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -19,53 +57,56 @@
             <div class="p-6">
                 <div class="flex items-center gap-3 mb-8">
                     <img src="../img/baseline logo.png" alt="Baseline" class="w-8 h-8">
-                    <h1 class="text-xl font-bold text-gray-900">Baseline</h1>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-900">Baseline</h1>
+                        <p class="text-xs text-gray-500">Operational Dashboard</p>
+                    </div>
                 </div>
                 
                 <nav class="space-y-1">
-                    <a href="#" data-tab="overview" onclick="switchTab('overview'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg bg-blue-50 text-blue-700">
+                    <a href="#" data-tab="overview" onclick="switchTab('overview'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg bg-orange-50 text-orange-700">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
                         </svg>
                         Dashboard
                     </a>
-                    <a href="#" data-tab="scans" onclick="switchTab('scans'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                    <a href="#" data-tab="scans" onclick="switchTab('scans'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                         Scan History
                     </a>
-                    <a href="#" data-tab="policies" onclick="switchTab('policies'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                    <a href="#" data-tab="policies" onclick="switchTab('policies'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                         </svg>
                         Policies
                     </a>
-                    <a href="#" data-tab="projects" onclick="switchTab('projects'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                    <a href="#" data-tab="projects" onclick="switchTab('projects'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                         </svg>
                         Projects
                     </a>
-                    <a href="#" data-tab="keys" onclick="switchTab('keys'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                    <a href="#" data-tab="keys" onclick="switchTab('keys'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
                         </svg>
                         API Keys
                     </a>
-                    <a href="#" data-tab="integrations" onclick="switchTab('integrations'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                    <a href="#" data-tab="integrations" onclick="switchTab('integrations'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
                         </svg>
                         Integrations
                     </a>
-                    <a href="#" data-tab="audit" onclick="switchTab('audit'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                    <a href="#" data-tab="audit" onclick="switchTab('audit'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                         Audit Log
                     </a>
-                    <a href="#" data-tab="settings" onclick="switchTab('settings'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900">
+                    <a href="#" data-tab="settings" onclick="switchTab('settings'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c.94-1.543-.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -82,8 +123,8 @@
                 <!-- Header -->
                 <header class="flex items-center justify-between mb-8">
                     <div>
-                        <h1 id="page-title" class="text-2xl font-bold text-gray-900">Dashboard</h1>
-                        <p id="page-subtitle" class="text-sm text-gray-600 mt-1">Monitor policy compliance and scan results</p>
+                        <h1 id="page-title" class="text-2xl font-bold text-orange-600">Dashboard</h1>
+                        <p id="page-subtitle" class="text-sm text-orange-700 mt-1">Monitor policy compliance and scan results</p>
                     </div>
                     
                     <div class="flex items-center gap-3">
@@ -94,29 +135,61 @@
                             </svg>
                         </div>
                         
-                        <button class="relative p-2.5 rounded-lg bg-white border border-gray-300 hover:border-blue-300 transition-colors">
+                        <button onclick="openModal('notificationsModal')" class="relative p-2.5 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
                             <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                             </svg>
                             <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500"></span>
                         </button>
                         
-                        <button class="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-300 hover:border-blue-300 transition-colors">
+                        <button onclick="openModal('cliModal')" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
                             <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                             </svg>
-                            <span class="text-xs font-mono text-gray-600">CLI</span>
+                            <span class="text-xs font-mono text-gray-700">CLI</span>
                         </button>
                         
-                        <button class="flex items-center gap-2.5 pl-1 pr-3 py-1 rounded-lg bg-white border border-gray-300 hover:border-blue-300 transition-colors">
-                            <div class="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
-                                OP
+                        <!-- User Profile Dropdown -->
+                        <div class="relative">
+                            <button onclick="toggleDropdown('userDropdown')" class="flex items-center gap-2.5 pl-1 pr-3 py-1 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
+                                <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold">
+                                    OP
+                                </div>
+                                <span class="text-sm font-medium">Operator</span>
+                                <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                            </button>
+                            
+                            <!-- Dropdown Menu -->
+                            <div id="userDropdown" class="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 hidden z-50">
+                                <div class="p-4 border-b border-gray-100">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white text-sm font-bold">
+                                            OP
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-semibold text-gray-900">Operator</p>
+                                            <p class="text-xs text-gray-500">operator@company.com</p>
+                                            <div class="flex items-center gap-2 mt-1">
+                                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
+                                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">Admin</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="py-2">
+                                    <a href="#" class="block px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors">Configure GitHub</a>
+                                    <a href="#" class="block px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors">Configure GitLab</a>
+                                    <a href="#" class="block px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors">Manage Webhooks</a>
+                                    <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">Profile Settings</a>
+                                    <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">Account Preferences</a>
+                                    <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">API Documentation</a>
+                                    <div class="border-t border-gray-100 my-2"></div>
+                                    <button onclick="handleSignOut()" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors">Sign Out</button>
+                                </div>
                             </div>
-                            <span class="text-sm font-medium">Operator</span>
-                            <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                            </svg>
-                        </button>
+                        </div>
                     </div>
                 </header>
 
@@ -128,54 +201,54 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                             <div class="bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4">
-                                    <div class="p-2 bg-blue-50 rounded-lg">
-                                        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div class="p-2 rounded-lg">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                         </svg>
                                     </div>
                                     <span class="text-sm font-medium text-green-600">+18%</span>
                                 </div>
-                                <h3 class="text-2xl font-bold text-gray-900">114</h3>
-                                <p class="text-sm text-gray-600">Total Scans</p>
+                                <h3 class="text-2xl font-bold text-gray-900">247</h3>
+                                <p class="text-sm text-gray-700">Total Scans</p>
                             </div>
                             
                             <div class="bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4">
-                                    <div class="p-2 bg-green-50 rounded-lg">
-                                        <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div class="p-2 rounded-lg">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                         </svg>
                                     </div>
                                     <span class="text-sm font-medium text-green-600">+2</span>
                                 </div>
                                 <h3 class="text-2xl font-bold text-gray-900">11/13</h3>
-                                <p class="text-sm text-gray-600">Policies Passing</p>
+                                <p class="text-sm text-gray-700">Policies Passing</p>
                             </div>
                             
                             <div class="bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4">
-                                    <div class="p-2 bg-red-50 rounded-lg">
-                                        <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div class="p-2 rounded-lg">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                                         </svg>
                                     </div>
                                     <span class="text-sm font-medium text-red-600">+1</span>
                                 </div>
                                 <h3 class="text-2xl font-bold text-gray-900">2</h3>
-                                <p class="text-sm text-gray-600">Blocking Violations</p>
+                                <p class="text-sm text-gray-700">Blocking Violations</p>
                             </div>
                             
                             <div class="bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4">
-                                    <div class="p-2 bg-purple-50 rounded-lg">
-                                        <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div class="p-2 rounded-lg">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                                         </svg>
                                     </div>
                                     <span class="text-sm font-medium text-green-600">+1</span>
                                 </div>
                                 <h3 class="text-2xl font-bold text-gray-900">4</h3>
-                                <p class="text-sm text-gray-600">Projects Tracked</p>
+                                <p class="text-sm text-gray-700">Projects Tracked</p>
                             </div>
                         </div>
 
@@ -190,24 +263,24 @@
                                 <h3 class="text-lg font-semibold text-gray-900 mb-4">Quick Stats</h3>
                                 <div class="space-y-4">
                                     <div class="flex justify-between items-center">
-                                        <span class="text-sm text-gray-600">Scan Success Rate</span>
+                                        <span class="text-sm text-gray-700">Scan Success Rate</span>
                                         <span class="text-sm font-medium text-gray-900">92%</span>
                                     </div>
                                     <div class="w-full bg-gray-200 rounded-full h-2">
-                                        <div class="bg-green-600 h-2 rounded-full" style="width: 92%"></div>
+                                        <div class="bg-orange-600 h-2 rounded-full" style="width: 92%"></div>
                                     </div>
                                     
                                     <div class="flex justify-between items-center">
-                                        <span class="text-sm text-gray-600">Policy Compliance</span>
+                                        <span class="text-sm text-gray-700">Policy Compliance</span>
                                         <span class="text-sm font-medium text-gray-900">85%</span>
                                     </div>
                                     <div class="w-full bg-gray-200 rounded-full h-2">
-                                        <div class="bg-blue-600 h-2 rounded-full" style="width: 85%"></div>
+                                        <div class="bg-orange-600 h-2 rounded-full" style="width: 85%"></div>
                                     </div>
                                     
                                     <div class="flex justify-between items-center">
-                                        <span class="text-sm text-gray-600">API Response Time</span>
-                                        <span class="text-sm font-medium text-gray-900">124ms</span>
+                                        <span class="text-sm text-gray-700">API Response Time</span>
+                                        <button onclick="openModal('auditDetailsModal')" class="text-xs font-medium text-blue-600 hover:text-blue-700">View Details →</button>
                                     </div>
                                     <div class="w-full bg-gray-200 rounded-full h-2">
                                         <div class="bg-yellow-600 h-2 rounded-full" style="width: 75%"></div>
@@ -262,9 +335,9 @@
                             <div class="p-6 border-b border-gray-200 flex justify-between items-center">
                                 <div>
                                     <h3 class="text-lg font-semibold text-gray-900">Scan History</h3>
-                                    <p class="text-sm text-gray-600 mt-1">Recent scan results across all projects</p>
+                                    <p class="text-sm text-gray-700 mt-1">Recent scan results across all projects</p>
                                 </div>
-                                <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                <button onclick="openModal('runScanModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
                                     Run New Scan
                                 </button>
                             </div>
@@ -283,7 +356,7 @@
                                     </div>
                                     <div class="flex items-center gap-4">
                                         <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Passed</span>
-                                        <span class="text-sm text-gray-600">0 violations</span>
+                                        <span class="text-sm text-gray-700">0 violations</span>
                                     </div>
                                 </div>
                                 <div class="p-4 flex items-center justify-between hover:bg-gray-50">
@@ -300,7 +373,7 @@
                                     </div>
                                     <div class="flex items-center gap-4">
                                         <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Failed</span>
-                                        <span class="text-sm text-gray-600">2 violations</span>
+                                        <span class="text-sm text-gray-700">2 violations</span>
                                     </div>
                                 </div>
                                 <div class="p-4 flex items-center justify-between hover:bg-gray-50">
@@ -317,7 +390,7 @@
                                     </div>
                                     <div class="flex items-center gap-4">
                                         <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Passed</span>
-                                        <span class="text-sm text-gray-600">0 violations</span>
+                                        <span class="text-sm text-gray-700">0 violations</span>
                                     </div>
                                 </div>
                             </div>
@@ -329,7 +402,7 @@
                         <div class="bg-white rounded-lg border border-gray-200">
                             <div class="p-6 border-b border-gray-200">
                                 <h3 class="text-lg font-semibold text-gray-900">Policy Management</h3>
-                                <p class="text-sm text-gray-600 mt-1">Production-readiness checks enforced by Baseline</p>
+                                <p class="text-sm text-gray-700 mt-1">Production-readiness checks enforced by Baseline</p>
                             </div>
                             <div class="divide-y divide-gray-200">
                                 <div class="p-4 flex items-center justify-between hover:bg-gray-50">
@@ -341,7 +414,7 @@
                                         </div>
                                     </div>
                                     <div class="flex items-center gap-4">
-                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <button onclick="openModal('policyConfigModal')" class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</button>
                                         <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Block</span>
                                     </div>
                                 </div>
@@ -354,7 +427,7 @@
                                         </div>
                                     </div>
                                     <div class="flex items-center gap-4">
-                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <button onclick="openModal('policyConfigModal')" class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</button>
                                         <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Block</span>
                                     </div>
                                 </div>
@@ -367,7 +440,7 @@
                                         </div>
                                     </div>
                                     <div class="flex items-center gap-4">
-                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <button onclick="openModal('policyConfigModal')" class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</button>
                                         <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Block</span>
                                     </div>
                                 </div>
@@ -380,7 +453,7 @@
                                         </div>
                                     </div>
                                     <div class="flex items-center gap-4">
-                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <button onclick="openModal('policyConfigModal')" class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</button>
                                         <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">Block</span>
                                     </div>
                                 </div>
@@ -393,7 +466,7 @@
                                         </div>
                                     </div>
                                     <div class="flex items-center gap-4">
-                                        <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</span>
+                                        <button onclick="openModal('policyConfigModal')" class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Enabled</button>
                                         <span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">Warn</span>
                                     </div>
                                 </div>
@@ -406,7 +479,7 @@
                                         </div>
                                     </div>
                                     <div class="flex items-center gap-4">
-                                        <span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Disabled</span>
+                                        <button onclick="openModal('policyConfigModal')" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Disabled</button>
                                         <span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">Warn</span>
                                     </div>
                                 </div>
@@ -438,7 +511,7 @@
                                         </span>
                                     </div>
                                     
-                                    <div class="flex items-center gap-3 text-xs text-gray-600 mb-3">
+                                    <div class="flex items-center gap-3 text-xs text-gray-700 mb-3">
                                         <span class="truncate">github.com/company/payments</span>
                                         <span class="text-gray-400">|</span>
                                         <span>2h ago</span>
@@ -462,7 +535,7 @@
                                 </div>
                                 <div class="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                                     <span class="text-xs text-gray-500">12/13 policies</span>
-                                    <button class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
+                                    <button onclick="openModal('projectDetailsModal')" class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
                                 </div>
                             </div>
 
@@ -486,7 +559,7 @@
                                         </span>
                                     </div>
                                     
-                                    <div class="flex items-center gap-3 text-xs text-gray-600 mb-3">
+                                    <div class="flex items-center gap-3 text-xs text-gray-700 mb-3">
                                         <span class="truncate">github.com/company/users</span>
                                         <span class="text-gray-400">|</span>
                                         <span>4h ago</span>
@@ -510,7 +583,7 @@
                                 </div>
                                 <div class="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                                     <span class="text-xs text-gray-500">10/13 policies</span>
-                                    <button class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
+                                    <button onclick="openModal('projectDetailsModal')" class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
                                 </div>
                             </div>
 
@@ -534,7 +607,7 @@
                                         </span>
                                     </div>
                                     
-                                    <div class="flex items-center gap-3 text-xs text-gray-600 mb-3">
+                                    <div class="flex items-center gap-3 text-xs text-gray-700 mb-3">
                                         <span class="truncate">github.com/company/analytics</span>
                                         <span class="text-gray-400">|</span>
                                         <span>6h ago</span>
@@ -558,7 +631,7 @@
                                 </div>
                                 <div class="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                                     <span class="text-xs text-gray-500">13/13 policies</span>
-                                    <button class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
+                                    <button onclick="openModal('projectDetailsModal')" class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
                                 </div>
                             </div>
 
@@ -582,7 +655,7 @@
                                         </span>
                                     </div>
                                     
-                                    <div class="flex items-center gap-3 text-xs text-gray-600 mb-3">
+                                    <div class="flex items-center gap-3 text-xs text-gray-700 mb-3">
                                         <span class="truncate">github.com/company/notifications</span>
                                         <span class="text-gray-400">|</span>
                                         <span>8h ago</span>
@@ -606,7 +679,7 @@
                                 </div>
                                 <div class="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
                                     <span class="text-xs text-gray-500">13/13 policies</span>
-                                    <button class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
+                                    <button onclick="openModal('projectDetailsModal')" class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
                                 </div>
                             </div>
                         </div>
@@ -615,7 +688,7 @@
                     <!-- API Keys Tab REDESIGNED -->
                     <div id="keys-tab" class="tab-content hidden">
                         <div class="mb-4 flex justify-end">
-                            <button onclick="openModal('generateKeyModal')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2 shadow-sm">
+                            <button onclick="openModal('generateKeyModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium flex items-center gap-2 shadow-sm">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
                                 </svg>
@@ -643,12 +716,12 @@
                                             </div>
                                         </div>
                                         <div class="flex items-center gap-1">
-                                            <button class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
+                                            <button onclick="openModal('copyKeyModal')" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
                                                 </svg>
                                             </button>
-                                            <button class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
+                                            <button onclick="openModal('revokeKeyModal')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                                 </svg>
@@ -692,12 +765,12 @@
                                             </div>
                                         </div>
                                         <div class="flex items-center gap-1">
-                                            <button class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
+                                            <button onclick="openModal('copyKeyModal')" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
                                                 </svg>
                                             </button>
-                                            <button class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
+                                            <button onclick="openModal('revokeKeyModal')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                                 </svg>
@@ -741,12 +814,12 @@
                                             </div>
                                         </div>
                                         <div class="flex items-center gap-1">
-                                            <button class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
+                                            <button onclick="openModal('copyKeyModal')" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
                                                 </svg>
                                             </button>
-                                            <button class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
+                                            <button onclick="openModal('revokeKeyModal')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                                 </svg>
@@ -799,11 +872,11 @@
                                     </div>
                                     <div>
                                         <h3 class="text-lg font-semibold text-gray-900">GitHub</h3>
-                                        <p class="text-sm text-gray-600">Connect repositories</p>
+                                        <p class="text-sm text-gray-700">Connect repositories</p>
                                     </div>
                                 </div>
-                                <p class="text-sm text-gray-600 mb-4">Automatically scan GitHub repositories on pull requests and commits.</p>
-                                <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                <p class="text-sm text-gray-700 mb-4">Automatically scan GitHub repositories on pull requests and commits.</p>
+                                <button onclick="openModal('integrationConfigModal')" class="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
                                     Configure GitHub
                                 </button>
                             </div>
@@ -817,11 +890,11 @@
                                     </div>
                                     <div>
                                         <h3 class="text-lg font-semibold text-gray-900">GitLab</h3>
-                                        <p class="text-sm text-gray-600">Connect projects</p>
+                                        <p class="text-sm text-gray-700">Connect projects</p>
                                     </div>
                                 </div>
-                                <p class="text-sm text-gray-600 mb-4">Integrate with GitLab CI/CD pipelines for automated compliance checks.</p>
-                                <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                <p class="text-sm text-gray-700 mb-4">Integrate with GitLab CI/CD pipelines for automated compliance checks.</p>
+                                <button onclick="openModal('integrationConfigModal')" class="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
                                     Configure GitLab
                                 </button>
                             </div>
@@ -835,11 +908,11 @@
                                     </div>
                                     <div>
                                         <h3 class="text-lg font-semibold text-gray-900">Webhooks</h3>
-                                        <p class="text-sm text-gray-600">Custom endpoints</p>
+                                        <p class="text-sm text-gray-700">Custom endpoints</p>
                                     </div>
                                 </div>
-                                <p class="text-sm text-gray-600 mb-4">Configure webhook endpoints to receive real-time scan results and notifications.</p>
-                                <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                <p class="text-sm text-gray-700 mb-4">Configure webhook endpoints to receive real-time scan results and notifications.</p>
+                                <button onclick="openModal('integrationConfigModal')" class="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
                                     Manage Webhooks
                                 </button>
                             </div>
@@ -853,11 +926,11 @@
                                     </div>
                                     <div>
                                         <h3 class="text-lg font-semibold text-gray-900">CLI</h3>
-                                        <p class="text-sm text-gray-600">Command line tool</p>
+                                        <p class="text-sm text-gray-700">Command line tool</p>
                                     </div>
                                 </div>
-                                <p class="text-sm text-gray-600 mb-4">Download and configure the Baseline CLI for local development workflows.</p>
-                                <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                <p class="text-sm text-gray-700 mb-4">Download and configure the Baseline CLI for local development workflows.</p>
+                                <button onclick="openModal('integrationConfigModal')" class="w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
                                     Download CLI
                                 </button>
                             </div>
@@ -869,13 +942,13 @@
                         <div class="bg-white rounded-lg border border-gray-200">
                             <div class="p-6 border-b border-gray-200">
                                 <h3 class="text-lg font-semibold text-gray-900">Audit Log</h3>
-                                <p class="text-sm text-gray-600 mt-1">System activity and event history</p>
+                                <p class="text-sm text-gray-700 mt-1">System activity and event history</p>
                             </div>
                             <div class="divide-y divide-gray-200">
                                 <div class="p-4 flex items-center justify-between hover:bg-gray-50">
                                     <div class="flex items-center gap-4">
                                         <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-                                            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                             </svg>
                                         </div>
@@ -934,58 +1007,203 @@
 
                     <!-- Settings Tab -->
                     <div id="settings-tab" class="tab-content hidden">
-                        <div class="max-w-2xl">
-                            <div class="bg-white rounded-lg border border-gray-200 mb-6">
-                                <div class="p-6 border-b border-gray-200">
-                                    <h3 class="text-lg font-semibold text-gray-900">General Settings</h3>
-                                </div>
-                                <div class="p-6 space-y-6">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">API Server URL</label>
-                                        <input type="text" value="http://localhost:8080" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" readonly>
-                                        <p class="text-xs text-gray-500 mt-1">The base URL for the Baseline API server</p>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Database Path</label>
-                                        <input type="text" value=".baseline/baseline.db" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" readonly>
-                                        <p class="text-xs text-gray-500 mt-1">Location of the local SQLite database</p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="bg-white rounded-lg border border-gray-200 mb-6">
-                                <div class="p-6 border-b border-gray-200">
-                                    <h3 class="text-lg font-semibold text-gray-900">Authentication</h3>
-                                </div>
-                                <div class="p-6 space-y-4">
-                                    <div class="flex items-center justify-between">
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Session Authentication</p>
-                                            <p class="text-xs text-gray-500">Enable browser-based session auth</p>
-                                        </div>
-                                        <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Enabled</span>
-                                    </div>
-                                    <div class="border-t border-gray-200 pt-4 flex items-center justify-between">
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">API Key Authentication</p>
-                                            <p class="text-xs text-gray-500">Enable API key-based access</p>
-                                        </div>
-                                        <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Enabled</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
+                        <div class="w-full p-6">
                             <div class="bg-white rounded-lg border border-gray-200">
                                 <div class="p-6 border-b border-gray-200">
-                                    <h3 class="text-lg font-semibold text-gray-900">Actions</h3>
+                                    <h3 class="text-lg font-semibold text-gray-900">Settings</h3>
                                 </div>
-                                <div class="p-6 space-y-3">
-                                    <button class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
-                                        Export Configuration
-                                    </button>
-                                    <button class="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium">
-                                        View System Logs
-                                    </button>
+                                <div class="p-6">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                        <!-- Basic Settings -->
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">API Server URL</label>
+                                            <input type="text" value="http://localhost:8080" class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500" readonly>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Environment</label>
+                                            <select class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                                <option>Development</option>
+                                                <option>Staging</option>
+                                                <option>Production</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Default Scan Type</label>
+                                            <select class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                                <option>Full Scan</option>
+                                                <option>Security Only</option>
+                                                <option>Compliance Only</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Timezone</label>
+                                            <select class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                                <option>UTC</option>
+                                                <option>America/New_York</option>
+                                                <option>Europe/London</option>
+                                                <option>Asia/Tokyo</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Theme</label>
+                                            <select class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                                <option>Light</option>
+                                                <option>Dark</option>
+                                                <option>Auto</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Language</label>
+                                            <select class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                                <option>English</option>
+                                                <option>Spanish</option>
+                                                <option>French</option>
+                                                <option>German</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Email Notifications</label>
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <p class="text-sm text-gray-900">Enable email notifications</p>
+                                                </div>
+                                                <input type="checkbox" checked class="rounded text-orange-600 focus:ring-orange-500">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Auto-refresh</label>
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <p class="text-sm text-gray-900">Enable dashboard auto-refresh</p>
+                                                </div>
+                                                <input type="checkbox" checked class="rounded text-orange-600 focus:ring-orange-500">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Session Timeout</label>
+                                            <select class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                                <option>30 minutes</option>
+                                                <option>1 hour</option>
+                                                <option>4 hours</option>
+                                                <option>24 hours</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">API Key Expiration</label>
+                                            <select class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                                <option>30 days</option>
+                                                <option>90 days</option>
+                                                <option>1 year</option>
+                                                <option>Never</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Two-Factor Authentication</label>
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <p class="text-sm text-gray-900">Require 2FA for all users</p>
+                                                </div>
+                                                <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Enabled</span>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">GitHub Token</label>
+                                            <input type="text" placeholder="Personal Access Token" class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">GitLab Token</label>
+                                            <input type="text" placeholder="Personal Access Token" class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">CI/CD Platform</label>
+                                            <select class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                                <option>GitHub Actions</option>
+                                                <option>GitLab CI/CD</option>
+                                                <option>Jenkins</option>
+                                                <option>Azure DevOps</option>
+                                                <option>CircleCI</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Webhook URL</label>
+                                            <input type="text" placeholder="https://your-app.com/webhook" class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 mb-1">Slack Integration</label>
+                                            <input type="text" placeholder="https://hooks.slack.com/services/..." class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Actions -->
+                                    <div class="mt-6 pt-6 border-t border-gray-200">
+                                        <h4 class="text-sm font-medium text-gray-900 mb-4">Actions</h4>
+                                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                                            <button onclick="exportSettings()" class="px-3 py-1.5 bg-orange-600 text-white rounded hover:bg-orange-700 text-xs font-medium">
+                                                Export Settings
+                                            </button>
+                                            <button onclick="importSettings()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                                Import Settings
+                                            </button>
+                                            <button onclick="viewSystemLogs()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                                View Logs
+                                            </button>
+                                            <button onclick="clearCache()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                                Clear Cache
+                                            </button>
+                                            <button onclick="testConnection()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                                Test Connection
+                                            </button>
+                                            <button onclick="generateReport()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                                Generate Report
+                                            </button>
+                                            <button onclick="saveAllSettings()" class="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 text-xs font-medium">
+                                                Save All
+                                            </button>
+                                            <button onclick="resetToDefaults()" class="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 text-xs font-medium">
+                                                Reset
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- CLI Help -->
+                                    <div class="mt-6 pt-6 border-t border-gray-200">
+                                        <h4 class="text-sm font-medium text-gray-900 mb-4">CLI Commands</h4>
+                                        <div class="space-y-2">
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <p class="text-xs text-gray-900">View config</p>
+                                                    <p class="text-xs text-gray-500">Show current configuration</p>
+                                                </div>
+                                                <code class="bg-gray-100 px-2 py-1 rounded text-xs">baseline config show</code>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <p class="text-xs text-gray-900">Set environment</p>
+                                                    <p class="text-xs text-gray-500">Change deployment environment</p>
+                                                </div>
+                                                <code class="bg-gray-100 px-2 py-1 rounded text-xs">baseline config set env production</code>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <p class="text-xs text-gray-900">Generate API key</p>
+                                                    <p class="text-xs text-gray-500">Create new authentication key</p>
+                                                </div>
+                                                <code class="bg-gray-100 px-2 py-1 rounded text-xs">baseline auth generate</code>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                                <div>
+                                                    <p class="text-xs text-gray-900">Run scan</p>
+                                                    <p class="text-xs text-gray-500">Start security scan</p>
+                                                </div>
+                                                <code class="bg-gray-100 px-2 py-1 rounded text-xs">baseline scan run</code>
+                                            </div>
+                                        </div>
+                                        <div class="mt-4 pt-4 border-t border-gray-100">
+                                            <p class="text-xs text-gray-500 text-center">
+                                                <strong>Pro Tip:</strong> CLI provides more powerful configuration options than the web interface.
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1000,7 +1218,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">Add New Project</h3>
-                <button onclick="closeModal('addProjectModal')" class="text-gray-400 hover:text-gray-600">
+                <button onclick="closeModal('addProjectModal')" class="text-gray-400 hover:text-gray-700">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -1022,7 +1240,7 @@
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
                 <button onclick="closeModal('addProjectModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onclick="closeModal('addProjectModal')" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Add Project</button>
+                <button onclick="closeModal('addProjectModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Add Project</button>
             </div>
         </div>
     </div>
@@ -1032,7 +1250,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">Generate API Key</h3>
-                <button onclick="closeModal('generateKeyModal')" class="text-gray-400 hover:text-gray-600">
+                <button onclick="closeModal('generateKeyModal')" class="text-gray-400 hover:text-gray-700">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -1062,12 +1280,450 @@
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
                 <button onclick="closeModal('generateKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onclick="closeModal('generateKeyModal')" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Generate Key</button>
+                <button onclick="closeModal('generateKeyModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Generate Key</button>
             </div>
         </div>
     </div>
 
-    <script src="dashboard.js?v=2"></script>
+    <!-- Run Scan Modal -->
+    <div id="runScanModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Run New Scan</h3>
+                <button onclick="closeModal('runScanModal')" class="text-gray-400 hover:text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Select Project</label>
+                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option>payments-service</option>
+                        <option>user-service</option>
+                        <option>analytics</option>
+                        <option>notifications</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Scan Type</label>
+                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option>Full Scan</option>
+                        <option>Quick Scan</option>
+                        <option>Security Only</option>
+                    </select>
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                    <p class="font-medium mb-1">📋 Scan Details</p>
+                    <p class="text-blue-700">Full scan will check all policies and may take 5-10 minutes.</p>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('runScanModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onclick="closeModal('runScanModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Start Scan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Project Details Modal -->
+    <div id="projectDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Project Details</h3>
+                <button onclick="closeModal('projectDetailsModal')" class="text-gray-400 hover:text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-6">
+                <div class="flex items-center gap-4">
+                    <div class="w-16 h-16 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h4 class="text-xl font-bold text-gray-900">payments-service</h4>
+                        <p class="text-sm text-gray-500">github.com/company/payments</p>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1"></span>
+                            Healthy
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-700 mb-1">Total Scans</p>
+                        <p class="text-2xl font-bold text-gray-900">28</p>
+                    </div>
+                    <div class="bg-gray-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-700 mb-1">Compliance Rate</p>
+                        <p class="text-2xl font-bold text-green-600">92%</p>
+                    </div>
+                </div>
+                
+                <div>
+                    <h5 class="text-sm font-semibold text-gray-900 mb-3">Policy Status</h5>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between p-2 bg-green-50 rounded">
+                            <span class="text-sm text-gray-700">Primary Branch Protection</span>
+                            <span class="text-sm text-green-600">✓ Passed</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 bg-green-50 rounded">
+                            <span class="text-sm text-gray-700">CI Workflows</span>
+                            <span class="text-sm text-green-600">✓ Passed</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 bg-red-50 rounded">
+                            <span class="text-sm text-gray-700">Secret Detection</span>
+                            <span class="text-sm text-red-600">✗ Failed</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('projectDetailsModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Close</button>
+                <button onclick="closeModal('projectDetailsModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Run Scan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Copy Key Modal -->
+    <div id="copyKeyModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">API Key</h3>
+                <button onclick="closeModal('copyKeyModal')" class="text-gray-400 hover:text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Key</label>
+                    <div class="flex items-center gap-2">
+                        <input type="text" value="bl_prod_1234567890abcdef" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-sm">
+                        <button onclick="navigator.clipboard.writeText('bl_prod_1234567890abcdef')" class="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Copy</button>
+                    </div>
+                </div>
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                    <p class="font-medium mb-1">🔒 Security Notice</p>
+                    <p class="text-amber-700">Treat this key like a password. Never share it publicly.</p>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('copyKeyModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Revoke Key Modal -->
+    <div id="revokeKeyModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Revoke API Key</h3>
+                <button onclick="closeModal('revokeKeyModal')" class="text-gray-400 hover:text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-900">This action cannot be undone</h4>
+                            <p class="text-sm text-gray-700">Revoking this key will immediately disable access for all applications using it.</p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
+                    <input type="text" value="Production Key" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Confirm by typing "revoke"</label>
+                    <input type="text" placeholder="Type revoke to confirm" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500">
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('revokeKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onclick="closeModal('revokeKeyModal')" class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700">Revoke Key</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Policy Config Modal -->
+    <div id="policyConfigModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Policy Configuration</h3>
+                <button onclick="closeModal('policyConfigModal')" class="text-gray-400 hover:text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Policy Name</label>
+                    <input type="text" value="Primary Branch Protection" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option>Enabled</option>
+                        <option>Disabled</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Action</label>
+                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option>Block</option>
+                        <option>Warn</option>
+                        <option>Info</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">Repository configuration</textarea>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('policyConfigModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onclick="closeModal('policyConfigModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Details Modal -->
+    <div id="auditDetailsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Audit Details</h3>
+                <button onclick="closeModal('auditDetailsModal')" class="text-gray-400 hover:text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Event Type</label>
+                    <input type="text" value="API Response Time" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Response Time</label>
+                    <input type="text" value="124ms" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Warning</span>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Timestamp</label>
+                    <input type="text" value="2024-12-23 15:45:00 UTC" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Details</label>
+                    <textarea rows="3" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">API response time exceeded threshold of 100ms. Consider optimization.</textarea>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('auditDetailsModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Integration Configuration Modal -->
+    <div id="integrationConfigModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-lg font-bold text-gray-900">Integration Configuration</h3>
+                <button onclick="closeModal('integrationConfigModal')" class="text-gray-400 hover:text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Integration Type</label>
+                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option>GitHub</option>
+                        <option>GitLab</option>
+                        <option>Webhooks</option>
+                        <option>CLI</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Repository URL</label>
+                    <input type="text" placeholder="github.com/company/repo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
+                    <input type="password" placeholder="Enter access token" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Webhook URL (Optional)</label>
+                    <input type="text" placeholder="https://your-app.com/webhook" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                    <p class="font-medium mb-1">🔗 Connection Info</p>
+                    <p class="text-blue-700">Configure webhook to receive real-time scan results and compliance updates.</p>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                <button onclick="closeModal('integrationConfigModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onclick="closeModal('integrationConfigModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Connect</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notifications Modal -->
+    <div id="notificationsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[80vh] overflow-hidden">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-900">Notifications</h3>
+                    <p class="text-sm text-gray-500">Recent activity and alerts</p>
+                </div>
+                <button onclick="closeModal('notificationsModal')" class="text-gray-400 hover:text-gray-700 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-3 max-h-[60vh] overflow-y-auto">
+                <div class="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer">
+                    <div class="w-2 h-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between mb-1">
+                            <p class="text-sm font-semibold text-gray-900">Scan completed</p>
+                            <span class="text-xs text-blue-600 font-medium">2m ago</span>
+                        </div>
+                        <p class="text-sm text-gray-700">payments-service scan completed successfully</p>
+                        <div class="flex items-center gap-2 mt-2">
+                            <button class="text-xs text-blue-600 hover:text-blue-700 font-medium">View Details</button>
+                            <button class="text-xs text-gray-500 hover:text-gray-700">Dismiss</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3 p-4 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 transition-colors cursor-pointer">
+                    <div class="w-2 h-2 rounded-full bg-red-500 mt-2 flex-shrink-0"></div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between mb-1">
+                            <p class="text-sm font-semibold text-gray-900">Policy violation</p>
+                            <span class="text-xs text-red-600 font-medium">1h ago</span>
+                        </div>
+                        <p class="text-sm text-gray-700">Secret detected in user-service</p>
+                        <div class="flex items-center gap-2 mt-2">
+                            <button class="text-xs text-red-600 hover:text-red-700 font-medium">Investigate</button>
+                            <button class="text-xs text-gray-500 hover:text-gray-700">Dismiss</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3 p-4 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition-colors cursor-pointer">
+                    <div class="w-2 h-2 rounded-full bg-green-500 mt-2 flex-shrink-0"></div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between mb-1">
+                            <p class="text-sm font-semibold text-gray-900">API Key created</p>
+                            <span class="text-xs text-green-600 font-medium">3h ago</span>
+                        </div>
+                        <p class="text-sm text-gray-700">New Development Key generated</p>
+                        <div class="flex items-center gap-2 mt-2">
+                            <button class="text-xs text-green-600 hover:text-green-700 font-medium">View Key</button>
+                            <button class="text-xs text-gray-500 hover:text-gray-700">Dismiss</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-between">
+                <button onclick="closeModal('notificationsModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
+                <div class="flex items-center gap-2">
+                    <button onclick="closeModal('notificationsModal')" class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">Mark All Read</button>
+                    <button onclick="closeModal('notificationsModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors">Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLI Modal -->
+    <div id="cliModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4">
+            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-900">CLI Installation</h3>
+                    <p class="text-sm text-gray-500">Command line tool for Baseline</p>
+                </div>
+                <button onclick="closeModal('cliModal')" class="text-gray-400 hover:text-gray-700 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-900 mb-2">Quick Install</label>
+                    <div class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm mb-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-gray-300">#</span>
+                            <button onclick="navigator.clipboard.writeText('curl -sSL https://baseline.sh/install | bash')" class="text-green-400 hover:text-green-300 text-xs font-medium">Copy</button>
+                        </div>
+                        <span class="text-gray-100">curl -sSL https://baseline.sh/install | bash</span>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Version</label>
+                        <div class="flex items-center gap-2">
+                            <input type="text" value="v2.1.0" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm">
+                            <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">Latest</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Platform</label>
+                        <select class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option>macOS</option>
+                            <option>Linux</option>
+                            <option>Windows</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 class="text-sm font-semibold text-blue-900 mb-2">💻 CLI Commands</h4>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between">
+                            <code class="bg-blue-100 px-2 py-1 rounded text-blue-800 text-xs font-mono">baseline --help</code>
+                            <button onclick="navigator.clipboard.writeText('baseline --help')" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Copy</button>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <code class="bg-blue-100 px-2 py-1 rounded text-blue-800 text-xs font-mono">baseline scan</code>
+                            <button onclick="navigator.clipboard.writeText('baseline scan')" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Copy</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="p-6 border-t border-gray-200 flex items-center justify-between">
+                <button onclick="closeModal('cliModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
+                <div class="flex items-center gap-2">
+                    <button onclick="closeModal('cliModal')" class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">Documentation</button>
+                    <button onclick="closeModal('cliModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors">Download</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <script src="dashboard.js?v=3"></script>
     <script>
         // Simple tab switching function for inline onclick handlers
         function switchTab(tabName) {
@@ -1085,28 +1741,23 @@
             // Update sidebar styling
             document.querySelectorAll('a[data-tab]').forEach(link => {
                 link.classList.remove('bg-blue-50', 'text-blue-700');
-                link.classList.add('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
+                link.classList.add('text-gray-700', 'hover:bg-gray-50', 'hover:text-gray-900');
             });
             
             // Highlight active link
             const activeLink = document.querySelector('[data-tab="' + tabName + '"]');
             if (activeLink) {
-                activeLink.classList.remove('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
+                activeLink.classList.remove('text-gray-700', 'hover:bg-gray-50', 'hover:text-gray-900');
                 activeLink.classList.add('bg-blue-50', 'text-blue-700');
             }
         }
 
         // Modal functions
         function openModal(modalId) {
-            console.log('Opening modal:', modalId);
             const modal = document.getElementById(modalId);
-            console.log('Modal element:', modal);
             if (modal) {
                 modal.classList.remove('hidden');
                 modal.classList.add('flex');
-                console.log('Modal classes after:', modal.className);
-            } else {
-                console.error('Modal not found:', modalId);
             }
         }
 
@@ -1118,10 +1769,36 @@
 
         // Close modal when clicking outside
         document.addEventListener('click', function(e) {
-            if (e.target.id === 'addProjectModal' || e.target.id === 'generateKeyModal') {
+            const modals = ['addProjectModal', 'generateKeyModal', 'runScanModal', 'projectDetailsModal', 'copyKeyModal', 'revokeKeyModal', 'policyConfigModal', 'auditDetailsModal', 'integrationConfigModal', 'notificationsModal', 'cliModal'];
+            if (modals.includes(e.target.id)) {
                 closeModal(e.target.id);
             }
         });
+
+        // Dropdown functions
+        function toggleDropdown(dropdownId) {
+            const dropdown = document.getElementById(dropdownId);
+            if (dropdown) {
+                dropdown.classList.toggle('hidden');
+            }
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.relative')) {
+                document.querySelectorAll('[id$="Dropdown"]').forEach(dropdown => {
+                    dropdown.classList.add('hidden');
+                });
+            }
+        });
+
+        // Handle sign out
+        function handleSignOut() {
+            if (confirm('Are you sure you want to sign out?')) {
+                // Sign out logic here
+                alert('Signed out successfully');
+            }
+        }
     </script>
 </body>
 </html>
