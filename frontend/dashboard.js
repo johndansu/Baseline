@@ -106,6 +106,32 @@ class BaselineDashboard {
                 plugins: {
                     legend: {
                         position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 20,
+                            font: {
+                                size: 12,
+                                weight: '500'
+                            },
+                            generateLabels: function(chart) {
+                                const data = chart.data;
+                                if (data.labels.length && data.datasets.length) {
+                                    return data.datasets.map(function(dataset, i) {
+                                        const meta = chart.getDatasetMeta(i);
+                                        return {
+                                            text: dataset.label,
+                                            fillStyle: dataset.backgroundColor,
+                                            strokeStyle: dataset.borderColor,
+                                            lineWidth: 3,
+                                            pointStyle: 'line',
+                                            hidden: meta.hidden,
+                                            index: i
+                                        };
+                                    });
+                                }
+                                return [];
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -326,32 +352,33 @@ class BaselineDashboard {
     }
 
     async loadIntegrationsData() {
-        const integrationsTab = document.getElementById('integrations-tab');
-        integrationsTab.innerHTML = `
-            <div class="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-6">Integration Settings</h3>
-                
-                <div class="space-y-6">
-                    <div class="border border-gray-200 rounded-lg p-4">
-                        <h4 class="font-medium text-gray-900 mb-2">GitHub Integration</h4>
-                        <p class="text-sm text-gray-600 mb-4">Connect GitHub repositories for automatic scanning</p>
-                        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Configure GitHub</button>
-                    </div>
-                    
-                    <div class="border border-gray-200 rounded-lg p-4">
-                        <h4 class="font-medium text-gray-900 mb-2">GitLab Integration</h4>
-                        <p class="text-sm text-gray-600 mb-4">Connect GitLab projects for automatic scanning</p>
-                        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Configure GitLab</button>
-                    </div>
-                    
-                    <div class="border border-gray-200 rounded-lg p-4">
-                        <h4 class="font-medium text-gray-900 mb-2">Webhook Endpoints</h4>
-                        <p class="text-sm text-gray-600 mb-4">Configure webhook endpoints for real-time notifications</p>
-                        <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Manage Webhooks</button>
-                    </div>
-                </div>
-            </div>
-        `;
+        // Don't overwrite - the HTML has the new enhanced design
+        // const integrationsTab = document.getElementById('integrations-tab');
+        // integrationsTab.innerHTML = `
+        //     <div class="bg-white rounded-lg border border-gray-200 p-6">
+        //         <h3 class="text-lg font-semibold text-gray-900 mb-6">Integration Settings</h3>
+        //         
+        //         <div class="space-y-6">
+        //             <div class="border border-gray-200 rounded-lg p-4">
+        //                 <h4 class="font-medium text-gray-900 mb-2">GitHub Integration</h4>
+        //                 <p class="text-sm text-gray-600 mb-4">Connect GitHub repositories for automatic scanning</p>
+        //                 <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Configure GitHub</button>
+        //             </div>
+        //             
+        //             <div class="border border-gray-200 rounded-lg p-4">
+        //                 <h4 class="font-medium text-gray-900 mb-2">GitLab Integration</h4>
+        //                 <p class="text-sm text-gray-600 mb-4">Connect GitLab projects for automatic scanning</p>
+        //                 <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Configure GitLab</button>
+        //             </div>
+        //             
+        //             <div class="border border-gray-200 rounded-lg p-4">
+        //                 <h4 class="font-medium text-gray-900 mb-2">Webhook Endpoints</h4>
+        //                 <p class="text-sm text-gray-600 mb-4">Configure webhook endpoints for real-time notifications</p>
+        //                 <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Manage Webhooks</button>
+        //             </div>
+        //         </div>
+        //     </div>
+        // `;
     }
 
     async loadAuditData() {
