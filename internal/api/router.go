@@ -39,7 +39,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/",
-		"/signin", "/signin.html", "/signup", "/signup.html", "/up", "/up.html", "/index.html",
+		"/signin", "/signin.html", "/signup", "/signup.html", "/index.html",
 		"/styles.css", "/app.js", "/auth.js",
 		"/assets/baseline-logo.png",
 		"/img/baseline logo.png", "/img/baseline favicon.png":

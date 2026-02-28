@@ -75,10 +75,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusNotFound, "not_found", "signin page unavailable")
 		return
-	case "/signup", "/signup.html", "/up", "/up.html":
+	case "/signup", "/signup.html":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		if content, ok := readUnifiedDashboardFile(filepath.Join("frontend", "up.html")); ok {
+		if content, ok := readUnifiedDashboardFile(filepath.Join("frontend", "signup.html")); ok {
 			_, _ = w.Write(content)
 			return
 		}
@@ -107,7 +107,7 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 func isDashboardPath(path string) bool {
 	switch strings.TrimSpace(path) {
 	case "/",
-		"/signin", "/signin.html", "/signup", "/signup.html", "/up", "/up.html", "/index.html",
+		"/signin", "/signin.html", "/signup", "/signup.html", "/index.html",
 		"/styles.css", "/app.js", "/auth.js",
 		"/assets/baseline-logo.png",
 		"/img/baseline logo.png", "/img/baseline favicon.png":
