@@ -1036,6 +1036,55 @@ func TestSessionMutationRequiresCSRFHeader(t *testing.T) {
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 for missing CSRF header, got %d body=%s", resp.StatusCode, body)
 	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/auth/session", nil, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for missing CSRF header on session delete, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/auth/session", nil, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 with CSRF header on session delete, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestSessionAdminMutationsRequireCSRFHeader(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.DashboardSessionEnabled = true
+	cfg.DashboardSessionRole = RoleAdmin
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/session", nil, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 for session create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/api-keys", map[string]string{
+		"name": "csrf-admin-check",
+		"role": "viewer",
+	}, nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for missing CSRF header on admin mutation, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/api-keys", map[string]string{
+		"name": "csrf-admin-check",
+		"role": "viewer",
+	}, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 with CSRF header on admin mutation, got %d body=%s", resp.StatusCode, body)
+	}
 }
 
 func TestSelfServiceRegisterIssuesServerGeneratedKey(t *testing.T) {
