@@ -37,7 +37,7 @@ baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
 ```text
 http://127.0.0.1:8080/
 http://127.0.0.1:8080/signin.html
-http://127.0.0.1:8080/up.html
+http://127.0.0.1:8080/signup.html
 ```
 
 ## API Key Rotation (Managed Keys)

@@ -54,7 +54,7 @@ Use `baseline api serve` when you need:
 
 ### 3) Human Login for Operations
 
-Use the API-hosted auth pages (`/signin.html`, `/up.html`) to authenticate via OIDC (Supabase/Auth0), then let Baseline issue a local session cookie for subsequent API requests.
+Use the API-hosted auth pages (`/signin.html`, `/signup.html`) to authenticate via OIDC (Supabase/Auth0), then let Baseline issue a local session cookie for subsequent API requests.
 
 ## Current Project Status (Important)
 
@@ -64,7 +64,7 @@ Supported now:
 - API key auth
 - OIDC login for humans (Supabase/Auth0)
 - Baseline session cookie auth (`/v1/auth/session`)
-- Auth frontend pages at `http://127.0.0.1:8080/signin.html` and `http://127.0.0.1:8080/up.html`
+- Auth frontend pages at `http://127.0.0.1:8080/signin.html` and `http://127.0.0.1:8080/signup.html`
 
 Temporarily removed / rebuilding:
 - dashboard UI pages and dashboard summary endpoint (`/v1/dashboard`)
@@ -75,7 +75,7 @@ Temporarily removed / rebuilding:
 - `internal/policy` - deterministic policy evaluation
 - `internal/api` - HTTP API server, auth, persistence, integrations
 - `internal/ai` - AI-assisted scaffolding helpers
-- `frontend/` - landing + auth pages (`index.html`, `signin.html`, `up.html`)
+- `frontend/` - landing + auth pages (`index.html`, `signin.html`, `signup.html`)
 - `scripts/` - smoke tests, release gates, operational scripts
 
 ## Requirements
@@ -114,7 +114,7 @@ baseline api serve --addr :8080
 Open:
 - `http://127.0.0.1:8080/` (landing page)
 - `http://127.0.0.1:8080/signin.html`
-- `http://127.0.0.1:8080/up.html`
+- `http://127.0.0.1:8080/signup.html`
 
 If using OIDC (Supabase/Auth0), configure the env vars in the `Supabase Auth` or `Auth0` sections below first.
 
@@ -224,7 +224,7 @@ Security behavior:
 
 This is the supported human-login flow today:
 
-1. User opens `http://127.0.0.1:8080/signin.html` or `http://127.0.0.1:8080/up.html`
+1. User opens `http://127.0.0.1:8080/signin.html` or `http://127.0.0.1:8080/signup.html`
 2. Frontend redirects to `GET /v1/auth/oidc/login`
 3. Baseline redirects to your OIDC provider (Supabase/Auth0)
 4. User authenticates with the provider
@@ -262,7 +262,7 @@ BASELINE_API_DB_PATH=.baseline/baseline.db
 - `GET /` (landing page)
 - `GET /index.html`
 - `GET /signin` and `GET /signin.html`
-- `GET /signup`, `GET /signup.html`, `GET /up`, `GET /up.html`
+- `GET /signup` and `GET /signup.html`
 - `GET /styles.css`
 - `GET /app.js`
 - `GET /auth.js`
@@ -444,7 +444,7 @@ Supabase-side configuration (OIDC/provider setup):
 
 Auth page flow:
 - `frontend/signin.html` -> `/v1/auth/oidc/login`
-- `frontend/up.html` -> `/v1/auth/oidc/login?mode=signup`
+- `frontend/signup.html` -> `/v1/auth/oidc/login?mode=signup`
 
 Result:
 - Baseline creates a local session cookie after OIDC callback
@@ -462,7 +462,7 @@ Use this checklist when login/signup fails:
    - not Supabase `anon` or `service_role` keys
 4. Open the API-hosted auth pages (not a generic static server):
    - `http://127.0.0.1:8080/signin.html`
-   - `http://127.0.0.1:8080/up.html`
+   - `http://127.0.0.1:8080/signup.html`
 5. Verify the backend login route responds (redirect/302 expected when OIDC is enabled):
 
 ```bash
@@ -485,7 +485,7 @@ The frontend currently focuses on auth-first flows:
 
 - `frontend/index.html` - landing page
 - `frontend/signin.html` - sign-in page (redirects to backend OIDC login)
-- `frontend/up.html` - sign-up page (redirects to backend OIDC signup/login flow)
+- `frontend/signup.html` - sign-up page (redirects to backend OIDC signup/login flow)
 - `frontend/auth.js` - auth-page logic and session status helpers
 
 Supported testing path:
@@ -495,7 +495,7 @@ Supported testing path:
 Recommended URLs:
 - `http://127.0.0.1:8080/`
 - `http://127.0.0.1:8080/signin.html`
-- `http://127.0.0.1:8080/up.html`
+- `http://127.0.0.1:8080/signup.html`
 
 ### Important Local Dev Note
 
