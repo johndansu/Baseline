@@ -58,6 +58,9 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	if authSource == "session" {
 		if session, err := s.getDashboardSession(r); err == nil {
 			resp["user"] = session.User
+			if session.UserID != "" {
+				resp["user_id"] = session.UserID
+			}
 			if session.Subject != "" {
 				resp["subject"] = session.Subject
 			}
@@ -205,7 +208,23 @@ func (s *Server) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userLabel := pickOIDCDisplayUser(claims)
+	userID := ""
+	if s.store != nil {
+		persistedUserID, err := s.store.UpsertOIDCUser(
+			s.config.OIDCIssuerURL,
+			strings.TrimSpace(claims.Subject),
+			strings.TrimSpace(strings.ToLower(claims.Email)),
+			userLabel,
+			time.Now().UTC(),
+		)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "system_error", "unable to persist OIDC user")
+			return
+		}
+		userID = strings.TrimSpace(persistedUserID)
+	}
 	if err := s.issueDashboardSession(w, r, dashboardSession{
+		UserID:     userID,
 		Role:       s.config.OIDCDefaultRole,
 		User:       userLabel,
 		Subject:    strings.TrimSpace(claims.Subject),
@@ -223,10 +242,11 @@ func (s *Server) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) 
 			"role":          s.config.OIDCDefaultRole,
 			"auth_source":   "session",
 			"identity": map[string]any{
-				"source": "oidc",
-				"user":   userLabel,
-				"email":  strings.TrimSpace(strings.ToLower(claims.Email)),
-				"sub":    strings.TrimSpace(claims.Subject),
+				"source":  "oidc",
+				"user_id": userID,
+				"user":    userLabel,
+				"email":   strings.TrimSpace(strings.ToLower(claims.Email)),
+				"sub":     strings.TrimSpace(claims.Subject),
 			},
 			"redirect_to": pending.ReturnTo,
 		})
@@ -252,6 +272,12 @@ func (s *Server) issueDashboardSession(w http.ResponseWriter, r *http.Request, s
 	token := randomToken(32)
 	if token == "" {
 		return errors.New("unable to create dashboard session token")
+	}
+	now := time.Now().UTC()
+	if s.store != nil {
+		if err := s.store.UpsertAuthSession(token, session, now); err != nil {
+			return err
+		}
 	}
 	s.sessionMu.Lock()
 	s.sessions[token] = session

@@ -63,13 +63,17 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 			writeUnauthorized(w, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"user":            session.User,
 			"role":            session.Role,
 			"auth_mode":       s.dashboardAuthMode(),
 			"identity_source": session.AuthSource,
 			"active":          true,
-		})
+		}
+		if session.UserID != "" {
+			resp["user_id"] = session.UserID
+		}
+		writeJSON(w, http.StatusOK, resp)
 	case http.MethodDelete:
 		if !s.validCSRFSentinel(r) {
 			writeError(w, http.StatusForbidden, "csrf_failed", "missing required CSRF header")
@@ -77,9 +81,16 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 		}
 		cookie, _ := r.Cookie(dashboardSessionCookieName)
 		if cookie != nil && cookie.Value != "" {
+			token := strings.TrimSpace(cookie.Value)
 			s.sessionMu.Lock()
-			delete(s.sessions, cookie.Value)
+			delete(s.sessions, token)
 			s.sessionMu.Unlock()
+			if s.store != nil {
+				if err := s.store.RevokeAuthSession(token, time.Now().UTC()); err != nil {
+					writeError(w, http.StatusInternalServerError, "system_error", "unable to revoke dashboard session")
+					return
+				}
+			}
 		}
 		secureCookie := s.shouldUseSecureSessionCookie(r)
 		http.SetCookie(w, &http.Cookie{

@@ -51,19 +51,34 @@ func (s *Server) getDashboardSession(r *http.Request) (dashboardSession, error) 
 	}
 
 	token := strings.TrimSpace(cookie.Value)
+	now := time.Now().UTC()
 	s.sessionMu.RLock()
 	session, ok := s.sessions[token]
 	s.sessionMu.RUnlock()
-	if !ok {
-		return dashboardSession{}, errors.New("session not found")
+	if ok {
+		if now.After(session.ExpiresAt) {
+			s.sessionMu.Lock()
+			delete(s.sessions, token)
+			s.sessionMu.Unlock()
+			if s.store != nil {
+				_ = s.store.RevokeAuthSession(token, now)
+			}
+			return dashboardSession{}, errors.New("session expired")
+		}
+		return session, nil
 	}
-	if time.Now().UTC().After(session.ExpiresAt) {
-		s.sessionMu.Lock()
-		delete(s.sessions, token)
-		s.sessionMu.Unlock()
-		return dashboardSession{}, errors.New("session expired")
+
+	if s.store != nil {
+		persisted, found, err := s.store.LoadAuthSession(token, now)
+		if err == nil && found {
+			s.sessionMu.Lock()
+			s.sessions[token] = persisted
+			s.sessionMu.Unlock()
+			return persisted, nil
+		}
 	}
-	return session, nil
+
+	return dashboardSession{}, errors.New("session not found")
 }
 
 func (s *Server) dashboardAuthMode() string {

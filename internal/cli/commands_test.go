@@ -398,6 +398,104 @@ func TestVerifyAPIProdConfigRequiresHTTPSAndSecureSessionCookies(t *testing.T) {
 	}
 }
 
+func TestVerifyAPIProdConfigOIDCPass(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = "api.example.com:443"
+	cfg.DBPath = "baseline_api.db"
+	cfg.RequireHTTPS = true
+	cfg.TrustProxyHeaders = true
+	cfg.APIKeys = map[string]api.Role{
+		"admin-key": api.RoleAdmin,
+	}
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.MaxBodyBytes = 1 << 20
+	cfg.ShutdownTimeout = 10 * time.Second
+	cfg.ReadTimeout = 5 * time.Second
+	cfg.WriteTimeout = 5 * time.Second
+	cfg.IdleTimeout = 30 * time.Second
+	cfg.OIDCEnabled = true
+	cfg.OIDCIssuerURL = "https://tenant.auth0.com"
+	cfg.OIDCClientID = "oidc-client-id"
+	cfg.OIDCClientSecret = "oidc-client-secret"
+	cfg.OIDCRedirectURL = "https://api.example.com/v1/auth/oidc/callback"
+	cfg.OIDCScopes = []string{"openid", "profile", "email"}
+	cfg.OIDCAllowedEmailDomains = []string{"example.com"}
+	cfg.OIDCRequireVerifiedEmail = true
+
+	result := verifyAPIProdConfig(cfg, func(_ string) string { return "" })
+	if len(result.Errors) != 0 {
+		t.Fatalf("expected no errors, got %v", result.Errors)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", result.Warnings)
+	}
+}
+
+func TestVerifyAPIProdConfigOIDCDetectsMisconfiguration(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = "api.example.com:443"
+	cfg.DBPath = "baseline_api.db"
+	cfg.RequireHTTPS = true
+	cfg.TrustProxyHeaders = true
+	cfg.APIKeys = map[string]api.Role{
+		"admin-key": api.RoleAdmin,
+	}
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.MaxBodyBytes = 1 << 20
+	cfg.ShutdownTimeout = 10 * time.Second
+	cfg.ReadTimeout = 5 * time.Second
+	cfg.WriteTimeout = 5 * time.Second
+	cfg.IdleTimeout = 30 * time.Second
+	cfg.OIDCEnabled = true
+	cfg.OIDCIssuerURL = "http://issuer.example.com"
+	cfg.OIDCClientID = ""
+	cfg.OIDCClientSecret = ""
+	cfg.OIDCRedirectURL = "https://api.example.com/wrong/path"
+	cfg.OIDCScopes = []string{"profile"}
+	cfg.OIDCAllowedEmailDomains = []string{}
+	cfg.OIDCRequireVerifiedEmail = false
+
+	result := verifyAPIProdConfig(cfg, func(key string) string {
+		switch key {
+		case "BASELINE_API_OIDC_CLIENT_SECRET":
+			return "replace-me"
+		default:
+			return ""
+		}
+	})
+	if len(result.Errors) == 0 {
+		t.Fatal("expected blocking OIDC errors, got none")
+	}
+	if len(result.Warnings) == 0 {
+		t.Fatal("expected OIDC warnings, got none")
+	}
+
+	joinedErrors := strings.Join(result.Errors, "\n")
+	for _, expected := range []string{
+		"issuer URL must use HTTPS",
+		"client ID is empty",
+		"client secret is empty",
+		"redirect URL path must be exactly /v1/auth/oidc/callback",
+		"scopes must include 'openid'",
+		"client secret looks like a placeholder",
+	} {
+		if !strings.Contains(strings.ToLower(joinedErrors), strings.ToLower(expected)) {
+			t.Fatalf("expected OIDC error output to contain %q, got:\n%s", expected, joinedErrors)
+		}
+	}
+
+	joinedWarnings := strings.Join(result.Warnings, "\n")
+	for _, expected := range []string{
+		"verified-email enforcement is disabled",
+		"No OIDC allowed email domains",
+		"scopes do not include 'email'",
+	} {
+		if !strings.Contains(strings.ToLower(joinedWarnings), strings.ToLower(expected)) {
+			t.Fatalf("expected OIDC warning output to contain %q, got:\n%s", expected, joinedWarnings)
+		}
+	}
+}
+
 func TestLoadEnvFileIfPresent(t *testing.T) {
 	tempDir := t.TempDir()
 	envPath := filepath.Join(tempDir, "api.env")

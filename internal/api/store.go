@@ -23,7 +23,7 @@ type persistedAPIKey struct {
 
 const (
 	storeSchemaVersionKey     = "schema_version"
-	currentStoreSchemaVersion = 3
+	currentStoreSchemaVersion = 4
 )
 
 type storeMigration struct {
@@ -177,6 +177,45 @@ func migrateStore(db *sql.DB) error {
 			version: 3,
 			apply: func(tx *sql.Tx) error {
 				return migrateAPIKeysToHashedStorageTx(tx)
+			},
+		},
+		{
+			version: 4,
+			statements: []string{
+				`CREATE TABLE IF NOT EXISTS users (
+					id TEXT PRIMARY KEY,
+					display_name TEXT,
+					email TEXT,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					last_login_at TEXT NOT NULL
+				);`,
+				`CREATE TABLE IF NOT EXISTS user_identities (
+					provider TEXT NOT NULL,
+					subject TEXT NOT NULL,
+					user_id TEXT NOT NULL,
+					email TEXT,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY(provider, subject)
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_user_identities_user_id ON user_identities(user_id);`,
+				`CREATE TABLE IF NOT EXISTS auth_sessions (
+					token_hash TEXT PRIMARY KEY,
+					user_id TEXT,
+					role TEXT NOT NULL,
+					user_label TEXT NOT NULL,
+					subject TEXT,
+					email TEXT,
+					auth_source TEXT NOT NULL,
+					expires_at TEXT NOT NULL,
+					created_at TEXT NOT NULL,
+					last_seen_at TEXT NOT NULL,
+					revoked INTEGER NOT NULL DEFAULT 0,
+					revoked_at TEXT
+				);`,
+				`CREATE INDEX IF NOT EXISTS idx_auth_sessions_active ON auth_sessions(revoked, expires_at);`,
+				`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);`,
 			},
 		},
 	}
@@ -673,6 +712,308 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func (s *Store) UpsertOIDCUser(provider, subject, email, displayName string, now time.Time) (string, error) {
+	if s == nil || s.db == nil {
+		return "", nil
+	}
+	providerKey := strings.ToLower(strings.TrimSpace(provider))
+	subjectKey := strings.TrimSpace(subject)
+	emailValue := strings.ToLower(strings.TrimSpace(email))
+	nameValue := strings.TrimSpace(displayName)
+	if providerKey == "" {
+		return "", errors.New("identity provider is required")
+	}
+	if subjectKey == "" {
+		return "", errors.New("identity subject is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	nowRaw := now.UTC().Format(time.RFC3339Nano)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	var userID string
+	err = tx.QueryRow(
+		`SELECT user_id
+		 FROM user_identities
+		 WHERE provider = ? AND subject = ?`,
+		providerKey,
+		subjectKey,
+	).Scan(&userID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		userID = "usr_" + randomToken(12)
+		if strings.TrimSpace(userID) == "usr_" {
+			userID = fmt.Sprintf("usr_%d", time.Now().UTC().UnixNano())
+		}
+		_, err = tx.Exec(
+			`INSERT INTO users (id, display_name, email, created_at, updated_at, last_login_at)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			userID,
+			nameValue,
+			emailValue,
+			nowRaw,
+			nowRaw,
+			nowRaw,
+		)
+		if err != nil {
+			return "", err
+		}
+		_, err = tx.Exec(
+			`INSERT INTO user_identities (provider, subject, user_id, email, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			providerKey,
+			subjectKey,
+			userID,
+			emailValue,
+			nowRaw,
+			nowRaw,
+		)
+		if err != nil {
+			return "", err
+		}
+		if err := tx.Commit(); err != nil {
+			return "", err
+		}
+		return userID, nil
+	}
+
+	var currentName string
+	var currentEmail string
+	if scanErr := tx.QueryRow(`SELECT display_name, email FROM users WHERE id = ?`, userID).Scan(&currentName, &currentEmail); scanErr != nil && !errors.Is(scanErr, sql.ErrNoRows) {
+		return "", scanErr
+	}
+	if nameValue == "" {
+		nameValue = strings.TrimSpace(currentName)
+	}
+	if emailValue == "" {
+		emailValue = strings.ToLower(strings.TrimSpace(currentEmail))
+	}
+
+	_, err = tx.Exec(
+		`UPDATE users
+		 SET display_name = ?, email = ?, updated_at = ?, last_login_at = ?
+		 WHERE id = ?`,
+		nameValue,
+		emailValue,
+		nowRaw,
+		nowRaw,
+		userID,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO user_identities (provider, subject, user_id, email, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(provider, subject) DO UPDATE SET
+		   user_id = excluded.user_id,
+		   email = excluded.email,
+		   updated_at = excluded.updated_at`,
+		providerKey,
+		subjectKey,
+		userID,
+		emailValue,
+		nowRaw,
+		nowRaw,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return userID, nil
+}
+
+func (s *Store) UpsertAuthSession(rawToken string, session dashboardSession, now time.Time) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	tokenHash := hashAPIKey(rawToken, s.apiKeyHashSecret)
+	if tokenHash == "" {
+		return errors.New("empty auth session token")
+	}
+	if session.ExpiresAt.IsZero() {
+		return errors.New("auth session expiry is required")
+	}
+	if !isValidRole(session.Role) {
+		return errors.New("invalid auth session role")
+	}
+	if strings.TrimSpace(session.User) == "" {
+		return errors.New("auth session user label is required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	nowRaw := now.UTC().Format(time.RFC3339Nano)
+
+	_, err := s.db.Exec(
+		`INSERT INTO auth_sessions (
+			token_hash, user_id, role, user_label, subject, email, auth_source,
+			expires_at, created_at, last_seen_at, revoked, revoked_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '')
+		ON CONFLICT(token_hash) DO UPDATE SET
+			user_id = excluded.user_id,
+			role = excluded.role,
+			user_label = excluded.user_label,
+			subject = excluded.subject,
+			email = excluded.email,
+			auth_source = excluded.auth_source,
+			expires_at = excluded.expires_at,
+			last_seen_at = excluded.last_seen_at,
+			revoked = 0,
+			revoked_at = ''`,
+		tokenHash,
+		strings.TrimSpace(session.UserID),
+		string(session.Role),
+		strings.TrimSpace(session.User),
+		strings.TrimSpace(session.Subject),
+		strings.ToLower(strings.TrimSpace(session.Email)),
+		strings.TrimSpace(session.AuthSource),
+		session.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		nowRaw,
+		nowRaw,
+	)
+	return err
+}
+
+func (s *Store) LoadAuthSession(rawToken string, now time.Time) (dashboardSession, bool, error) {
+	if s == nil || s.db == nil {
+		return dashboardSession{}, false, nil
+	}
+	tokenHash := hashAPIKey(rawToken, s.apiKeyHashSecret)
+	if tokenHash == "" {
+		return dashboardSession{}, false, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	nowUTC := now.UTC()
+	nowRaw := nowUTC.Format(time.RFC3339Nano)
+
+	var (
+		userID     string
+		roleRaw    string
+		userLabel  string
+		subject    string
+		email      string
+		authSource string
+		expiresRaw string
+		revoked    int
+	)
+	err := s.db.QueryRow(
+		`SELECT user_id, role, user_label, subject, email, auth_source, expires_at, revoked
+		 FROM auth_sessions
+		 WHERE token_hash = ?`,
+		tokenHash,
+	).Scan(
+		&userID,
+		&roleRaw,
+		&userLabel,
+		&subject,
+		&email,
+		&authSource,
+		&expiresRaw,
+		&revoked,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dashboardSession{}, false, nil
+	}
+	if err != nil {
+		return dashboardSession{}, false, err
+	}
+
+	expiresAt, err := parseStoredTime(expiresRaw)
+	if err != nil {
+		return dashboardSession{}, false, err
+	}
+	if revoked != 0 || !nowUTC.Before(expiresAt) {
+		_, _ = s.db.Exec(
+			`UPDATE auth_sessions
+			 SET revoked = 1, revoked_at = ?, last_seen_at = ?
+			 WHERE token_hash = ?`,
+			nowRaw,
+			nowRaw,
+			tokenHash,
+		)
+		return dashboardSession{}, false, nil
+	}
+
+	_, _ = s.db.Exec(
+		`UPDATE auth_sessions
+		 SET last_seen_at = ?
+		 WHERE token_hash = ?`,
+		nowRaw,
+		tokenHash,
+	)
+
+	return dashboardSession{
+		UserID:     strings.TrimSpace(userID),
+		Role:       Role(strings.ToLower(strings.TrimSpace(roleRaw))),
+		User:       strings.TrimSpace(userLabel),
+		Subject:    strings.TrimSpace(subject),
+		Email:      strings.ToLower(strings.TrimSpace(email)),
+		AuthSource: strings.TrimSpace(authSource),
+		ExpiresAt:  expiresAt,
+	}, true, nil
+}
+
+func (s *Store) RevokeAuthSession(rawToken string, revokedAt time.Time) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	tokenHash := hashAPIKey(rawToken, s.apiKeyHashSecret)
+	if tokenHash == "" {
+		return errors.New("empty auth session token")
+	}
+	if revokedAt.IsZero() {
+		revokedAt = time.Now().UTC()
+	}
+	revokedRaw := revokedAt.UTC().Format(time.RFC3339Nano)
+	_, err := s.db.Exec(
+		`UPDATE auth_sessions
+		 SET revoked = 1, revoked_at = ?, last_seen_at = ?
+		 WHERE token_hash = ?`,
+		revokedRaw,
+		revokedRaw,
+		tokenHash,
+	)
+	return err
+}
+
+func (s *Store) CountActiveAuthSessions(now time.Time) (int, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(1)
+		 FROM auth_sessions
+		 WHERE revoked = 0 AND expires_at > ?`,
+		now.UTC().Format(time.RFC3339Nano),
+	).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (s *Store) EnqueueIntegrationJob(job IntegrationJob) (IntegrationJob, error) {

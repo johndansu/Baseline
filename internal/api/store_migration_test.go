@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,6 +28,9 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 		"integration_jobs",
 		"projects",
 		"scans",
+		"users",
+		"user_identities",
+		"auth_sessions",
 	} {
 		assertSQLiteObjectExists(t, store.db, "table", table)
 	}
@@ -42,6 +46,9 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 		"idx_projects_created_at",
 		"idx_scans_project_created_at",
 		"idx_scans_created_at",
+		"idx_user_identities_user_id",
+		"idx_auth_sessions_active",
+		"idx_auth_sessions_user_id",
 	} {
 		assertSQLiteObjectExists(t, store.db, "index", index)
 	}
@@ -113,6 +120,8 @@ func TestNewStoreMigratesLegacySchemaAndPreservesData(t *testing.T) {
 		"idx_api_keys_id_revoked",
 		"idx_audit_events_project_created_at",
 		"idx_scans_project_created_at",
+		"idx_user_identities_user_id",
+		"idx_auth_sessions_active",
 	} {
 		assertSQLiteObjectExists(t, store.db, "index", index)
 	}
@@ -136,6 +145,96 @@ func TestNewStoreMigratesLegacySchemaAndPreservesData(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].EventType != "legacy_event" {
 		t.Fatalf("legacy audit event was not preserved: %+v", events)
+	}
+}
+
+func TestStoreAuthPersistenceLifecycle(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "auth_persistence.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	userID, err := store.UpsertOIDCUser(
+		"https://issuer.example.com",
+		"subject-123",
+		"Person@Example.com",
+		"Person Example",
+		now,
+	)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser returned error: %v", err)
+	}
+	if strings.TrimSpace(userID) == "" {
+		t.Fatal("expected non-empty user id from UpsertOIDCUser")
+	}
+
+	userID2, err := store.UpsertOIDCUser(
+		"https://issuer.example.com",
+		"subject-123",
+		"updated@example.com",
+		"Updated Person",
+		now.Add(1*time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser (existing identity) returned error: %v", err)
+	}
+	if userID2 != userID {
+		t.Fatalf("expected stable user id for existing identity, got %q vs %q", userID2, userID)
+	}
+
+	token := "session-token-1"
+	session := dashboardSession{
+		UserID:     userID,
+		Role:       RoleViewer,
+		User:       "updated@example.com",
+		Subject:    "subject-123",
+		Email:      "updated@example.com",
+		AuthSource: "oidc",
+		ExpiresAt:  now.Add(1 * time.Hour),
+	}
+	if err := store.UpsertAuthSession(token, session, now); err != nil {
+		t.Fatalf("UpsertAuthSession returned error: %v", err)
+	}
+
+	loaded, found, err := store.LoadAuthSession(token, now.Add(1*time.Second))
+	if err != nil {
+		t.Fatalf("LoadAuthSession returned error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected persisted auth session to be found")
+	}
+	if loaded.UserID != userID || loaded.User != session.User || loaded.Email != session.Email || loaded.Role != session.Role {
+		t.Fatalf("unexpected loaded auth session: %+v", loaded)
+	}
+
+	activeCount, err := store.CountActiveAuthSessions(now.Add(1 * time.Second))
+	if err != nil {
+		t.Fatalf("CountActiveAuthSessions returned error: %v", err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("expected 1 active auth session, got %d", activeCount)
+	}
+
+	if err := store.RevokeAuthSession(token, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("RevokeAuthSession returned error: %v", err)
+	}
+	_, found, err = store.LoadAuthSession(token, now.Add(3*time.Second))
+	if err != nil {
+		t.Fatalf("LoadAuthSession after revoke returned error: %v", err)
+	}
+	if found {
+		t.Fatal("expected revoked auth session to be unavailable")
+	}
+
+	activeCount, err = store.CountActiveAuthSessions(now.Add(3 * time.Second))
+	if err != nil {
+		t.Fatalf("CountActiveAuthSessions after revoke returned error: %v", err)
+	}
+	if activeCount != 0 {
+		t.Fatalf("expected 0 active auth sessions after revoke, got %d", activeCount)
 	}
 }
 

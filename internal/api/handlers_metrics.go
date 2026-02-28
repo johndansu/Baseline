@@ -94,6 +94,13 @@ func (s *Server) captureMetricsSnapshot() metricsSnapshot {
 	s.authMu.RUnlock()
 
 	now := time.Now().UTC()
+	if s.store != nil {
+		if count, err := s.store.CountActiveAuthSessions(now); err == nil {
+			snapshot.activeSessions = count
+			return snapshot
+		}
+	}
+
 	s.sessionMu.RLock()
 	for _, session := range s.sessions {
 		if now.Before(session.ExpiresAt) {

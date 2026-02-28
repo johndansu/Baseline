@@ -1687,6 +1687,79 @@ func TestAPIStatePersistsAcrossServerRestart(t *testing.T) {
 	}
 }
 
+func TestDashboardSessionPersistsAcrossServerRestart(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "baseline_session_persistence.db")
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.APIKeyHashSecret = "test-api-key-hash-secret"
+	cfg.DashboardSessionEnabled = true
+	cfg.DashboardSessionRole = RoleOperator
+	cfg.APIKeys = map[string]Role{}
+
+	store1, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	server1, err := NewServer(cfg, store1)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts1 := httptest.NewServer(server1.Handler())
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts1.URL+"/v1/auth/session", nil, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 session create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts1.URL+"/v1/auth/session", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 session lookup, got %d body=%s", resp.StatusCode, body)
+	}
+
+	ts1.Close()
+	_ = store1.Close()
+
+	store2, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore (restart) returned error: %v", err)
+	}
+	defer store2.Close()
+	server2, err := NewServer(cfg, store2)
+	if err != nil {
+		t.Fatalf("NewServer (restart) returned error: %v", err)
+	}
+	ts2 := httptest.NewServer(server2.Handler())
+	defer ts2.Close()
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts2.URL+"/v1/auth/session", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected persisted session auth after restart, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts2.URL+"/v1/auth/session", nil, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 session delete, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts2.URL+"/v1/auth/session", nil, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 after deleting session, got %d body=%s", resp.StatusCode, body)
+	}
+
+	activeSessions, err := store2.CountActiveAuthSessions(time.Now().UTC())
+	if err != nil {
+		t.Fatalf("CountActiveAuthSessions returned error: %v", err)
+	}
+	if activeSessions != 0 {
+		t.Fatalf("expected no active sessions after logout, got %d", activeSessions)
+	}
+}
+
 func TestGitHubWebhookSignatureValidation(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.APIKeys = map[string]Role{
