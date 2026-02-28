@@ -12,6 +12,7 @@ import (
 )
 
 type dashboardSession struct {
+	UserID     string
 	Role       Role
 	User       string
 	Subject    string
