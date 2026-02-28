@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -838,6 +840,75 @@ func verifyAPIProdConfig(cfg api.Config, getenv func(string) string) prodVerifyR
 		result.Warnings = append(result.Warnings, "AI advisory endpoints are enabled; keep AI disabled unless explicitly required.")
 	}
 
+	if cfg.OIDCEnabled {
+		issuer := strings.TrimSpace(cfg.OIDCIssuerURL)
+		if issuer == "" {
+			result.Errors = append(result.Errors, "OIDC is enabled but issuer URL is empty.")
+		} else if parsedIssuer, err := url.Parse(issuer); err != nil || strings.TrimSpace(parsedIssuer.Scheme) == "" || strings.TrimSpace(parsedIssuer.Host) == "" {
+			result.Errors = append(result.Errors, "OIDC issuer URL must be a valid absolute URL.")
+		} else if !strings.EqualFold(parsedIssuer.Scheme, "https") {
+			result.Errors = append(result.Errors, "OIDC issuer URL must use HTTPS in production.")
+		}
+
+		if strings.TrimSpace(cfg.OIDCClientID) == "" {
+			result.Errors = append(result.Errors, "OIDC is enabled but client ID is empty.")
+		}
+		if strings.TrimSpace(cfg.OIDCClientSecret) == "" {
+			result.Errors = append(result.Errors, "OIDC is enabled but client secret is empty.")
+		}
+
+		redirectRaw := strings.TrimSpace(cfg.OIDCRedirectURL)
+		if redirectRaw == "" {
+			result.Errors = append(result.Errors, "OIDC is enabled but redirect URL is empty.")
+		} else {
+			redirectURL, err := url.Parse(redirectRaw)
+			if err != nil || strings.TrimSpace(redirectURL.Scheme) == "" || strings.TrimSpace(redirectURL.Host) == "" {
+				result.Errors = append(result.Errors, "OIDC redirect URL must be a valid absolute URL.")
+			} else {
+				redirectHost := strings.TrimSpace(redirectURL.Hostname())
+				if redirectHost == "" {
+					result.Errors = append(result.Errors, "OIDC redirect URL host is required.")
+				}
+				if strings.TrimSpace(redirectURL.Path) != "/v1/auth/oidc/callback" {
+					result.Errors = append(result.Errors, "OIDC redirect URL path must be exactly /v1/auth/oidc/callback.")
+				}
+				if strings.TrimSpace(redirectURL.Fragment) != "" {
+					result.Errors = append(result.Errors, "OIDC redirect URL must not include a fragment.")
+				}
+				if isLoopbackHost(redirectHost) {
+					result.Warnings = append(result.Warnings, "OIDC redirect URL points to loopback host; replace with production host before deployment.")
+				} else if !strings.EqualFold(redirectURL.Scheme, "https") {
+					result.Errors = append(result.Errors, "OIDC redirect URL must use HTTPS for non-loopback hosts.")
+				}
+			}
+		}
+
+		if !containsStringFold(cfg.OIDCScopes, "openid") {
+			result.Errors = append(result.Errors, "OIDC scopes must include 'openid'.")
+		}
+		if !containsStringFold(cfg.OIDCScopes, "email") {
+			result.Warnings = append(result.Warnings, "OIDC scopes do not include 'email'; domain/verified-email checks may not work.")
+		}
+		if !cfg.OIDCRequireVerifiedEmail {
+			result.Warnings = append(result.Warnings, "OIDC verified-email enforcement is disabled; this weakens account assurance.")
+		}
+		if len(cfg.OIDCAllowedEmailDomains) == 0 {
+			result.Warnings = append(result.Warnings, "No OIDC allowed email domains configured; consider domain allowlisting for production.")
+		}
+
+		auth0Enabled := parseBoolWithDefault(strings.TrimSpace(getenv("BASELINE_API_AUTH0_ENABLED")), false)
+		supabaseEnabled := parseBoolWithDefault(strings.TrimSpace(getenv("BASELINE_API_SUPABASE_ENABLED")), false)
+		if auth0Enabled && supabaseEnabled {
+			result.Warnings = append(result.Warnings, "Both Auth0 and Supabase aliases are enabled; keep a single provider alias active to avoid config ambiguity.")
+		}
+		if auth0Enabled && !strings.Contains(strings.ToLower(cfg.OIDCIssuerURL), "auth0.") {
+			result.Warnings = append(result.Warnings, "Auth0 alias is enabled but issuer URL does not look like an Auth0 domain.")
+		}
+		if supabaseEnabled && !strings.Contains(strings.ToLower(cfg.OIDCIssuerURL), "supabase.") {
+			result.Warnings = append(result.Warnings, "Supabase alias is enabled but issuer URL does not look like a Supabase domain.")
+		}
+	}
+
 	if secretLooksPlaceholder(getenv("BASELINE_API_KEY")) || secretLooksPlaceholder(getenv("BASELINE_API_KEYS")) {
 		result.Errors = append(result.Errors, "API key environment variables still look like placeholder values.")
 	}
@@ -856,8 +927,43 @@ func verifyAPIProdConfig(cfg api.Config, getenv func(string) string) prodVerifyR
 	if secretLooksPlaceholder(getenv("BASELINE_API_GITLAB_TOKEN")) {
 		result.Errors = append(result.Errors, "GitLab API token looks like a placeholder value.")
 	}
+	if secretLooksPlaceholder(getenv("BASELINE_API_OIDC_CLIENT_ID")) ||
+		secretLooksPlaceholder(getenv("BASELINE_API_AUTH0_CLIENT_ID")) ||
+		secretLooksPlaceholder(getenv("BASELINE_API_SUPABASE_CLIENT_ID")) {
+		result.Errors = append(result.Errors, "OIDC client ID looks like a placeholder value.")
+	}
+	if secretLooksPlaceholder(getenv("BASELINE_API_OIDC_CLIENT_SECRET")) ||
+		secretLooksPlaceholder(getenv("BASELINE_API_AUTH0_CLIENT_SECRET")) ||
+		secretLooksPlaceholder(getenv("BASELINE_API_SUPABASE_CLIENT_SECRET")) {
+		result.Errors = append(result.Errors, "OIDC client secret looks like a placeholder value.")
+	}
 
 	return result
+}
+
+func containsStringFold(values []string, expected string) bool {
+	needle := strings.TrimSpace(strings.ToLower(expected))
+	if needle == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(strings.ToLower(value)) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func parseBoolWithDefault(raw string, fallback bool) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(trimmed)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func hostFromAddr(addr string) string {
