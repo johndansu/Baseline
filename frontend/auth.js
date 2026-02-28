@@ -72,7 +72,21 @@
     var next = safeQueryParam("return_to");
     if (!next) return "/";
     if (next.charAt(0) === "/" && next.indexOf("//") !== 0) {
-      return next;
+      try {
+        var parsedRelative = new URL(next, window.location.origin);
+        var path = String(parsedRelative.pathname || "").trim();
+        var allowed = {
+          "/": true,
+          "/index.html": true,
+          "/signin": true,
+          "/signin.html": true,
+          "/signup": true,
+          "/signup.html": true
+        };
+        return allowed[path] ? next : "/";
+      } catch (_) {
+        return "/";
+      }
     }
     try {
       var parsed = new URL(next);

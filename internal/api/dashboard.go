@@ -23,6 +23,20 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.URL.Path {
+	case "/login", "/login.html":
+		target := "/signin"
+		if q := strings.TrimSpace(r.URL.RawQuery); q != "" {
+			target = target + "?" + q
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	case "/register", "/register.html":
+		target := "/signup"
+		if q := strings.TrimSpace(r.URL.RawQuery); q != "" {
+			target = target + "?" + q
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return
 	case "/":
 	case "/index.html":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -107,6 +121,7 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 func isDashboardPath(path string) bool {
 	switch strings.TrimSpace(path) {
 	case "/",
+		"/login", "/login.html", "/register", "/register.html",
 		"/signin", "/signin.html", "/signup", "/signup.html", "/index.html",
 		"/styles.css", "/app.js", "/auth.js",
 		"/assets/baseline-logo.png",

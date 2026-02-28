@@ -102,16 +102,16 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	}
 	if config.OIDCEnabled {
 		if strings.TrimSpace(config.OIDCIssuerURL) == "" {
-			return nil, errors.New("OIDC enabled but BASELINE_API_OIDC_ISSUER_URL is not set")
+			return nil, errors.New("OIDC enabled but issuer URL is not set (BASELINE_API_OIDC_ISSUER_URL, BASELINE_API_AUTH0_DOMAIN, or BASELINE_API_SUPABASE_URL)")
 		}
 		if strings.TrimSpace(config.OIDCClientID) == "" {
-			return nil, errors.New("OIDC enabled but BASELINE_API_OIDC_CLIENT_ID is not set")
+			return nil, errors.New("OIDC enabled but client ID is not set (BASELINE_API_OIDC_CLIENT_ID, BASELINE_API_AUTH0_CLIENT_ID, or BASELINE_API_SUPABASE_CLIENT_ID)")
 		}
 		if strings.TrimSpace(config.OIDCClientSecret) == "" {
-			return nil, errors.New("OIDC enabled but BASELINE_API_OIDC_CLIENT_SECRET is not set")
+			return nil, errors.New("OIDC enabled but client secret is not set (BASELINE_API_OIDC_CLIENT_SECRET, BASELINE_API_AUTH0_CLIENT_SECRET, or BASELINE_API_SUPABASE_CLIENT_SECRET)")
 		}
 		if strings.TrimSpace(config.OIDCRedirectURL) == "" {
-			return nil, errors.New("OIDC enabled but BASELINE_API_OIDC_REDIRECT_URL is not set")
+			return nil, errors.New("OIDC enabled but redirect URL is not set (BASELINE_API_OIDC_REDIRECT_URL, BASELINE_API_AUTH0_CALLBACK_URL, or BASELINE_API_SUPABASE_CALLBACK_URL)")
 		}
 	}
 	if config.APIKeys == nil {

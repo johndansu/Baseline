@@ -90,7 +90,7 @@ func (s *Server) handleAuthOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	rt, err := s.getOIDCRuntime(ctx)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "oidc_unavailable", "unable to initialize OIDC provider")
+		writeError(w, http.StatusServiceUnavailable, "oidc_unavailable", oidcUnavailableMessage(err))
 		return
 	}
 
@@ -171,7 +171,7 @@ func (s *Server) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	rt, err := s.getOIDCRuntime(ctx)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "oidc_unavailable", "unable to initialize OIDC provider")
+		writeError(w, http.StatusServiceUnavailable, "oidc_unavailable", oidcUnavailableMessage(err))
 		return
 	}
 
@@ -389,7 +389,19 @@ func normalizeOIDCReturnTo(raw string) string {
 	if !strings.HasPrefix(value, "/") {
 		return "/"
 	}
+	if !isAllowedRelativeOIDCReturnPath(u.Path) {
+		return "/"
+	}
 	return value
+}
+
+func isAllowedRelativeOIDCReturnPath(path string) bool {
+	switch strings.TrimSpace(path) {
+	case "/", "/index.html", "/signin", "/signin.html", "/signup", "/signup.html":
+		return true
+	default:
+		return false
+	}
 }
 
 func isSafeAbsoluteOIDCReturnTo(u *url.URL) bool {
@@ -420,4 +432,11 @@ func wantsJSONResponse(r *http.Request) bool {
 func isAuth0Issuer(issuer string) bool {
 	value := strings.ToLower(strings.TrimSpace(issuer))
 	return strings.Contains(value, ".auth0.com")
+}
+
+func oidcUnavailableMessage(err error) string {
+	if err == nil {
+		return "unable to initialize OIDC provider; check OIDC/Auth0/Supabase auth configuration"
+	}
+	return fmt.Sprintf("unable to initialize OIDC provider (%s); check OIDC/Auth0/Supabase auth configuration", err.Error())
 }
