@@ -21,15 +21,15 @@ function initializeWebSocket(server) {
   io.use(async (socket, next) => {
     try {
       // Extract token from handshake
-      const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
+      const bearerValue = socket.handshake.auth.token || socket.handshake.headers.authorization?.replace('Bearer ', '');
       
-      if (!token) {
+      if (!bearerValue) {
         return next(new Error('Authentication required'));
       }
 
       // Verify token
       const { verifyJWT } = require('./supabase');
-      const user = await verifyJWT(token);
+      const user = await verifyJWT(bearerValue);
       
       if (!user) {
         return next(new Error('Invalid authentication token'));

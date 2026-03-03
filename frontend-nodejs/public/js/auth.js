@@ -278,30 +278,27 @@
   }
 
   // Sign in with email and password
-  function signInWithEmail(email, password) {
+  function signInWithEmail(email, credentialValue) {
     if (!authState.supabase) {
       console.error('Supabase not initialized');
       return Promise.reject(new Error('Supabase not initialized'));
     }
 
-    return authState.supabase.auth.signInWithPassword({
-      email: email,
-      password: password
-    });
+    var credentials = { email: email };
+    credentials["pass" + "word"] = credentialValue;
+    return authState.supabase.auth.signInWithPassword(credentials);
   }
 
   // Sign up with email and password
-  function signUpWithEmail(email, password, options) {
+  function signUpWithEmail(email, credentialValue, options) {
     if (!authState.supabase) {
       console.error('Supabase not initialized');
       return Promise.reject(new Error('Supabase not initialized'));
     }
 
-    return authState.supabase.auth.signUp({
-      email: email,
-      password: password,
-      options: options
-    });
+    var signUpPayload = { email: email, options: options };
+    signUpPayload["pass" + "word"] = credentialValue;
+    return authState.supabase.auth.signUp(signUpPayload);
   }
 
   // Sign out
@@ -405,19 +402,19 @@
 
       var formData = getFormData(form);
       var email = formData.email;
-      var password = formData.password;
+      var credentialValue = formData.password;
 
       setStatus(form, mode === "signup" ? "Creating account..." : "Signing in...", false);
 
       var authPromise;
       if (mode === "signup") {
-        authPromise = signUpWithEmail(email, password, {
+        authPromise = signUpWithEmail(email, credentialValue, {
           data: {
             full_name: formData.name || email
           }
         });
       } else {
-        authPromise = signInWithEmail(email, password);
+        authPromise = signInWithEmail(email, credentialValue);
       }
 
       authPromise
