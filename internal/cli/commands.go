@@ -30,6 +30,8 @@ import (
 	"github.com/baseline/baseline/internal/version"
 )
 
+const securityAdviceDisclaimer = "> AI-generated suggestions may be incorrect. Validate recommendations before implementation."
+
 // HandleVersion prints version information.
 func HandleVersion() {
 	fmt.Println(version.String())
@@ -419,7 +421,7 @@ func HandlePR() {
 		os.Exit(types.ExitSystemError)
 	}
 
-	fmt.Println("✓ Pull request created successfully!")
+	fmt.Println("[OK] Pull request created successfully!")
 	fmt.Printf("\nNext steps:\n")
 	fmt.Println("1. Review the pull request")
 	fmt.Println("2. Run tests to ensure everything works")
@@ -462,6 +464,133 @@ func HandleExplain(args []string) {
 		fmt.Printf("Current Status: COMPLIANT\n")
 		fmt.Printf("This policy is currently satisfied.\n")
 	}
+}
+
+// HandleSecurityAdvice generates AI-based security recommendations and saves
+// them to a markdown file. This is advisory only and does not affect enforcement.
+func HandleSecurityAdvice(args []string) {
+	if err := requireGitRepo(); err != nil {
+		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+
+	if err := loadAIEnvFiles(); err != nil {
+		fmt.Printf("SECURITY-ADVICE FAILED: unable to load AI env file: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+
+	outFile, err := parseSecurityAdviceArgs(args)
+	if err != nil {
+		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
+		fmt.Println("Usage: baseline security-advice [--out <file>]")
+		os.Exit(types.ExitSystemError)
+	}
+
+	gen := ai.NewDefaultGenerator()
+	if err := gen.CheckAvailability(); err != nil {
+		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
+		fmt.Printf("Configure AI provider environment (OLLAMA_* or OPENROUTER_*) and retry\n")
+		os.Exit(types.ExitSystemError)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("SECURITY-ADVICE FAILED: Unable to get current directory: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+
+	violations := policy.RunAllChecks()
+	context := buildSecurityAdviceContext(filepath.Base(cwd), violations)
+
+	content, err := gen.GenerateSecurityAdvice(context)
+	if err != nil {
+		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+
+	content = ensureSecurityAdviceDisclaimer(content)
+	if err := os.WriteFile(outFile, []byte(content), 0644); err != nil {
+		fmt.Printf("SECURITY-ADVICE FAILED: unable to write %s: %v\n", outFile, err)
+		os.Exit(types.ExitSystemError)
+	}
+
+	fmt.Printf("AI provider connected: %s\n", gen.Provider())
+	fmt.Printf("Wrote AI security advice to %s\n", outFile)
+	fmt.Println("Note: AI-generated suggestions may be incorrect. Validate recommendations before implementation.")
+	os.Exit(types.ExitSuccess)
+}
+
+func parseSecurityAdviceArgs(args []string) (string, error) {
+	outFile := "SECURITY.AI.SUGGESTIONS.md"
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--out":
+			if i+1 >= len(args) {
+				return "", fmt.Errorf("--out requires a file path")
+			}
+			outFile = strings.TrimSpace(args[i+1])
+			if outFile == "" {
+				return "", fmt.Errorf("--out requires a non-empty file path")
+			}
+			i++
+		default:
+			return "", fmt.Errorf("unknown flag %s", args[i])
+		}
+	}
+	return outFile, nil
+}
+
+func ensureSecurityAdviceDisclaimer(content string) string {
+	trimmed := strings.TrimSpace(content)
+	if strings.Contains(strings.ToLower(trimmed), "ai-generated suggestions may be incorrect") {
+		return trimmed + "\n"
+	}
+
+	preface := "# AI Security Suggestions\n\n" + securityAdviceDisclaimer + "\n\n"
+	if trimmed == "" {
+		return preface + "_No suggestions were generated._\n"
+	}
+
+	if strings.HasPrefix(trimmed, "#") {
+		return preface + trimmed + "\n"
+	}
+
+	return preface + "## Recommendations\n\n" + trimmed + "\n"
+}
+
+func buildSecurityAdviceContext(repoName string, violations []types.PolicyViolation) string {
+	policyCoverage := []string{
+		"- A1 Branch protection (PR-required, direct push restrictions)",
+		"- B1 CI on pull requests with automated tests",
+		"- C1 Automated tests exist",
+		"- D1 Plaintext secret detection",
+		"- E1 Dependency management files present",
+		"- F1 README and license requirements",
+		"- G1 Risky code pattern blocking (unsafe pointer, command/runtime injection, SQL string building)",
+		"- H1 Deployment configuration and Docker non-root user checks",
+		"- I1 Infrastructure-as-code artifacts",
+		"- J1 Environment template presence",
+		"- K1 Backup/recovery documentation",
+		"- L1 Logging/monitoring documentation/configuration",
+		"- R1 Rollback documentation",
+	}
+
+	lines := []string{
+		"Repository: " + repoName,
+		"",
+		"Built-in policy coverage:",
+		strings.Join(policyCoverage, "\n"),
+		"",
+		fmt.Sprintf("Current violation count: %d", len(violations)),
+	}
+	if len(violations) > 0 {
+		lines = append(lines, "Current violations:")
+		for _, v := range violations {
+			lines = append(lines, fmt.Sprintf("- [%s] %s", v.PolicyID, v.Message))
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // HandleAPI serves the optional Baseline API.
@@ -1096,7 +1225,7 @@ func generateFixForViolationWithFile(gen *ai.Generator, v types.PolicyViolation)
 			fmt.Printf("Failed to write CI config: %v\n", err)
 			return ""
 		}
-		fmt.Println("✓ Generated .github/workflows/ci.yml")
+		fmt.Println("[OK] Generated .github/workflows/ci.yml")
 		return ".github/workflows/ci.yml"
 
 	case types.PolicyTestSuite:
@@ -1110,7 +1239,7 @@ func generateFixForViolationWithFile(gen *ai.Generator, v types.PolicyViolation)
 			fmt.Printf("Failed to write tests: %v\n", err)
 			return ""
 		}
-		fmt.Println("✓ Generated main_test.go")
+		fmt.Println("[OK] Generated main_test.go")
 		return "main_test.go"
 
 	case types.PolicyDocumentation:
@@ -1124,7 +1253,7 @@ func generateFixForViolationWithFile(gen *ai.Generator, v types.PolicyViolation)
 			fmt.Printf("Failed to write README: %v\n", err)
 			return ""
 		}
-		fmt.Println("✓ Generated README.md")
+		fmt.Println("[OK] Generated README.md")
 		return "README.md"
 
 	case types.PolicyDeploymentConfig:
@@ -1138,7 +1267,7 @@ func generateFixForViolationWithFile(gen *ai.Generator, v types.PolicyViolation)
 			fmt.Printf("Failed to write Dockerfile: %v\n", err)
 			return ""
 		}
-		fmt.Println("✓ Generated Dockerfile")
+		fmt.Println("[OK] Generated Dockerfile")
 		return "Dockerfile"
 
 	case types.PolicyEnvVariables:
@@ -1152,7 +1281,7 @@ func generateFixForViolationWithFile(gen *ai.Generator, v types.PolicyViolation)
 			fmt.Printf("Failed to write .env.example: %v\n", err)
 			return ""
 		}
-		fmt.Println("✓ Generated .env.example")
+		fmt.Println("[OK] Generated .env.example")
 		return ".env.example"
 	}
 
@@ -1200,3 +1329,4 @@ func commitAndPush(branchName string, files []string) error {
 
 	return nil
 }
+

@@ -378,6 +378,34 @@ Only return the .env.example content, no explanations.`
 	return g.callModel(prompt)
 }
 
+// GenerateSecurityAdvice generates additional security recommendations that are
+// not already covered by Baseline's built-in policies.
+func (g *Generator) GenerateSecurityAdvice(context string) (string, error) {
+	prompt := `You are a senior application security engineer.
+
+Task:
+- Review the repository security context below.
+- Suggest security controls and hardening steps that are NOT already covered by the listed baseline policies.
+- Prioritize recommendations by impact and implementation effort.
+
+Output format requirements (Markdown):
+1) ## Additional Security Controls
+2) ## Prioritized Action Plan (P0/P1/P2)
+3) ## Verification Steps
+4) ## Assumptions and Risks
+
+Rules:
+- Do not invent repository files or capabilities not present in context.
+- Be concrete and actionable.
+- Avoid repeating controls that are already listed as covered.
+- Keep recommendations implementation-focused (backend, CI/CD, infra, secrets, identity, observability).
+
+Repository security context:
+` + context
+
+	return g.callModel(prompt)
+}
+
 // WriteGeneratedFile writes content to the specified file path.
 func (g *Generator) WriteGeneratedFile(filename, content string) error {
 	// Create directory if needed
