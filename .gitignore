@@ -66,3 +66,14 @@ backups/
 # OS specific
 Thumbs.db
 Desktop.ini
+
+# Node.js specific
+frontend-nodejs/node_modules/
+frontend-nodejs/dist/
+frontend-nodejs/.env.local
+frontend-nodejs/.env.production
+frontend-nodejs/.env.staging
+frontend-nodejs/npm-debug.log*
+frontend-nodejs/yarn-debug.log*
+frontend-nodejs/yarn-error.log*
+frontend-nodejs/.DS_Store

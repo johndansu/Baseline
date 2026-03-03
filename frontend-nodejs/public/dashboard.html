@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Baseline Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link rel="icon" href="../img/baseline favicon.png">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="icon" href="/assets/images/baseline favicon.png">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" type="module"></script>
+    <script type="module" src="/js/supabase-config.js"></script>
+    <script type="module" src="/js/auth.js"></script>
     <style>
         .tab-content.hidden { display: none; }
         
@@ -56,7 +58,7 @@
         <aside id="sidebar" class="fixed left-0 top-0 h-full w-56 bg-white border-r border-gray-200 z-40">
             <div class="p-6">
                 <div class="flex items-center gap-3 mb-8">
-                    <img src="../img/baseline logo.png" alt="Baseline" class="w-8 h-8">
+                    <img src="/assets/images/baseline logo.png" alt="Baseline" class="w-8 h-8">
                     <div>
                         <h1 class="text-xl font-bold text-gray-900">Baseline</h1>
                         <p class="text-xs text-gray-500">Operational Dashboard</p>
@@ -1890,7 +1892,8 @@
     </div>
 
     
-    <script src="dashboard.js?v=4"></script>
+    <script type="module" src="/js/dashboard.js?v=4"></script>
+    <!-- auth-integration.js removed to prevent conflicts with auth.js -->
     <script>
         // Simple tab switching function for inline onclick handlers
         function switchTab(tabName) {
