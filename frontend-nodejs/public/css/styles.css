@@ -3012,11 +3012,25 @@ code {
   }
 }
 
+/* Override landing-body min-height for auth pages */
+.experience-page.landing-body {
+  min-height: auto;
+  min-height: 100vh;
+}
+
+.experience-page.landing-body .landing-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px 0;
+}
+
 .signin-section,
 .signup-section {
-  max-width: 450px;
+  max-width: 420px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 16px;
   text-align: center;
   background: var(--xp-surface);
   border-radius: 22px;
@@ -3025,25 +3039,26 @@ code {
 
 .signin-form,
 .signup-form {
-  max-width: 380px !important;
+  max-width: 360px !important;
   margin: 0 auto;
-  padding: 25px;
+  padding: 18px;
   text-align: center;
 }
 
 .signin-form h2,
 .signup-form h2 {
-  margin: 0 0 16px 0;
+  margin: 0 0 12px 0;
   color: #2a1810;
-  font-size: 1.8rem;
+  font-size: 1.6rem;
   font-weight: 800;
 }
 
 .signin-form p,
 .signup-form p {
-  margin: 0 0 24px 0;
+  margin: 0 0 20px 0;
   color: var(--xp-muted);
-  line-height: 1.5;
+  line-height: 1.4;
+  font-size: 0.9rem;
 }
 
 .signin-form .auth-page-note,
@@ -3057,29 +3072,31 @@ code {
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 12px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
   text-align: left;
-  gap: 6px;
+  gap: 4px;
+  margin-bottom: 12px;
 }
 
 .form-group label {
   font-weight: 600;
   color: var(--xp-text);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  font-size: 0.85rem;
 }
 
 .form-group input {
-  padding: 10px 14px;
+  padding: 8px 12px;
   border: 1px solid var(--xp-border);
-  border-radius: 8px;
+  border-radius: 6px;
+  font-size: 0.9rem;
   background: rgba(255, 255, 255, 0.1);
   color: var(--xp-text);
-  font-size: 0.95rem;
   transition: all 0.2s ease;
 }
 
@@ -3097,9 +3114,9 @@ code {
 .oauth-divider {
   display: flex;
   align-items: center;
-  margin: 20px 0;
-  color: var(--muted);
-  font-size: 14px;
+  margin: 15px 0;
+  color: var(--xp-muted);
+  font-size: 13px;
 }
 
 .oauth-divider::before,
@@ -3111,27 +3128,27 @@ code {
 }
 
 .oauth-divider span {
-  padding: 0 15px;
+  padding: 0 12px;
   font-weight: 500;
 }
 
 .oauth-buttons {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .oauth-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--panel);
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
