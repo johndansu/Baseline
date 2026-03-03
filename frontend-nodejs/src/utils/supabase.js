@@ -4,8 +4,12 @@ const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL || 'https://your-project.supabase.co';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || 'your-anon-key';
 
-// Create Supabase client
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Check if Supabase is properly configured
+const isConfigured = supabaseUrl !== 'https://your-project.supabase.co' && 
+                    supabaseAnonKey !== 'your-anon-key';
+
+// Create Supabase client only if configured
+const supabase = isConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 /**
  * Verify JWT token from Supabase
@@ -13,6 +17,11 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
  * @returns {Promise<Object>} User object if valid, null if invalid
  */
 async function verifyJWT(token) {
+  if (!isConfigured || !supabase) {
+    console.warn('[SUPABASE] Supabase not configured - skipping JWT verification');
+    return null;
+  }
+
   try {
     const { data: { user }, error } = await supabase.auth.getUser(token);
     
@@ -47,6 +56,11 @@ function extractTokenFromHeader(authHeader) {
  * @returns {Promise<Object>} Session data if valid, null if invalid
  */
 async function getUserSession(accessToken) {
+  if (!isConfigured || !supabase) {
+    console.warn('[SUPABASE] Supabase not configured - skipping session retrieval');
+    return null;
+  }
+
   try {
     const { data: { session }, error } = await supabase.auth.getSession(accessToken);
     
@@ -68,6 +82,11 @@ async function getUserSession(accessToken) {
  * @returns {Promise<Object>} New session data if successful, null if failed
  */
 async function refreshAccessToken(refreshToken) {
+  if (!isConfigured || !supabase) {
+    console.warn('[SUPABASE] Supabase not configured - skipping token refresh');
+    return null;
+  }
+
   try {
     const { data: { session }, error } = await supabase.auth.refreshSession(refreshToken);
     

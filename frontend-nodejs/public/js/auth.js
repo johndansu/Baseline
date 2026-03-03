@@ -17,6 +17,47 @@
 
   var lastRequestTime = {};
   var RATE_LIMIT_DELAY = 750;
+  var isRedirecting = false;
+  var lastAuthState = null;
+  var uiUpdateTimeout = null;
+  var SAFE_RETURN_PATHS = {
+    '/dashboard.html': true,
+    '/dashboard': true,
+    '/index.html': true,
+    '/signin.html': true,
+    '/signup.html': true
+  };
+
+  function safeAuthReturnTo(rawReturnTo) {
+    var fallback = '/dashboard.html';
+    var value = String(rawReturnTo || '').trim();
+    if (!value) return fallback;
+
+    // Relative return path.
+    if (value.charAt(0) === '/' && value.indexOf('//') !== 0) {
+      try {
+        var rel = new URL(value, window.location.origin);
+        if (SAFE_RETURN_PATHS[rel.pathname]) {
+          return rel.pathname + rel.search + rel.hash;
+        }
+      } catch (_) {
+        return fallback;
+      }
+      return fallback;
+    }
+
+    // Absolute return URL must remain same-origin and path allowlisted.
+    try {
+      var abs = new URL(value);
+      if (abs.origin === window.location.origin && SAFE_RETURN_PATHS[abs.pathname]) {
+        return abs.pathname + abs.search + abs.hash;
+      }
+    } catch (_) {
+      return fallback;
+    }
+
+    return fallback;
+  }
 
   // Load Supabase client dynamically
   function loadSupabaseClient() {
@@ -46,38 +87,32 @@
   function initializeSupabase() {
     return loadSupabaseClient()
       .then(function(supabaseClient) {
-        // Load configuration
+        // Check if configuration is already loaded (from HTML script tag)
+        var config;
+        if (window.SUPABASE_CONFIG || window.getSupabaseConfig) {
+          config = window.getSupabaseConfig ? window.getSupabaseConfig() : window.SUPABASE_CONFIG;
+          return createSupabaseClient(supabaseClient, config);
+        }
+        
+        // Load configuration dynamically if not already loaded
         var configScript = document.createElement('script');
-        configScript.src = './supabase-config.js';
+        var timestamp = new Date().getTime();
+        configScript.src = './supabase-config.js?v=' + timestamp;
+        configScript.onerror = function() {
+          console.error('Failed to load supabase-config.js file');
+          authState.loading = false;
+          updateAuthUI();
+        };
         configScript.onload = function() {
           var config = window.getSupabaseConfig ? window.getSupabaseConfig() : window.SUPABASE_CONFIG;
           
-          if (!config.url || !config.anonKey) {
-            console.error('Supabase configuration missing. Please configure supabase-config.js');
-            authState.loading = false;
-            updateAuthUI();
-            return;
-          }
-
-          // Create Supabase client
-          authState.supabase = supabaseClient.createClient(config.url, config.anonKey, {
-            auth: {
-              autoRefreshToken: true,
-              persistSession: true,
-              detectSessionInUrl: true
-            }
-          });
-
-          // Set up auth state listener
-          authState.supabase.auth.onAuthStateChange(handleAuthStateChange);
-          
-          // Check for existing session
-          return authState.supabase.auth.getSession();
+          console.log('Loaded Supabase config:', config);
+          return createSupabaseClient(supabaseClient, config);
         };
         document.head.appendChild(configScript);
       })
       .then(function(result) {
-        if (result && result.data.session) {
+        if (result && result.data && result.data.session) {
           authState.session = result.data.session;
           authState.user = result.data.session.user;
           authState.authenticated = true;
@@ -92,29 +127,92 @@
       });
   }
 
+  // Create Supabase client with given configuration
+  function createSupabaseClient(supabaseClient, config) {
+    if (!config.url || !config.anonKey) {
+      console.error('Supabase configuration missing. Please configure supabase-config.js');
+      console.error('Config URL:', config.url);
+      console.error('Config anonKey:', config.anonKey ? 'SET' : 'NOT SET');
+      authState.loading = false;
+      updateAuthUI();
+      return Promise.resolve();
+    }
+
+    try {
+      authState.supabase = supabaseClient.createClient(config.url, config.anonKey, {
+        auth: {
+          autoRefreshToken: true,
+          persistSession: true,
+          detectSessionInUrl: true
+        }
+      });
+    } catch (error) {
+      console.error('Error creating Supabase client:', error);
+      authState.loading = false;
+      updateAuthUI();
+      return Promise.resolve();
+    }
+
+    // Set up auth state listener
+    authState.supabase.auth.onAuthStateChange(handleAuthStateChange);
+    
+    // Check for existing session
+    return authState.supabase.auth.getSession();
+  }
+
   // Handle authentication state changes
   function handleAuthStateChange(event, session) {
-    console.log('Auth state changed:', event, session);
+    // Create a unique state key to prevent duplicate updates (without timestamp)
+    var stateKey = event + '_' + (session ? session.user?.id || session.access_token : 'null');
+    
+    // Skip if this is the same state as before
+    if (lastAuthState === stateKey) {
+      return;
+    }
     
     authState.session = session;
     authState.user = session ? session.user : null;
     authState.authenticated = !!session;
     
-    updateAuthUI();
+    // Update UI only if state actually changed
+    if (lastAuthState !== stateKey) {
+      updateAuthUI();
+      lastAuthState = stateKey;
+    }
     
-    // Handle redirect after authentication
-    if (event === 'SIGNED_IN' && session) {
-      // Check if we're on the callback page to avoid redirect loops
-      if (window.location.pathname !== '/dashboard.html' && window.location.pathname !== '/') {
-        var returnUrl = new URLSearchParams(window.location.search).get('return_to') || '/dashboard.html';
-        console.log('Redirecting to:', returnUrl);
-        window.location.href = returnUrl;
+    // Handle redirect after authentication (only once)
+    if (event === 'SIGNED_IN' && session && !isRedirecting) {
+      var currentPath = window.location.pathname;
+      var isCallbackPage = currentPath.includes('/auth/callback') || currentPath.includes('/signin.html');
+      
+      if (!isCallbackPage && currentPath !== '/dashboard.html') {
+        isRedirecting = true;
+        var rawReturnUrl = new URLSearchParams(window.location.search).get('return_to');
+        var returnUrl = safeAuthReturnTo(rawReturnUrl);
+        
+        // Small delay to ensure UI updates complete
+        setTimeout(function() {
+          window.location.href = returnUrl;
+        }, 100);
       }
     }
   }
 
-  // Update UI based on authentication state
+  // Update UI based on authentication state (debounced)
   function updateAuthUI() {
+    // Clear any pending UI update
+    if (uiUpdateTimeout) {
+      clearTimeout(uiUpdateTimeout);
+    }
+    
+    // Debounce UI updates to prevent flickering
+    uiUpdateTimeout = setTimeout(function() {
+      performUIUpdate();
+    }, 50);
+  }
+  
+  // Perform the actual UI update
+  function performUIUpdate() {
     var authPill = document.getElementById("authPill");
     if (authPill) {
       if (authState.authenticated) {
@@ -149,21 +247,34 @@
   }
 
   // Sign in with OAuth provider
-  function signInWithOAuth(provider, options) {
+  async function signInWithOAuth(provider, options) {
     if (!authState.supabase) {
       console.error('Supabase not initialized');
       return Promise.reject(new Error('Supabase not initialized'));
+    }
+    
+    // Check if provider is enabled in config
+    var config = window.getSupabaseConfig ? window.getSupabaseConfig() : window.SUPABASE_CONFIG;
+    if (!config.providers || !config.providers[provider]) {
+      console.error('OAuth provider not enabled in config:', provider);
+      return Promise.reject(new Error('OAuth provider ' + provider + ' is not enabled'));
     }
 
     var authOptions = {
       provider: provider,
       options: {
         redirectTo: (options && options.redirectTo) || window.location.origin + '/dashboard.html',
-        scopes: options && options.scopes
+        scopes: options && options.scopes || config.providers[provider].scopes
       }
     };
 
-    return authState.supabase.auth.signInWithOAuth(authOptions);
+    try {
+      const result = await authState.supabase.auth.signInWithOAuth(authOptions);
+      return result;
+    } catch (error) {
+      console.error('OAuth sign in error:', error);
+      throw error;
+    }
   }
 
   // Sign in with email and password
@@ -402,6 +513,10 @@
 
   // Initialize authentication when DOM is ready
   document.addEventListener("DOMContentLoaded", function() {
+    // Reset redirect flag on page load
+    isRedirecting = false;
+    lastAuthState = null;
+    
     // Initialize Supabase
     initializeSupabase();
 
