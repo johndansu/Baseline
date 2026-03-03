@@ -723,6 +723,11 @@ func HandleAPI(args []string) {
 		}
 	}
 
+	if err := validateAPIListenAddr(cfg.Addr); err != nil {
+		fmt.Printf("API FAILED: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+
 	store, err := api.NewStore(cfg.DBPath)
 	if err != nil {
 		fmt.Printf("API FAILED: unable to open persistent store: %v\n", err)
@@ -1108,6 +1113,28 @@ func hostFromAddr(addr string) string {
 		return strings.Trim(host, "[]")
 	}
 	return strings.Trim(trimmed, "[]")
+}
+
+func validateAPIListenAddr(addr string) error {
+	trimmed := strings.TrimSpace(addr)
+	if trimmed == "" {
+		return errors.New("--addr cannot be empty")
+	}
+	if strings.HasPrefix(trimmed, ":") {
+		port := strings.TrimPrefix(trimmed, ":")
+		if port == "" {
+			return errors.New("--addr requires a port after ':'")
+		}
+		if _, err := strconv.Atoi(port); err != nil {
+			return fmt.Errorf("invalid --addr port %q", port)
+		}
+		return nil
+	}
+
+	if _, _, err := net.SplitHostPort(trimmed); err != nil {
+		return fmt.Errorf("invalid --addr value %q: %w", trimmed, err)
+	}
+	return nil
 }
 
 func isLoopbackHost(host string) bool {

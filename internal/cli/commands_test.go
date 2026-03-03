@@ -558,6 +558,34 @@ func TestShouldAutoStartAPIWithConfiguredKey(t *testing.T) {
 	}
 }
 
+func TestValidateAPIListenAddr(t *testing.T) {
+	tests := []struct {
+		name    string
+		addr    string
+		wantErr bool
+	}{
+		{name: "colon-port", addr: ":8080"},
+		{name: "host-port", addr: "127.0.0.1:8080"},
+		{name: "localhost-port", addr: "localhost:8080"},
+		{name: "empty", addr: "", wantErr: true},
+		{name: "colon-no-port", addr: ":", wantErr: true},
+		{name: "bad-port", addr: ":bad", wantErr: true},
+		{name: "missing-port", addr: "bad_addr", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAPIListenAddr(tt.addr)
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected error for addr %q", tt.addr)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error for addr %q: %v", tt.addr, err)
+			}
+		})
+	}
+}
+
 func TestParseSecurityAdviceArgs(t *testing.T) {
 	tests := []struct {
 		name    string
