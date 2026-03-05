@@ -21,6 +21,7 @@ func TestConfigFromEnvSecurityToggles(t *testing.T) {
 	t.Setenv("BASELINE_API_AUTH_RATE_LIMIT_WINDOW_SECONDS", "90")
 	t.Setenv("BASELINE_API_UNAUTH_RATE_LIMIT_REQUESTS", "12")
 	t.Setenv("BASELINE_API_UNAUTH_RATE_LIMIT_WINDOW_SECONDS", "45")
+	t.Setenv("BASELINE_API_SENSITIVE_ACTION_REAUTH_ENABLED", "true")
 	t.Setenv("BASELINE_API_KEY_HASH_SECRET", "test-hash-secret-value")
 
 	cfg := ConfigFromEnv()
@@ -68,6 +69,9 @@ func TestConfigFromEnvSecurityToggles(t *testing.T) {
 	}
 	if cfg.UnauthRateLimitWindow != 45*time.Second {
 		t.Fatalf("expected unauth rate limit window to load, got %s", cfg.UnauthRateLimitWindow)
+	}
+	if !cfg.SensitiveActionReauthEnabled {
+		t.Fatal("expected sensitive-action reauth toggle to load from environment")
 	}
 	if cfg.APIKeyHashSecret != "test-hash-secret-value" {
 		t.Fatalf("expected api key hash secret to load, got %q", cfg.APIKeyHashSecret)

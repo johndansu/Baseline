@@ -244,7 +244,17 @@ func parseReportFormat(args []string) (string, error) {
 }
 
 // HandleGenerate generates missing infrastructure using AI.
-func HandleGenerate() {
+func HandleGenerate(args []string) {
+	if hasHelpFlag(args) {
+		printGenerateUsage()
+		os.Exit(types.ExitSuccess)
+	}
+	if len(args) > 0 {
+		fmt.Printf("GENERATE FAILED: unknown flag %s\n", args[0])
+		printGenerateUsage()
+		os.Exit(types.ExitSystemError)
+	}
+
 	if err := requireGitRepo(); err != nil {
 		fmt.Printf("GENERATE FAILED: %v\n", err)
 		os.Exit(types.ExitSystemError)
@@ -321,7 +331,17 @@ func HandleGenerate() {
 }
 
 // HandlePR creates a pull request with generated scaffolds.
-func HandlePR() {
+func HandlePR(args []string) {
+	if hasHelpFlag(args) {
+		printPRUsage()
+		os.Exit(types.ExitSuccess)
+	}
+	if len(args) > 0 {
+		fmt.Printf("PR FAILED: unknown flag %s\n", args[0])
+		printPRUsage()
+		os.Exit(types.ExitSystemError)
+	}
+
 	if err := requireGitRepo(); err != nil {
 		fmt.Printf("PR FAILED: %v\n", err)
 		os.Exit(types.ExitSystemError)
@@ -431,13 +451,22 @@ func HandlePR() {
 
 // HandleExplain provides explanation for a policy violation.
 func HandleExplain(args []string) {
+	if hasHelpFlag(args) {
+		printExplainUsage()
+		os.Exit(types.ExitSuccess)
+	}
+
 	if len(args) < 1 {
-		fmt.Printf("Usage: baseline explain <policy_id>\n")
-		fmt.Printf("Example: baseline explain G1\n")
+		printExplainUsage()
 		os.Exit(types.ExitSystemError)
 	}
 
-	policyID := args[0]
+	policyID := strings.ToUpper(strings.TrimSpace(args[0]))
+	if !isSupportedPolicyID(policyID) {
+		fmt.Printf("EXPLAIN FAILED: unknown policy id %q\n", args[0])
+		fmt.Printf("Supported policy IDs: A1, B1, C1, D1, E1, F1, G1, H1, I1, J1, K1, L1, R1\n")
+		os.Exit(types.ExitSystemError)
+	}
 
 	fmt.Printf("=== POLICY EXPLANATION ===\n")
 	fmt.Printf("Policy ID: %s\n", policyID)
@@ -469,6 +498,11 @@ func HandleExplain(args []string) {
 // HandleSecurityAdvice generates AI-based security recommendations and saves
 // them to a markdown file. This is advisory only and does not affect enforcement.
 func HandleSecurityAdvice(args []string) {
+	if hasHelpFlag(args) {
+		printSecurityAdviceUsage()
+		os.Exit(types.ExitSuccess)
+	}
+
 	if err := requireGitRepo(); err != nil {
 		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
 		os.Exit(types.ExitSystemError)
@@ -482,7 +516,7 @@ func HandleSecurityAdvice(args []string) {
 	outFile, err := parseSecurityAdviceArgs(args)
 	if err != nil {
 		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
-		fmt.Println("Usage: baseline security-advice [--out <file>]")
+		printSecurityAdviceUsage()
 		os.Exit(types.ExitSystemError)
 	}
 
@@ -601,42 +635,23 @@ func HandleAPI(args []string) {
 	}
 
 	if len(args) < 1 {
-		fmt.Println("Usage: baseline api serve [--addr <host:port>] [--ai-enabled]")
-		fmt.Println("       baseline api keygen")
-		fmt.Println("       baseline api verify-prod [--strict]")
-		fmt.Println("Environment:")
-		fmt.Println("  BASELINE_API_KEY=<key> or BASELINE_API_KEYS=<key:role,key:role>")
-		fmt.Println("  BASELINE_API_REQUIRE_HTTPS=false")
-		fmt.Println("  BASELINE_API_SELF_SERVICE_ENABLED=true")
-		fmt.Println("  BASELINE_API_ENROLLMENT_TOKENS=<token:role,token:role>")
-		fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_TTL_MINUTES=1440")
-		fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_MAX_USES=1")
-		fmt.Println("  BASELINE_API_ADDR=:8080")
-		fmt.Println("  BASELINE_API_DB_PATH=baseline_api.db")
-		fmt.Println("  BASELINE_API_TIMEOUT_MS=5000")
-		fmt.Println("  BASELINE_API_MAX_BODY_BYTES=1048576")
-		fmt.Println("  BASELINE_API_SHUTDOWN_TIMEOUT_MS=10000")
-		fmt.Println("  BASELINE_API_CORS_ALLOWED_ORIGINS=https://dashboard.example.com")
-		fmt.Println("  BASELINE_API_TRUST_PROXY_HEADERS=false")
-		fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ENABLED=true")
-		fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ROLE=viewer")
-		fmt.Println("  BASELINE_API_DASHBOARD_SESSION_TTL_MINUTES=720")
-		fmt.Println("  BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE=false")
-		fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED=false")
-		fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER=X-Forwarded-User")
-		fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER=X-Forwarded-Role")
-		fmt.Println("  BASELINE_API_GITHUB_WEBHOOK_SECRET=<secret>")
-		fmt.Println("  BASELINE_API_GITLAB_WEBHOOK_TOKEN=<token>")
-		fmt.Println("  BASELINE_API_GITHUB_TOKEN=<token>")
-		fmt.Println("  BASELINE_API_GITHUB_API_URL=https://api.github.com")
-		fmt.Println("  BASELINE_API_GITLAB_TOKEN=<token>")
-		fmt.Println("  BASELINE_API_GITLAB_API_URL=https://gitlab.com/api/v4")
-		fmt.Println("  BASELINE_API_AI_ENABLED=false")
-		fmt.Println("Config file auto-load order: BASELINE_API_ENV_FILE, .env.production, .env, api.env")
+		printAPIUsage()
 		os.Exit(types.ExitSystemError)
+	}
+	if hasHelpFlag(args[:1]) || strings.EqualFold(strings.TrimSpace(args[0]), "help") {
+		printAPIUsage()
+		os.Exit(types.ExitSuccess)
 	}
 
 	if args[0] == "keygen" {
+		if len(args) > 1 && hasHelpFlag(args[1:]) {
+			printAPIUsage()
+			os.Exit(types.ExitSuccess)
+		}
+		if len(args) > 1 {
+			fmt.Printf("API FAILED: unknown flag %s\n", args[1])
+			os.Exit(types.ExitSystemError)
+		}
 		key, err := generateAPIKey()
 		if err != nil {
 			fmt.Printf("API FAILED: unable to generate API key: %v\n", err)
@@ -650,6 +665,9 @@ func HandleAPI(args []string) {
 		strict := false
 		for i := 1; i < len(args); i++ {
 			switch args[i] {
+			case "--help", "-h":
+				printAPIUsage()
+				os.Exit(types.ExitSuccess)
 			case "--strict":
 				strict = true
 			default:
@@ -708,6 +726,9 @@ func HandleAPI(args []string) {
 	cfg := api.ConfigFromEnv()
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
+		case "--help", "-h":
+			printAPIUsage()
+			os.Exit(types.ExitSuccess)
 		case "--addr":
 			if i+1 >= len(args) {
 				fmt.Println("API FAILED: --addr requires a value")
@@ -770,6 +791,95 @@ func HandleAPI(args []string) {
 		}
 		fmt.Printf("API FAILED: %v\n", err)
 		os.Exit(types.ExitSystemError)
+	}
+}
+
+func printGenerateUsage() {
+	fmt.Println("Usage: baseline generate")
+	fmt.Println("       baseline generate --help")
+	fmt.Println()
+	fmt.Println("Generate missing infrastructure scaffolds for supported policy violations using AI.")
+}
+
+func printPRUsage() {
+	fmt.Println("Usage: baseline pr")
+	fmt.Println("       baseline pr --help")
+	fmt.Println()
+	fmt.Println("Generate scaffolds, commit/push a branch, and attempt GitHub PR creation.")
+}
+
+func printExplainUsage() {
+	fmt.Printf("Usage: baseline explain <policy_id>\n")
+	fmt.Printf("Example: baseline explain G1\n")
+}
+
+func printSecurityAdviceUsage() {
+	fmt.Println("Usage: baseline security-advice [--out <file>]")
+}
+
+func printAPIUsage() {
+	fmt.Println("Usage: baseline api serve [--addr <host:port>] [--ai-enabled]")
+	fmt.Println("       baseline api keygen")
+	fmt.Println("       baseline api verify-prod [--strict]")
+	fmt.Println("Environment:")
+	fmt.Println("  BASELINE_API_KEY=<key> or BASELINE_API_KEYS=<key:role,key:role>")
+	fmt.Println("  BASELINE_API_REQUIRE_HTTPS=false")
+	fmt.Println("  BASELINE_API_SELF_SERVICE_ENABLED=true")
+	fmt.Println("  BASELINE_API_ENROLLMENT_TOKENS=<token:role,token:role>")
+	fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_TTL_MINUTES=1440")
+	fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_MAX_USES=1")
+	fmt.Println("  BASELINE_API_ADDR=:8080")
+	fmt.Println("  BASELINE_API_DB_PATH=baseline_api.db")
+	fmt.Println("  BASELINE_API_TIMEOUT_MS=5000")
+	fmt.Println("  BASELINE_API_MAX_BODY_BYTES=1048576")
+	fmt.Println("  BASELINE_API_SHUTDOWN_TIMEOUT_MS=10000")
+	fmt.Println("  BASELINE_API_CORS_ALLOWED_ORIGINS=https://dashboard.example.com")
+	fmt.Println("  BASELINE_API_TRUST_PROXY_HEADERS=false")
+	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ENABLED=true")
+	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ROLE=viewer")
+	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_TTL_MINUTES=720")
+	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE=false")
+	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED=false")
+	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER=X-Forwarded-User")
+	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER=X-Forwarded-Role")
+	fmt.Println("  BASELINE_API_GITHUB_WEBHOOK_SECRET=<secret>")
+	fmt.Println("  BASELINE_API_GITLAB_WEBHOOK_TOKEN=<token>")
+	fmt.Println("  BASELINE_API_GITHUB_TOKEN=<token>")
+	fmt.Println("  BASELINE_API_GITHUB_API_URL=https://api.github.com")
+	fmt.Println("  BASELINE_API_GITLAB_TOKEN=<token>")
+	fmt.Println("  BASELINE_API_GITLAB_API_URL=https://gitlab.com/api/v4")
+	fmt.Println("  BASELINE_API_AI_ENABLED=false")
+	fmt.Println("Config file auto-load order: BASELINE_API_ENV_FILE, .env.production, .env, api.env")
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		switch strings.TrimSpace(strings.ToLower(arg)) {
+		case "--help", "-h":
+			return true
+		}
+	}
+	return false
+}
+
+func isSupportedPolicyID(policyID string) bool {
+	switch strings.ToUpper(strings.TrimSpace(policyID)) {
+	case types.PolicyProtectedBranch,
+		types.PolicyCIPipeline,
+		types.PolicyTestSuite,
+		types.PolicyNoSecrets,
+		types.PolicyDependencyMgmt,
+		types.PolicyDocumentation,
+		types.PolicySecurityScanning,
+		types.PolicyDeploymentConfig,
+		types.PolicyInfraAsCode,
+		types.PolicyEnvVariables,
+		types.PolicyBackupRecovery,
+		types.PolicyLoggingMonitoring,
+		types.PolicyRollbackPlan:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1356,4 +1466,3 @@ func commitAndPush(branchName string, files []string) error {
 
 	return nil
 }
-

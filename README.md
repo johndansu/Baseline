@@ -217,6 +217,10 @@ Also supported:
 
 Security behavior:
 - session-authenticated mutating requests require `X-Baseline-CSRF: 1`
+- strict sensitive-action re-auth is enabled by default in production startup mode, and can also be forced in any mode via `BASELINE_API_SENSITIVE_ACTION_REAUTH_ENABLED=true`; this requires `POST /v1/auth/reauth` and `X-Baseline-Reauth` on destructive operations
+- sensitive destructive actions (for example `DELETE /v1/api-keys/{id}`) require:
+  - `X-Baseline-Confirm: revoke_api_key`
+  - `X-Baseline-Reason: <reason>`
 - API keys and audit events persist in SQLite (`BASELINE_API_DB_PATH`)
 - webhook ingestion can persist integration jobs in SQLite with retry/backoff worker processing
 
@@ -282,6 +286,7 @@ BASELINE_API_DB_PATH=.baseline/baseline.db
 - `GET /v1/auth/me`
 - `GET /v1/auth/oidc/login`
 - `GET /v1/auth/oidc/callback`
+- `POST /v1/auth/reauth`
 - `POST|GET|DELETE /v1/auth/session`
 - `POST /v1/auth/register`
 
@@ -414,6 +419,7 @@ Env files auto-load in this order:
 - `BASELINE_API_AUTH_RATE_LIMIT_WINDOW_SECONDS`
 - `BASELINE_API_UNAUTH_RATE_LIMIT_REQUESTS`
 - `BASELINE_API_UNAUTH_RATE_LIMIT_WINDOW_SECONDS`
+- `BASELINE_API_SENSITIVE_ACTION_REAUTH_ENABLED`
 - `BASELINE_API_AI_ENABLED`
 
 For managed API key rotation, use `scripts/api-key-rotate.ps1`.
@@ -622,6 +628,7 @@ Check:
 - `GET /v1/auth/me` returns authenticated session info
 - session cookie is present
 - mutating requests include `X-Baseline-CSRF: 1`
+- API key revoke requests include `X-Baseline-Confirm` and `X-Baseline-Reason`
 
 ## Example API Usage
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	baselinelog "github.com/baseline/baseline/internal/log"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
@@ -93,6 +94,7 @@ func (s *Server) handleAuthOIDCLogin(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	rt, err := s.getOIDCRuntime(ctx)
 	if err != nil {
+		baselinelog.Warn("OIDC login runtime unavailable", "error", err)
 		writeError(w, http.StatusServiceUnavailable, "oidc_unavailable", oidcUnavailableMessage(err))
 		return
 	}
@@ -150,10 +152,12 @@ func (s *Server) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) 
 	}
 	if errValue := strings.TrimSpace(r.URL.Query().Get("error")); errValue != "" {
 		msg := strings.TrimSpace(r.URL.Query().Get("error_description"))
-		if msg == "" {
-			msg = errValue
+		if msg != "" {
+			baselinelog.Warn("OIDC provider callback error", "provider_error", errValue, "provider_description", msg)
+		} else {
+			baselinelog.Warn("OIDC provider callback error", "provider_error", errValue)
 		}
-		writeError(w, http.StatusUnauthorized, "oidc_error", msg)
+		writeError(w, http.StatusUnauthorized, "oidc_error", "OIDC authentication was not completed")
 		return
 	}
 
@@ -174,6 +178,7 @@ func (s *Server) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	rt, err := s.getOIDCRuntime(ctx)
 	if err != nil {
+		baselinelog.Warn("OIDC callback runtime unavailable", "error", err)
 		writeError(w, http.StatusServiceUnavailable, "oidc_unavailable", oidcUnavailableMessage(err))
 		return
 	}
@@ -203,7 +208,8 @@ func (s *Server) handleAuthOIDCCallback(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.validateOIDCIdentity(claims); err != nil {
-		writeError(w, http.StatusForbidden, "oidc_identity_rejected", err.Error())
+		baselinelog.Warn("OIDC identity rejected", "error", err)
+		writeError(w, http.StatusForbidden, "oidc_identity_rejected", "OIDC identity did not satisfy policy requirements")
 		return
 	}
 
@@ -461,8 +467,5 @@ func isAuth0Issuer(issuer string) bool {
 }
 
 func oidcUnavailableMessage(err error) string {
-	if err == nil {
-		return "unable to initialize OIDC provider; check OIDC/Auth0/Supabase auth configuration"
-	}
-	return fmt.Sprintf("unable to initialize OIDC provider (%s); check OIDC/Auth0/Supabase auth configuration", err.Error())
+	return "unable to initialize OIDC provider; check OIDC/Auth0/Supabase auth configuration"
 }

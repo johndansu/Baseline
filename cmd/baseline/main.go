@@ -49,9 +49,9 @@ func main() {
 	case "report":
 		cli.HandleReport(os.Args[2:])
 	case "generate":
-		cli.HandleGenerate()
+		cli.HandleGenerate(os.Args[2:])
 	case "pr":
-		cli.HandlePR()
+		cli.HandlePR(os.Args[2:])
 	case "explain":
 		cli.HandleExplain(os.Args[2:])
 	case "api":

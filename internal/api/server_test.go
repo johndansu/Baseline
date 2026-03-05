@@ -80,6 +80,197 @@ func TestDashboardSessionLifecycleAndProjectFlow(t *testing.T) {
 	}
 }
 
+func TestSessionOwnershipIsolationForProjectsAndScans(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.DashboardSessionEnabled = true
+	cfg.DashboardAuthProxyEnabled = true
+	cfg.TrustProxyHeaders = true
+	cfg.DashboardSessionRole = RoleOperator
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	jarA, _ := cookiejar.New(nil)
+	jarB, _ := cookiejar.New(nil)
+	clientA := &http.Client{Jar: jarA}
+	clientB := &http.Client{Jar: jarB}
+
+	resp, body := mustRequest(t, clientA, http.MethodPost, ts.URL+"/v1/auth/session", nil, map[string]string{
+		"X-Forwarded-User": "alice@example.com",
+		"X-Forwarded-Role": "operator",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating session A, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, clientB, http.MethodPost, ts.URL+"/v1/auth/session", nil, map[string]string{
+		"X-Forwarded-User": "bob@example.com",
+		"X-Forwarded-Role": "operator",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating session B, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, clientA, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_session_owner",
+		"name": "owned-by-alice",
+	}, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating project for session A, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, clientA, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"id":         "scan_session_owner",
+		"project_id": "proj_session_owner",
+		"commit_sha": "abc123",
+		"status":     "pass",
+	}, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating scan for session A, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, clientB, http.MethodGet, ts.URL+"/v1/projects", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing projects for session B, got %d body=%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "proj_session_owner") {
+		t.Fatalf("expected session B project list to be ownership-filtered, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, clientB, http.MethodGet, ts.URL+"/v1/projects/proj_session_owner", nil, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 fetching other session project, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, clientB, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"id":         "scan_session_owner_b",
+		"project_id": "proj_session_owner",
+		"commit_sha": "def456",
+		"status":     "pass",
+	}, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 when session B scans session A project, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, clientB, http.MethodGet, ts.URL+"/v1/scans/scan_session_owner", nil, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 fetching other session scan, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, clientB, http.MethodGet, ts.URL+"/v1/scans/scan_session_owner/report?format=json", nil, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 fetching other session scan report, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, clientA, http.MethodGet, ts.URL+"/v1/scans/scan_session_owner", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 fetching own session scan, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestAPIKeyOwnershipIsolationForProjectsAndScans(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+		"ops-a":     RoleOperator,
+		"ops-b":     RoleOperator,
+	}
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_api_key_owner",
+		"name": "owned-by-ops-a",
+	}, map[string]string{
+		"Authorization": "Bearer ops-a",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating project for ops-a, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"id":         "scan_api_key_owner",
+		"project_id": "proj_api_key_owner",
+		"commit_sha": "abc123",
+		"status":     "pass",
+	}, map[string]string{
+		"Authorization": "Bearer ops-a",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating scan for ops-a, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer ops-b",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing projects for ops-b, got %d body=%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "proj_api_key_owner") {
+		t.Fatalf("expected ops-b project list to be ownership-filtered, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects/proj_api_key_owner", nil, map[string]string{
+		"Authorization": "Bearer ops-b",
+	})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 fetching other key project, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
+		"id":         "scan_api_key_owner_b",
+		"project_id": "proj_api_key_owner",
+		"commit_sha": "def456",
+		"status":     "pass",
+	}, map[string]string{
+		"Authorization": "Bearer ops-b",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 when ops-b scans ops-a project, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans/scan_api_key_owner", nil, map[string]string{
+		"Authorization": "Bearer ops-b",
+	})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 fetching other key scan, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans/scan_api_key_owner/report?format=json", nil, map[string]string{
+		"Authorization": "Bearer ops-b",
+	})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 fetching other key scan report, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing projects for admin, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "proj_api_key_owner") {
+		t.Fatalf("expected admin to see cross-owner project, body=%s", body)
+	}
+}
+
 func TestAPIKeyRolesAreEnforced(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.APIKeys = map[string]Role{
@@ -250,7 +441,7 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 		"id":   "proj_rbac",
 		"name": "rbac-seed-project",
 	}, map[string]string{
-		"Authorization": "Bearer admin-key",
+		"Authorization": "Bearer operator-key",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 seeding project, got %d body=%s", resp.StatusCode, body)
@@ -290,6 +481,8 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 		method         string
 		path           string
 		payload        any
+		headers        map[string]string
+		unauthStatus   int
 		viewerStatus   int
 		operatorStatus int
 		adminStatus    int
@@ -301,6 +494,7 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 			method:         http.MethodPost,
 			path:           "/v1/projects",
 			payload:        map[string]any{"name": "rbac-project"},
+			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
 			operatorStatus: http.StatusCreated,
 			adminStatus:    http.StatusCreated,
@@ -314,6 +508,7 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 				"commit_sha": "rbac123",
 				"status":     "pass",
 			},
+			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
 			operatorStatus: http.StatusCreated,
 			adminStatus:    http.StatusCreated,
@@ -326,6 +521,7 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 				"version": "v-rbac-2",
 				"content": map[string]any{"rule": "rbac"},
 			},
+			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
 			operatorStatus: http.StatusForbidden,
 			adminStatus:    http.StatusCreated,
@@ -339,6 +535,7 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 				"description":  "rbac matrix ruleset",
 				"policy_names": []string{"rbac-policy"},
 			},
+			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
 			operatorStatus: http.StatusForbidden,
 			adminStatus:    http.StatusCreated,
@@ -351,6 +548,7 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 				"name": "rbac-issued",
 				"role": "viewer",
 			},
+			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
 			operatorStatus: http.StatusForbidden,
 			adminStatus:    http.StatusCreated,
@@ -360,6 +558,7 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 			method:         http.MethodPost,
 			path:           "/v1/integrations/github/check-runs",
 			payload:        map[string]any{"owner": "acme", "repository": "rbac", "head_sha": "abc123", "name": "baseline/rbac"},
+			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
 			operatorStatus: http.StatusAccepted,
 			adminStatus:    http.StatusAccepted,
@@ -374,14 +573,20 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 				"state":      "success",
 				"name":       "baseline/rbac",
 			},
+			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
 			operatorStatus: http.StatusAccepted,
 			adminStatus:    http.StatusAccepted,
 		},
 		{
-			name:           "api_key_revoke",
-			method:         http.MethodDelete,
-			path:           "/v1/api-keys/" + seededKey.ID,
+			name:   "api_key_revoke",
+			method: http.MethodDelete,
+			path:   "/v1/api-keys/" + seededKey.ID,
+			headers: map[string]string{
+				"X-Baseline-Confirm": "revoke_api_key",
+				"X-Baseline-Reason":  "rbac-test-revoke",
+			},
+			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
 			operatorStatus: http.StatusForbidden,
 			adminStatus:    http.StatusOK,
@@ -393,6 +598,13 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 		token  string
 		expect func(rbacCase) int
 	}{
+		{
+			name:  "unauthenticated",
+			token: "",
+			expect: func(tc rbacCase) int {
+				return tc.unauthStatus
+			},
+		},
 		{
 			name:  "viewer",
 			token: "viewer-key",
@@ -418,9 +630,14 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 
 	for _, tc := range cases {
 		for _, role := range roles {
-			resp, body := mustRequest(t, client, tc.method, ts.URL+tc.path, tc.payload, map[string]string{
-				"Authorization": "Bearer " + role.token,
-			})
+			headers := map[string]string{}
+			if strings.TrimSpace(role.token) != "" {
+				headers["Authorization"] = "Bearer " + role.token
+			}
+			for key, value := range tc.headers {
+				headers[key] = value
+			}
+			resp, body := mustRequest(t, client, tc.method, ts.URL+tc.path, tc.payload, headers)
 			expected := role.expect(tc)
 			if resp.StatusCode != expected {
 				t.Fatalf("%s role=%s expected status %d, got %d body=%s", tc.name, role.name, expected, resp.StatusCode, body)
@@ -485,7 +702,7 @@ func TestScanIngestionAndReports(t *testing.T) {
 
 	// Query scans by project_id.
 	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans?project_id=proj_123", nil, map[string]string{
-		"Authorization": "Bearer viewer-key",
+		"Authorization": "Bearer operator-key",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 scans list, got %d body=%s", resp.StatusCode, body)
@@ -497,7 +714,7 @@ func TestScanIngestionAndReports(t *testing.T) {
 	// JSON report.
 	reportURL := ts.URL + "/v1/scans/" + createdScan.ID + "/report?format=json"
 	resp, body = mustRequest(t, client, http.MethodGet, reportURL, nil, map[string]string{
-		"Authorization": "Bearer viewer-key",
+		"Authorization": "Bearer operator-key",
 	})
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "\"scan\"") {
 		t.Fatalf("expected JSON scan report, got %d body=%s", resp.StatusCode, body)
@@ -506,7 +723,7 @@ func TestScanIngestionAndReports(t *testing.T) {
 	// Text report.
 	reportURL = ts.URL + "/v1/scans/" + createdScan.ID + "/report?format=text"
 	resp, body = mustRequest(t, client, http.MethodGet, reportURL, nil, map[string]string{
-		"Authorization": "Bearer viewer-key",
+		"Authorization": "Bearer operator-key",
 	})
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "scan_id:") {
 		t.Fatalf("expected text scan report, got %d body=%s", resp.StatusCode, body)
@@ -515,7 +732,7 @@ func TestScanIngestionAndReports(t *testing.T) {
 	// SARIF report.
 	reportURL = ts.URL + "/v1/scans/" + createdScan.ID + "/report?format=sarif"
 	resp, body = mustRequest(t, client, http.MethodGet, reportURL, nil, map[string]string{
-		"Authorization": "Bearer viewer-key",
+		"Authorization": "Bearer operator-key",
 	})
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "\"version\":\"2.1.0\"") {
 		t.Fatalf("expected SARIF scan report, got %d body=%s", resp.StatusCode, body)
@@ -523,7 +740,7 @@ func TestScanIngestionAndReports(t *testing.T) {
 
 	// Audit events endpoint.
 	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events?project_id=proj_123", nil, map[string]string{
-		"Authorization": "Bearer viewer-key",
+		"Authorization": "Bearer operator-key",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 audit events, got %d body=%s", resp.StatusCode, body)
@@ -1087,6 +1304,189 @@ func TestSessionAdminMutationsRequireCSRFHeader(t *testing.T) {
 	}
 }
 
+func TestAuthReauthEndpointForAPIKeyAndSensitiveDelete(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SensitiveActionReauthEnabled = true
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/api-keys", map[string]string{
+		"name": "reauth-delete-target",
+		"role": "viewer",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 create key, got %d body=%s", resp.StatusCode, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatalf("failed to decode key create response: %v", err)
+	}
+	if strings.TrimSpace(created.ID) == "" {
+		t.Fatalf("expected created key id, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+created.ID, nil, map[string]string{
+		"Authorization":      "Bearer admin-key",
+		"X-Baseline-Confirm": "revoke_api_key",
+		"X-Baseline-Reason":  "rotation",
+	})
+	if resp.StatusCode != http.StatusPreconditionRequired || !strings.Contains(body, "reauth_required") {
+		t.Fatalf("expected 428 reauth_required without reauth token, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/reauth", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 issuing reauth token, got %d body=%s", resp.StatusCode, body)
+	}
+	var reauth struct {
+		Token string `json:"reauth_token"`
+	}
+	if err := json.Unmarshal([]byte(body), &reauth); err != nil {
+		t.Fatalf("failed to decode reauth response: %v body=%s", err, body)
+	}
+	if strings.TrimSpace(reauth.Token) == "" {
+		t.Fatalf("expected reauth token in response, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+created.ID, nil, map[string]string{
+		"Authorization":      "Bearer admin-key",
+		"X-Baseline-Confirm": "revoke_api_key",
+		"X-Baseline-Reason":  "rotation",
+		"X-Baseline-Reauth":  reauth.Token,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 key revoke with reauth token, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+created.ID, nil, map[string]string{
+		"Authorization":      "Bearer admin-key",
+		"X-Baseline-Confirm": "revoke_api_key",
+		"X-Baseline-Reason":  "rotation",
+		"X-Baseline-Reauth":  reauth.Token,
+	})
+	if resp.StatusCode != http.StatusPreconditionRequired || !strings.Contains(body, "reauth_required") {
+		t.Fatalf("expected one-time reauth token behavior, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestAuthReauthEndpointRequiresCSRFForSessionAuth(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SensitiveActionReauthEnabled = true
+	cfg.DashboardSessionEnabled = true
+	cfg.DashboardSessionRole = RoleAdmin
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/session", nil, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating session, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/reauth", nil, nil)
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(body, "csrf_failed") {
+		t.Fatalf("expected 403 csrf_failed for session reauth without csrf header, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/reauth", nil, map[string]string{
+		"X-Baseline-CSRF": "1",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 reauth with csrf header, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestSensitiveReauthIsDefaultInProduction(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Addr = "0.0.0.0:8080"
+	cfg.RequireHTTPS = false
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.baseline.security"}
+	cfg.SensitiveActionReauthEnabled = false
+	cfg.APIKeys = map[string]Role{
+		"prod-admin-key-123": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/api-keys", map[string]string{
+		"name": "prod-reauth-target",
+		"role": "viewer",
+	}, map[string]string{
+		"Authorization": "Bearer prod-admin-key-123",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 create key, got %d body=%s", resp.StatusCode, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatalf("failed to decode key create response: %v", err)
+	}
+	if strings.TrimSpace(created.ID) == "" {
+		t.Fatalf("expected created key id, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+created.ID, nil, map[string]string{
+		"Authorization":      "Bearer prod-admin-key-123",
+		"X-Baseline-Confirm": "revoke_api_key",
+		"X-Baseline-Reason":  "production-rotation",
+	})
+	if resp.StatusCode != http.StatusPreconditionRequired || !strings.Contains(body, "reauth_required") {
+		t.Fatalf("expected 428 reauth_required in production default mode, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/auth/reauth", nil, map[string]string{
+		"Authorization": "Bearer prod-admin-key-123",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 issuing production reauth token, got %d body=%s", resp.StatusCode, body)
+	}
+	var reauth struct {
+		Token string `json:"reauth_token"`
+	}
+	if err := json.Unmarshal([]byte(body), &reauth); err != nil {
+		t.Fatalf("failed to decode reauth response: %v body=%s", err, body)
+	}
+	if strings.TrimSpace(reauth.Token) == "" {
+		t.Fatalf("expected reauth token in response, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+created.ID, nil, map[string]string{
+		"Authorization":      "Bearer prod-admin-key-123",
+		"X-Baseline-Confirm": "revoke_api_key",
+		"X-Baseline-Reason":  "production-rotation",
+		"X-Baseline-Reauth":  reauth.Token,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 key revoke after production reauth, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
 func TestSelfServiceRegisterIssuesServerGeneratedKey(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.SelfServiceEnabled = true
@@ -1207,6 +1607,15 @@ func TestAPIKeyLifecycleEndpoints(t *testing.T) {
 	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+created.ID, nil, map[string]string{
 		"Authorization": "Bearer admin-key",
 	})
+	if resp.StatusCode != http.StatusPreconditionRequired || !strings.Contains(body, "confirmation_required") {
+		t.Fatalf("expected 428 confirmation_required without sensitive-action headers, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+created.ID, nil, map[string]string{
+		"Authorization":      "Bearer admin-key",
+		"X-Baseline-Confirm": "revoke_api_key",
+		"X-Baseline-Reason":  "scheduled key rotation",
+	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for key revoke, got %d body=%s", resp.StatusCode, body)
 	}
@@ -1270,10 +1679,266 @@ func TestAPIKeyLifecycleEndpoints(t *testing.T) {
 		t.Fatalf("expected bootstrap admin key metadata in list, body=%s", body)
 	}
 	resp, body = mustRequest(t, client, http.MethodDelete, ts.URL+"/v1/api-keys/"+bootstrapID, nil, map[string]string{
-		"Authorization": "Bearer admin-key",
+		"Authorization":      "Bearer admin-key",
+		"X-Baseline-Confirm": "revoke_api_key",
+		"X-Baseline-Reason":  "bootstrap key protection test",
 	})
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("expected 409 for bootstrap key revoke, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestWriteEndpointsRejectInvalidPayloads(t *testing.T) {
+	githubUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":1}`))
+	}))
+	defer githubUpstream.Close()
+
+	gitlabUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer gitlabUpstream.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key":    RoleAdmin,
+		"operator-key": RoleOperator,
+	}
+	cfg.SelfServiceEnabled = true
+	cfg.EnrollmentTokens = map[string]Role{
+		"enroll-viewer": RoleViewer,
+	}
+	cfg.GitHubAPIToken = "gh-token"
+	cfg.GitHubAPIBaseURL = githubUpstream.URL
+	cfg.GitLabAPIToken = "gl-token"
+	cfg.GitLabAPIBaseURL = gitlabUpstream.URL
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_validation",
+		"name": "validation-project",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 seeding validation project, got %d body=%s", resp.StatusCode, body)
+	}
+
+	type invalidCase struct {
+		name         string
+		method       string
+		path         string
+		payload      any
+		headers      map[string]string
+		status       int
+		errorCodeSub string
+	}
+	cases := []invalidCase{
+		{
+			name:         "register_missing_enrollment_token",
+			method:       http.MethodPost,
+			path:         "/v1/auth/register",
+			payload:      map[string]any{},
+			headers:      map[string]string{},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"bad_request"`,
+		},
+		{
+			name:   "api_keys_unknown_field",
+			method: http.MethodPost,
+			path:   "/v1/api-keys",
+			payload: map[string]any{
+				"name":  "bad-key",
+				"role":  "viewer",
+				"extra": "unknown",
+			},
+			headers: map[string]string{
+				"Authorization": "Bearer admin-key",
+			},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"bad_request"`,
+		},
+		{
+			name:   "api_keys_invalid_role",
+			method: http.MethodPost,
+			path:   "/v1/api-keys",
+			payload: map[string]any{
+				"name": "bad-role-key",
+				"role": "superuser",
+			},
+			headers: map[string]string{
+				"Authorization": "Bearer admin-key",
+			},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"bad_request"`,
+		},
+		{
+			name:   "projects_missing_name",
+			method: http.MethodPost,
+			path:   "/v1/projects",
+			payload: map[string]any{
+				"id": "proj_missing_name",
+			},
+			headers: map[string]string{
+				"Authorization": "Bearer operator-key",
+			},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"bad_request"`,
+		},
+		{
+			name:   "scans_invalid_status",
+			method: http.MethodPost,
+			path:   "/v1/scans",
+			payload: map[string]any{
+				"project_id": "proj_validation",
+				"status":     "broken",
+			},
+			headers: map[string]string{
+				"Authorization": "Bearer operator-key",
+			},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"invalid_scan_payload"`,
+		},
+		{
+			name:   "policy_publish_missing_content",
+			method: http.MethodPost,
+			path:   "/v1/policies/validation-policy/versions",
+			payload: map[string]any{
+				"version": "v1",
+			},
+			headers: map[string]string{
+				"Authorization": "Bearer admin-key",
+			},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"invalid_policy_payload"`,
+		},
+		{
+			name:   "ruleset_publish_missing_policy_names",
+			method: http.MethodPost,
+			path:   "/v1/rulesets",
+			payload: map[string]any{
+				"version": "v1",
+			},
+			headers: map[string]string{
+				"Authorization": "Bearer admin-key",
+			},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"invalid_ruleset_payload"`,
+		},
+		{
+			name:   "github_check_run_invalid_status",
+			method: http.MethodPost,
+			path:   "/v1/integrations/github/check-runs",
+			payload: map[string]any{
+				"owner":      "acme",
+				"repository": "baseline",
+				"head_sha":   "abc123",
+				"name":       "baseline/security",
+				"status":     "invalid-status",
+			},
+			headers: map[string]string{
+				"Authorization": "Bearer operator-key",
+			},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"bad_request"`,
+		},
+		{
+			name:   "gitlab_status_invalid_state",
+			method: http.MethodPost,
+			path:   "/v1/integrations/gitlab/statuses",
+			payload: map[string]any{
+				"project_id": "acme/baseline",
+				"sha":        "def456",
+				"state":      "invalid-state",
+			},
+			headers: map[string]string{
+				"Authorization": "Bearer operator-key",
+			},
+			status:       http.StatusBadRequest,
+			errorCodeSub: `"code":"bad_request"`,
+		},
+	}
+
+	for _, tc := range cases {
+		resp, body := mustRequest(t, client, tc.method, ts.URL+tc.path, tc.payload, tc.headers)
+		if resp.StatusCode != tc.status {
+			t.Fatalf("%s expected status %d, got %d body=%s", tc.name, tc.status, resp.StatusCode, body)
+		}
+		if !strings.Contains(body, tc.errorCodeSub) {
+			t.Fatalf("%s expected error code substring %q, body=%s", tc.name, tc.errorCodeSub, body)
+		}
+	}
+}
+
+func TestWebhookEndpointsRejectInvalidJSONPayloads(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.GitHubWebhookSecret = "github-secret"
+	cfg.GitLabWebhookToken = "gitlab-token"
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	githubRaw := []byte("{\"action\":")
+	githubReq, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/integrations/github/webhook", bytes.NewReader(githubRaw))
+	if err != nil {
+		t.Fatalf("failed to build github webhook request: %v", err)
+	}
+	githubReq.Header.Set("Content-Type", "application/json")
+	githubReq.Header.Set("X-GitHub-Event", "pull_request")
+	githubReq.Header.Set("X-Hub-Signature-256", testGitHubSignature(githubRaw, cfg.GitHubWebhookSecret))
+	githubResp, err := client.Do(githubReq)
+	if err != nil {
+		t.Fatalf("github webhook request failed: %v", err)
+	}
+	defer githubResp.Body.Close()
+	var githubBody bytes.Buffer
+	_, _ = githubBody.ReadFrom(githubResp.Body)
+	if githubResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid github webhook JSON, got %d body=%s", githubResp.StatusCode, githubBody.String())
+	}
+	if !strings.Contains(githubBody.String(), `"code":"bad_request"`) {
+		t.Fatalf("expected bad_request code for invalid github webhook JSON, body=%s", githubBody.String())
+	}
+
+	gitlabRaw := []byte("{\"object_kind\":")
+	gitlabReq, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/integrations/gitlab/webhook", bytes.NewReader(gitlabRaw))
+	if err != nil {
+		t.Fatalf("failed to build gitlab webhook request: %v", err)
+	}
+	gitlabReq.Header.Set("Content-Type", "application/json")
+	gitlabReq.Header.Set("X-Gitlab-Event", "Merge Request Hook")
+	gitlabReq.Header.Set("X-Gitlab-Token", cfg.GitLabWebhookToken)
+	gitlabResp, err := client.Do(gitlabReq)
+	if err != nil {
+		t.Fatalf("gitlab webhook request failed: %v", err)
+	}
+	defer gitlabResp.Body.Close()
+	var gitlabBody bytes.Buffer
+	_, _ = gitlabBody.ReadFrom(gitlabResp.Body)
+	if gitlabResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid gitlab webhook JSON, got %d body=%s", gitlabResp.StatusCode, gitlabBody.String())
+	}
+	if !strings.Contains(gitlabBody.String(), `"code":"bad_request"`) {
+		t.Fatalf("expected bad_request code for invalid gitlab webhook JSON, body=%s", gitlabBody.String())
 	}
 }
 
@@ -1663,7 +2328,9 @@ func TestAPIStatePersistsAcrossServerRestart(t *testing.T) {
 	}
 
 	resp, body = mustRequest(t, client, http.MethodDelete, ts2.URL+"/v1/api-keys/"+revokeID, nil, map[string]string{
-		"Authorization": "Bearer admin-key",
+		"Authorization":      "Bearer admin-key",
+		"X-Baseline-Confirm": "revoke_api_key",
+		"X-Baseline-Reason":  "persistence revoke test",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected key revoke to succeed, got %d body=%s", resp.StatusCode, body)

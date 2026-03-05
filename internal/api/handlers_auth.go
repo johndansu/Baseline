@@ -6,6 +6,33 @@ import (
 	"time"
 )
 
+func (s *Server) handleAuthReauth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
+	principal, err := s.requestPrincipal(r)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+	if !s.enforceSessionCSRF(w, r, principal.AuthSource) {
+		return
+	}
+	token, expiresAt, err := s.issueSensitiveActionReauth(principal)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "unable to issue sensitive-action re-auth token")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"reauth_token": token,
+		"expires_at":   expiresAt,
+	})
+}
+
 func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 	if !s.config.DashboardSessionEnabled && !s.config.OIDCEnabled {
 		writeError(w, http.StatusForbidden, "session_disabled", "dashboard session auth is disabled")

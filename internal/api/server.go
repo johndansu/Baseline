@@ -24,6 +24,10 @@ type dashboardSession struct {
 const dashboardSessionCookieName = "baseline_dashboard_session"
 const csrfHeaderName = "X-Baseline-CSRF"
 const csrfHeaderValue = "1"
+const sensitiveConfirmHeaderName = "X-Baseline-Confirm"
+const sensitiveConfirmReasonHeaderName = "X-Baseline-Reason"
+const sensitiveReauthHeaderName = "X-Baseline-Reauth"
+const sensitiveActionRevokeAPIKey = "revoke_api_key"
 
 // Server provides a lightweight Baseline API for dashboard use.
 type Server struct {
@@ -44,6 +48,10 @@ type Server struct {
 	rateMu    sync.Mutex
 	rateState map[string]rateWindowCounter
 	rateSweep time.Time
+
+	sensitiveMu          sync.Mutex
+	sensitiveReauth      map[string]sensitiveActionGrant
+	sensitiveReauthSweep time.Time
 
 	dataMu               sync.RWMutex
 	projects             []Project
@@ -101,6 +109,9 @@ func NewServer(config Config, store *Store) (*Server, error) {
 	if config.DashboardAuthProxyEnabled && !config.TrustProxyHeaders {
 		return nil, errors.New("dashboard auth proxy requires BASELINE_API_TRUST_PROXY_HEADERS=true")
 	}
+	if startupErrors := productionStartupValidationErrors(config); len(startupErrors) > 0 {
+		return nil, fmt.Errorf("production startup validation failed: %s", strings.Join(startupErrors, "; "))
+	}
 	if config.OIDCEnabled {
 		if strings.TrimSpace(config.OIDCIssuerURL) == "" {
 			return nil, errors.New("OIDC enabled but issuer URL is not set (BASELINE_API_OIDC_ISSUER_URL, BASELINE_API_AUTH0_DOMAIN, or BASELINE_API_SUPABASE_URL)")
@@ -143,6 +154,7 @@ func NewServer(config Config, store *Store) (*Server, error) {
 		sessions:           map[string]dashboardSession{},
 		oidcState:          map[string]pendingOIDCLogin{},
 		rateState:          map[string]rateWindowCounter{},
+		sensitiveReauth:    map[string]sensitiveActionGrant{},
 		projects:           []Project{},
 		scans:              []ScanSummary{},
 		scanIdempotency:    map[string]scanIdempotencyEntry{},
@@ -300,16 +312,23 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "api key id is required")
 			return
 		}
-		role, authSource, err := s.authenticateWithSource(r)
+		principal, err := s.requestPrincipal(r)
 		if err != nil {
 			writeUnauthorized(w, err.Error())
 			return
 		}
-		if !s.enforceSessionCSRF(w, r, authSource) {
+		if !s.enforceSessionCSRF(w, r, principal.AuthSource) {
 			return
 		}
-		if role != RoleAdmin {
+		if principal.Role != RoleAdmin {
 			writeError(w, http.StatusForbidden, "forbidden", "admin role required")
+			return
+		}
+		if !s.requireSensitiveActionReauth(w, r, principal) {
+			return
+		}
+		confirmationReason, ok := s.requireSensitiveActionConfirmation(w, r, sensitiveActionRevokeAPIKey)
+		if !ok {
 			return
 		}
 
@@ -371,6 +390,7 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"id":      metadata.ID,
 			"revoked": true,
+			"reason":  confirmationReason,
 		})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")

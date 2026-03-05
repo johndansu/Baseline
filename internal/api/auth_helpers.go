@@ -122,6 +122,25 @@ func (s *Server) enforceSessionCSRF(w http.ResponseWriter, r *http.Request, auth
 	return false
 }
 
+func (s *Server) requireSensitiveActionConfirmation(w http.ResponseWriter, r *http.Request, action string) (string, bool) {
+	receivedAction := strings.ToLower(strings.TrimSpace(r.Header.Get(sensitiveConfirmHeaderName)))
+	expectedAction := strings.ToLower(strings.TrimSpace(action))
+	if receivedAction == "" || receivedAction != expectedAction {
+		writeError(w, http.StatusPreconditionRequired, "confirmation_required", "missing required sensitive-action confirmation")
+		return "", false
+	}
+	reason := strings.TrimSpace(r.Header.Get(sensitiveConfirmReasonHeaderName))
+	if reason == "" {
+		writeError(w, http.StatusPreconditionRequired, "confirmation_required", "missing required sensitive-action reason")
+		return "", false
+	}
+	if len(reason) > 256 {
+		writeError(w, http.StatusBadRequest, "bad_request", "sensitive-action reason must be 256 characters or less")
+		return "", false
+	}
+	return reason, true
+}
+
 func (s *Server) readRequestBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	maxBytes := s.config.MaxBodyBytes
 	if maxBytes <= 0 {

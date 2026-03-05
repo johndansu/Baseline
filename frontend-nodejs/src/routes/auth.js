@@ -2,6 +2,9 @@ const express = require('express');
 const { supabase, getUserSession, refreshAccessToken } = require('../utils/supabase');
 const router = express.Router();
 
+const GENERIC_AUTH_FAILURE_MESSAGE = 'Authentication failed. Check your credentials and try again.';
+const GENERIC_RESET_MESSAGE = 'If an account exists for this email, a password reset email will be sent.';
+
 /**
  * Sign in user with email and password
  */
@@ -22,9 +25,10 @@ router.post('/signin', async (req, res) => {
     });
 
     if (error) {
+      console.warn('Sign in failed', { code: error.code, status: error.status });
       return res.status(401).json({
         error: 'Authentication failed',
-        message: error.message
+        message: GENERIC_AUTH_FAILURE_MESSAGE
       });
     }
 
@@ -69,9 +73,10 @@ router.post('/signup', async (req, res) => {
     });
 
     if (error) {
+      console.warn('Sign up failed', { code: error.code, status: error.status });
       return res.status(400).json({
         error: 'Sign up failed',
-        message: error.message
+        message: 'Unable to complete sign up. Please try again.'
       });
     }
 
@@ -98,9 +103,10 @@ router.post('/signout', async (req, res) => {
     const { error } = await supabase.auth.signOut();
 
     if (error) {
+      console.warn('Sign out failed', { code: error.code, status: error.status });
       return res.status(400).json({
         error: 'Sign out failed',
-        message: error.message
+        message: 'Unable to complete sign out. Please try again.'
       });
     }
 
@@ -136,7 +142,7 @@ router.post('/refresh', async (req, res) => {
     if (!session) {
       return res.status(401).json({
         error: 'Token refresh failed',
-        message: 'Invalid or expired refresh token'
+        message: 'Unable to refresh session'
       });
     }
 
@@ -162,20 +168,14 @@ router.get('/session', async (req, res) => {
     const authHeader = req.headers.authorization;
     
     if (!authHeader) {
-      return res.status(401).json({
-        error: 'No token provided',
-        message: 'Authorization header is required'
-      });
+      return res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
     }
 
     const token = authHeader.replace('Bearer ', '');
     const session = await getUserSession(token);
 
     if (!session) {
-      return res.status(401).json({
-        error: 'Invalid session',
-        message: 'The provided token is invalid or expired'
-      });
+      return res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
     }
 
     res.json({
@@ -213,15 +213,16 @@ router.post('/reset-password', async (req, res) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email);
 
     if (error) {
-      return res.status(400).json({
-        error: 'Password reset failed',
-        message: error.message
+      console.warn('Password reset request failed', { code: error.code, status: error.status });
+      return res.json({
+        success: true,
+        message: GENERIC_RESET_MESSAGE
       });
     }
 
     res.json({
       success: true,
-      message: 'Password reset email sent'
+      message: GENERIC_RESET_MESSAGE
     });
   } catch (error) {
     console.error('Password reset error:', error);

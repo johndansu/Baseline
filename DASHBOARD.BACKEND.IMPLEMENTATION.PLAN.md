@@ -20,6 +20,83 @@ Primary goals:
 - Dashboard template exists in `frontend-nodejs/public/dashboard.html` + `frontend-nodejs/public/js/dashboard.js`
 - Template currently contains mock data and placeholder actions
 
+## Implementation Update (2026-03-03)
+
+Completed backend slice:
+- Added `GET /v1/dashboard` route in API router.
+- Implemented authenticated dashboard aggregate handler returning:
+  - `metrics`
+  - `recent_scans`
+  - `top_violations`
+  - `recent_events`
+- Enforced auth on dashboard summary endpoint (`401` when missing/invalid credentials).
+- Updated OpenAPI contract to include `/v1/dashboard` and related schemas.
+- Added/updated tests:
+  - dashboard summary auth + aggregate behavior tests
+  - contract test assertions for dashboard response shape
+  - full repo tests pass after this slice (`go test ./...`).
+
+Still pending for dashboard backend:
+- role/capabilities endpoint (`/v1/dashboard/capabilities`)
+- activity endpoint pagination/filter strategy
+- integration/status and mutation workflow endpoints used by full dashboard UI
+- frontend wiring cleanup to remove remaining mock/template logic
+
+## Execution Status (as of 2026-03-03)
+
+Status tags:
+- `DONE`: implemented and validated
+- `IN_PROGRESS`: partially implemented or documented but not complete
+- `TODO`: not started
+
+Phase 0:
+- `P0-01` - `IN_PROGRESS`
+- `P0-02` - `TODO`
+- `P0-03` - `TODO`
+- `P0-04` - `TODO`
+
+Phase 1:
+- `P1-01` - `TODO`
+- `P1-02` - `TODO`
+- `P1-03` - `TODO`
+- `P1-04` - `TODO`
+- `P1-05` - `TODO`
+
+Phase 2:
+- `P2-01` - `DONE`
+- `P2-02` - `TODO`
+- `P2-03` - `TODO`
+- `P2-04` - `TODO`
+- `P2-05` - `TODO`
+- `P2-06` - `TODO`
+- `P2-07` - `TODO`
+
+Phase 3:
+- `P3-01` - `TODO`
+- `P3-02` - `TODO`
+- `P3-03` - `TODO`
+- `P3-04` - `TODO`
+- `P3-05` - `TODO`
+
+Phase 4:
+- `P4-01` - `TODO`
+- `P4-02` - `TODO`
+- `P4-03` - `TODO`
+
+Phase 5:
+- `P5-01` - `TODO`
+- `P5-02` - `IN_PROGRESS`
+- `P5-03` - `TODO`
+- `P5-04` - `TODO`
+- `P5-05` - `TODO`
+
+Phase 6:
+- `P6-01` - `TODO`
+- `P6-02` - `TODO`
+- `P6-03` - `TODO`
+- `P6-04` - `TODO`
+- `P6-05` - `IN_PROGRESS`
+
 ## Non-Negotiable Rules
 
 1. Dashboard never computes policy outcomes itself; backend does.
@@ -78,7 +155,7 @@ Out of scope:
 
 | ID | Task | Owner | Effort | Acceptance Criteria |
 |---|---|---|---|---|
-| P2-01 | Implement `GET /v1/dashboard/overview` aggregate endpoint. | BE | M | Overview cards and charts use backend aggregates only (no frontend calculations beyond display transforms). |
+| P2-01 | Implement `GET /v1/dashboard` aggregate endpoint. | BE | M | Overview cards and charts use backend aggregates only (no frontend calculations beyond display transforms). |
 | P2-02 | Implement `GET /v1/dashboard/activity` endpoint. | BE | M | Activity feed shows audit + scan events with pagination and filters. |
 | P2-03 | Wire Scans tab to `/v1/scans` and scan detail/report routes. | FE | M | Scans table/detail fully driven by API; supports pagination, filter, and failure details. |
 | P2-04 | Wire Policies tab to `/v1/policies` and version endpoints. | FE | M | Policy list/detail shows current status and version info directly from backend. |
@@ -128,7 +205,7 @@ Out of scope:
 
 | Template Area | Decision | Backend Mapping |
 |---|---|---|
-| Overview cards/charts | Keep and wire | `GET /v1/dashboard/overview` |
+| Overview cards/charts | Keep and wire | `GET /v1/dashboard` |
 | Activity feed | Keep and wire | `GET /v1/dashboard/activity` + audit data |
 | Scans tab | Keep and wire | `/v1/scans` + `/v1/scans/{id}` + report route |
 | Policies tab | Keep and wire | `/v1/policies`, versions, latest |

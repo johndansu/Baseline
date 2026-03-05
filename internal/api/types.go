@@ -28,6 +28,7 @@ type Project struct {
 	RepositoryURL string `json:"repository_url,omitempty"`
 	DefaultBranch string `json:"default_branch"`
 	PolicySet     string `json:"policy_set"`
+	OwnerID       string `json:"owner_id,omitempty"`
 }
 
 // ScanViolation captures one policy violation in a scan report.
@@ -45,6 +46,7 @@ type ScanSummary struct {
 	Status     string          `json:"status"`
 	Violations []ScanViolation `json:"violations"`
 	CreatedAt  time.Time       `json:"created_at"`
+	OwnerID    string          `json:"owner_id,omitempty"`
 }
 
 // CreateScanRequest is the accepted payload for POST /v1/scans.

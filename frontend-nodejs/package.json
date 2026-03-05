@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "serve": "node src/main.js",
     "setup:supabase": "node scripts/setup-supabase.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test src/routes/auth.test.js src/middleware/logging.test.js",
     "lint": "echo \"Error: no linter specified\" && exit 1",
     "clean": "rimraf dist",
     "deploy": "npm run build:prod && npm run start:prod"

@@ -115,6 +115,36 @@ paths:
                   active:
                     type: boolean
                     example: false
+  /v1/auth/reauth:
+    post:
+      summary: Issue short-lived re-auth token for sensitive actions
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: Re-auth token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reauth_token:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
   /v1/auth/register:
     post:
       summary: Register API key via enrollment token
@@ -222,9 +252,28 @@ paths:
           schema:
             type: string
             enum: ["1"]
+        - in: header
+          name: X-Baseline-Confirm
+          required: true
+          schema:
+            type: string
+            enum: ["revoke_api_key"]
+        - in: header
+          name: X-Baseline-Reason
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-Reauth
+          required: false
+          description: Required when `BASELINE_API_SENSITIVE_ACTION_REAUTH_ENABLED=true`.
+          schema:
+            type: string
       responses:
         "200":
           description: API key revoked
+        "428":
+          $ref: "#/components/responses/ErrorResponse"
         "403":
           $ref: "#/components/responses/ErrorResponse"
         "404":
@@ -503,6 +552,21 @@ paths:
       responses:
         "200":
           description: Scan report
+  /v1/dashboard:
+    get:
+      summary: Dashboard aggregate summary
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Dashboard aggregates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
   /v1/policies:
     get:
       summary: List policy summaries
@@ -899,6 +963,25 @@ components:
           type: integer
         blocking_violations:
           type: integer
+    DashboardViolationCount:
+      type: object
+      properties:
+        policy_id:
+          type: string
+        count:
+          type: integer
+    AuditEvent:
+      type: object
+      properties:
+        event_type:
+          type: string
+        project_id:
+          type: string
+        scan_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     DashboardSummary:
       type: object
       properties:
@@ -908,3 +991,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ScanSummary"
+        top_violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardViolationCount"
+        recent_events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
