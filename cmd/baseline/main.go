@@ -49,13 +49,15 @@ func main() {
 	case "report":
 		cli.HandleReport(os.Args[2:])
 	case "generate":
-		cli.HandleGenerate()
+		cli.HandleGenerate(os.Args[2:])
 	case "pr":
-		cli.HandlePR()
+		cli.HandlePR(os.Args[2:])
 	case "explain":
 		cli.HandleExplain(os.Args[2:])
 	case "api":
 		cli.HandleAPI(os.Args[2:])
+	case "security-advice":
+		cli.HandleSecurityAdvice(os.Args[2:])
 	case "dashboard":
 		cli.HandleDashboard(os.Args[2:])
 	default:
@@ -82,6 +84,7 @@ func printUsage() {
 	fmt.Println("  pr         Create pull requests with AI-generated scaffolds")
 	fmt.Println("  explain    Get explanation for policy violations")
 	fmt.Println("  api        Serve Baseline API endpoints")
+	fmt.Println("  security-advice  Generate AI security recommendations beyond built-in policies")
 	fmt.Println("  dashboard  Launch local web dashboard for Baseline API")
 	fmt.Println()
 	fmt.Println("Flags:")

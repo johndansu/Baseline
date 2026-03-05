@@ -558,5 +558,96 @@ func TestShouldAutoStartAPIWithConfiguredKey(t *testing.T) {
 	}
 }
 
+func TestValidateAPIListenAddr(t *testing.T) {
+	tests := []struct {
+		name    string
+		addr    string
+		wantErr bool
+	}{
+		{name: "colon-port", addr: ":8080"},
+		{name: "host-port", addr: "127.0.0.1:8080"},
+		{name: "localhost-port", addr: "localhost:8080"},
+		{name: "empty", addr: "", wantErr: true},
+		{name: "colon-no-port", addr: ":", wantErr: true},
+		{name: "bad-port", addr: ":bad", wantErr: true},
+		{name: "missing-port", addr: "bad_addr", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAPIListenAddr(tt.addr)
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected error for addr %q", tt.addr)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error for addr %q: %v", tt.addr, err)
+			}
+		})
+	}
+}
+
+func TestParseSecurityAdviceArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "default output",
+			args: []string{},
+			want: "SECURITY.AI.SUGGESTIONS.md",
+		},
+		{
+			name: "custom output",
+			args: []string{"--out", "custom.md"},
+			want: "custom.md",
+		},
+		{
+			name:    "missing out value",
+			args:    []string{"--out"},
+			wantErr: true,
+		},
+		{
+			name:    "unknown flag",
+			args:    []string{"--bad"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseSecurityAdviceArgs(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for args %v", tt.args)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("expected output path %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestEnsureSecurityAdviceDisclaimer(t *testing.T) {
+	content := "## Additional Security Controls\n- Enable SAST baseline."
+	result := ensureSecurityAdviceDisclaimer(content)
+	if !strings.Contains(strings.ToLower(result), "ai-generated suggestions may be incorrect") {
+		t.Fatalf("expected mandatory disclaimer in output, got:\n%s", result)
+	}
+
+	withDisclaimer := "# AI Security Suggestions\n\n> AI-generated suggestions may be incorrect. Validate recommendations before implementation.\n\n## Additional Security Controls\n"
+	result2 := ensureSecurityAdviceDisclaimer(withDisclaimer)
+	count := strings.Count(strings.ToLower(result2), "ai-generated suggestions may be incorrect")
+	if count != 1 {
+		t.Fatalf("expected disclaimer to appear once, got count=%d\n%s", count, result2)
+	}
+}
+
 // Test command routing in main would require more complex setup
 // This is covered by integration tests in the main package

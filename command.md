@@ -21,6 +21,7 @@ baseline explain A1
 ```bash
 baseline generate
 baseline pr
+baseline security-advice --out SECURITY.AI.SUGGESTIONS.md
 ```
 
 ## API and Auth (Current)

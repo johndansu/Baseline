@@ -53,6 +53,7 @@ type Config struct {
 	AuthRateLimitWindow          time.Duration
 	UnauthRateLimitRequests      int
 	UnauthRateLimitWindow        time.Duration
+	SensitiveActionReauthEnabled bool
 	APIKeyHashSecret             string
 	AIEnabled                    bool
 }
@@ -104,6 +105,7 @@ func DefaultConfig() Config {
 		AuthRateLimitWindow:          1 * time.Minute,
 		UnauthRateLimitRequests:      30,
 		UnauthRateLimitWindow:        1 * time.Minute,
+		SensitiveActionReauthEnabled: false,
 		APIKeyHashSecret:             "",
 		AIEnabled:                    false,
 	}
@@ -353,6 +355,9 @@ func ConfigFromEnv() Config {
 		if seconds, ok := parseInt(v); ok && seconds > 0 {
 			cfg.UnauthRateLimitWindow = time.Duration(seconds) * time.Second
 		}
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_SENSITIVE_ACTION_REAUTH_ENABLED")); v != "" {
+		cfg.SensitiveActionReauthEnabled = parseBool(v, cfg.SensitiveActionReauthEnabled)
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_KEY_HASH_SECRET")); v != "" {
 		cfg.APIKeyHashSecret = v

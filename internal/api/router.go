@@ -67,6 +67,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthOIDCLogin(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/oidc/callback"):
 		s.handleAuthOIDCCallback(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/auth/reauth"):
+		s.handleAuthReauth(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/session"):
 		s.handleAuthSession(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/register"):
@@ -81,6 +83,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleGitHubCheckRuns(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/statuses"):
 		s.handleGitLabStatuses(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/dashboard"):
+		s.handleDashboardSummary(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/projects"):
 		s.handleProjects(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/scans"):

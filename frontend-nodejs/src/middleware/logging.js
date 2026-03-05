@@ -1,21 +1,29 @@
 const morgan = require('morgan');
 
+function isProduction() {
+  return process.env.NODE_ENV === 'production';
+}
+
 /**
  * Custom logging middleware for API requests and responses
  */
 function apiLogger(req, res, next) {
   const startTime = Date.now();
   const timestamp = new Date().toISOString();
+  const requestId = req.id || generateRequestId();
   
-  // Log request details
-  console.log(`[${timestamp}] ${req.method} ${req.originalUrl}`, {
-    method: req.method,
-    url: req.originalUrl,
-    ip: req.ip,
-    userAgent: req.get('User-Agent'),
-    userId: req.user?.id || 'anonymous',
-    timestamp
-  });
+  if (!isProduction()) {
+    // Verbose request diagnostics are only for non-production debugging.
+    console.log(`[${timestamp}] ${req.method} ${req.originalUrl}`, {
+      method: req.method,
+      url: req.originalUrl,
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      userId: req.user?.id || 'anonymous',
+      timestamp,
+      requestId
+    });
+  }
 
   // Override res.end to log response
   const originalEnd = res.end;
@@ -23,15 +31,20 @@ function apiLogger(req, res, next) {
     const endTime = Date.now();
     const duration = endTime - startTime;
     
-    // Log response details
-    console.log(`[${timestamp}] ${res.statusCode} ${req.method} ${req.originalUrl} (${duration}ms)`, {
-      statusCode: res.statusCode,
-      method: req.method,
-      url: req.originalUrl,
-      duration,
-      userId: req.user?.id || 'anonymous',
-      contentLength: res.get('Content-Length') || 0
-    });
+    if (isProduction()) {
+      console.log(`[API] ${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms requestId=${requestId}`);
+    } else {
+      // Verbose response diagnostics are only for non-production debugging.
+      console.log(`[${timestamp}] ${res.statusCode} ${req.method} ${req.originalUrl} (${duration}ms)`, {
+        statusCode: res.statusCode,
+        method: req.method,
+        url: req.originalUrl,
+        duration,
+        userId: req.user?.id || 'anonymous',
+        contentLength: res.get('Content-Length') || 0,
+        requestId
+      });
+    }
 
     // Call original end
     originalEnd.call(res, chunk, encoding);
@@ -45,24 +58,45 @@ function apiLogger(req, res, next) {
  */
 function errorLogger(err, req, res, next) {
   const timestamp = new Date().toISOString();
+  const requestId = req.id || generateRequestId();
   
-  console.error(`[${timestamp}] ERROR ${req.method} ${req.originalUrl}`, {
-    error: err.message,
-    stack: err.stack,
-    method: req.method,
-    url: req.originalUrl,
-    ip: req.ip,
-    userId: req.user?.id || 'anonymous',
-    timestamp
-  });
+  if (isProduction()) {
+    console.error(`[${timestamp}] ERROR ${req.method} ${req.originalUrl}`, {
+      statusCode: Number.isInteger(err?.status) ? err.status : 500,
+      method: req.method,
+      url: req.originalUrl,
+      userId: req.user?.id || 'anonymous',
+      timestamp,
+      requestId
+    });
+  } else {
+    console.error(`[${timestamp}] ERROR ${req.method} ${req.originalUrl}`, {
+      error: err.message,
+      stack: err.stack,
+      method: req.method,
+      url: req.originalUrl,
+      ip: req.ip,
+      userId: req.user?.id || 'anonymous',
+      timestamp,
+      requestId
+    });
+  }
 
   // Send standardized error response
   if (!res.headersSent) {
-    res.status(err.status || 500).json({
-      error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message,
-      message: err.message,
+    const statusCode = Number.isInteger(err.status) ? err.status : 500;
+    const safeClientMessage =
+      typeof err.publicMessage === 'string' && err.publicMessage.length > 0
+        ? err.publicMessage
+        : statusCode >= 500
+          ? 'Internal server error'
+          : 'Request failed';
+
+    res.status(statusCode).json({
+      error: statusCode >= 500 ? 'internal_error' : 'request_failed',
+      message: safeClientMessage,
       timestamp,
-      requestId: req.id || generateRequestId()
+      requestId
     });
   }
 }

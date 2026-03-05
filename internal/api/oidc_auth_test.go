@@ -234,3 +234,44 @@ func TestNewServerOIDCMissingConfigErrorsAreExplicit(t *testing.T) {
 		})
 	}
 }
+
+func TestOIDCCallbackProviderErrorIsSanitized(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.OIDCEnabled = true
+	cfg.OIDCIssuerURL = "https://issuer.example.com"
+	cfg.OIDCClientID = "client-id"
+	cfg.OIDCClientSecret = "client-secret"
+	cfg.OIDCRedirectURL = "https://app.example.com/v1/auth/oidc/callback"
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	resp, body := mustRequest(
+		t,
+		http.DefaultClient,
+		http.MethodGet,
+		ts.URL+"/v1/auth/oidc/callback?error=access_denied&error_description=account+not+found",
+		nil,
+		nil,
+	)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for provider callback error, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `"code":"oidc_error"`) {
+		t.Fatalf("expected oidc_error code, body=%s", body)
+	}
+	if strings.Contains(strings.ToLower(body), "account not found") {
+		t.Fatalf("expected sanitized provider error message, body=%s", body)
+	}
+}
+
+func TestOIDCUnavailableMessageDoesNotLeakInternalErrorDetails(t *testing.T) {
+	raw := oidcUnavailableMessage(errors.New("dial tcp timeout to internal.provider"))
+	if strings.Contains(strings.ToLower(raw), "dial tcp timeout") {
+		t.Fatalf("expected sanitized oidc unavailable message, got %q", raw)
+	}
+}

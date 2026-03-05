@@ -15,7 +15,8 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		if _, err := s.authenticate(r); err != nil {
+		principal, err := s.requestPrincipal(r)
+		if err != nil {
 			writeUnauthorized(w, err.Error())
 			return
 		}
@@ -25,7 +26,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 
 		if projectID != "" {
 			for _, project := range projects {
-				if project.ID == projectID {
+				if project.ID == projectID && principal.canAccessOwner(project.OwnerID) {
 					writeJSON(w, http.StatusOK, project)
 					return
 				}
@@ -34,8 +35,23 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if principal.enforceOwnership() {
+			filtered := make([]Project, 0, len(projects))
+			for _, project := range projects {
+				if principal.canAccessOwner(project.OwnerID) {
+					filtered = append(filtered, project)
+				}
+			}
+			projects = filtered
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
 	case http.MethodPost:
+		principal, err := s.requestPrincipal(r)
+		if err != nil {
+			writeUnauthorized(w, err.Error())
+			return
+		}
 		if projectID != "" {
 			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 			return
@@ -43,15 +59,10 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		if !s.requestBodyAllowed(w, r) {
 			return
 		}
-		role, authSource, err := s.authenticateWithSource(r)
-		if err != nil {
-			writeUnauthorized(w, err.Error())
+		if !s.enforceSessionCSRF(w, r, principal.AuthSource) {
 			return
 		}
-		if !s.enforceSessionCSRF(w, r, authSource) {
-			return
-		}
-		if role == RoleViewer {
+		if principal.Role == RoleViewer {
 			writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
 			return
 		}
@@ -85,6 +96,9 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		if project.PolicySet == "" {
 			project.PolicySet = "baseline:prod"
 		}
+		if strings.TrimSpace(principal.OwnerID) != "" {
+			project.OwnerID = principal.OwnerID
+		}
 		s.dataMu.Lock()
 		s.projects = append(s.projects, project)
 		s.appendEventLocked(AuditEvent{
@@ -105,11 +119,11 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		if _, err := s.authenticate(r); err != nil {
+		principal, err := s.requestPrincipal(r)
+		if err != nil {
 			writeUnauthorized(w, err.Error())
 			return
 		}
-
 		if strings.HasSuffix(pathSuffix, "/report") {
 			scanID := strings.TrimSuffix(pathSuffix, "/report")
 			scanID = strings.TrimSuffix(scanID, "/")
@@ -117,7 +131,7 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusNotFound, "not_found", "scan not found")
 				return
 			}
-			s.handleScanReport(w, r, scanID)
+			s.handleScanReport(w, r, scanID, principal)
 			return
 		}
 
@@ -127,13 +141,23 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 
 		if strings.TrimSpace(pathSuffix) != "" {
 			for _, scan := range scans {
-				if scan.ID == pathSuffix {
+				if scan.ID == pathSuffix && principal.canAccessOwner(scan.OwnerID) {
 					writeJSON(w, http.StatusOK, scan)
 					return
 				}
 			}
 			writeError(w, http.StatusNotFound, "not_found", "scan not found")
 			return
+		}
+
+		if principal.enforceOwnership() {
+			filtered := make([]ScanSummary, 0, len(scans))
+			for _, scan := range scans {
+				if principal.canAccessOwner(scan.OwnerID) {
+					filtered = append(filtered, scan)
+				}
+			}
+			scans = filtered
 		}
 
 		projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
@@ -149,6 +173,11 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 
 		writeJSON(w, http.StatusOK, map[string]any{"scans": scans})
 	case http.MethodPost:
+		principal, err := s.requestPrincipal(r)
+		if err != nil {
+			writeUnauthorized(w, err.Error())
+			return
+		}
 		if strings.TrimSpace(pathSuffix) != "" {
 			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 			return
@@ -156,15 +185,10 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 		if !s.requestBodyAllowed(w, r) {
 			return
 		}
-		role, authSource, err := s.authenticateWithSource(r)
-		if err != nil {
-			writeUnauthorized(w, err.Error())
+		if !s.enforceSessionCSRF(w, r, principal.AuthSource) {
 			return
 		}
-		if !s.enforceSessionCSRF(w, r, authSource) {
-			return
-		}
-		if role == RoleViewer {
+		if principal.Role == RoleViewer {
 			writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
 			return
 		}
@@ -187,21 +211,31 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 		idempotencyScope := ""
 		requestHash := ""
 		if hasIdempotency {
-			idempotencyScope = buildScanIdempotencyScope(r, authSource)
+			idempotencyScope = buildScanIdempotencyScope(r, principal.AuthSource)
 			requestHash = hashCreateScanRequest(normalized)
 		}
 
 		projectExists := false
+		projectAccessible := false
+		projectOwnerID := ""
 		s.dataMu.RLock()
 		for _, project := range s.projects {
 			if project.ID == normalized.ProjectID {
 				projectExists = true
+				projectOwnerID = strings.TrimSpace(project.OwnerID)
+				if principal.canAccessOwner(project.OwnerID) {
+					projectAccessible = true
+				}
 				break
 			}
 		}
 		s.dataMu.RUnlock()
 		if !projectExists {
 			writeError(w, http.StatusBadRequest, "bad_request", "project_id does not exist")
+			return
+		}
+		if principal.enforceOwnership() && !projectAccessible {
+			writeError(w, http.StatusForbidden, "forbidden", "project access denied")
 			return
 		}
 
@@ -212,6 +246,7 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 			Status:     normalized.Status,
 			Violations: normalized.Violations,
 			CreatedAt:  time.Now().UTC(),
+			OwnerID:    projectOwnerID,
 		}
 		if scan.ID == "" {
 			scan.ID = randomToken(8)
@@ -394,7 +429,7 @@ func (s *Server) pruneScanIdempotencyLocked(now time.Time) {
 	s.scanIdempotencySweep = now
 }
 
-func (s *Server) handleScanReport(w http.ResponseWriter, r *http.Request, scanID string) {
+func (s *Server) handleScanReport(w http.ResponseWriter, r *http.Request, scanID string, principal authPrincipal) {
 	s.dataMu.RLock()
 	scans := append([]ScanSummary(nil), s.scans...)
 	s.dataMu.RUnlock()
@@ -407,6 +442,10 @@ func (s *Server) handleScanReport(w http.ResponseWriter, r *http.Request, scanID
 		}
 	}
 	if scan == nil {
+		writeError(w, http.StatusNotFound, "not_found", "scan not found")
+		return
+	}
+	if !principal.canAccessOwner(scan.OwnerID) {
 		writeError(w, http.StatusNotFound, "not_found", "scan not found")
 		return
 	}

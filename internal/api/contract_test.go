@@ -167,6 +167,12 @@ func TestContractResponseShapesForCoreEndpoints(t *testing.T) {
 	}
 	assertJSONContainsTopLevelKeys(t, body, "version", "$schema", "runs")
 
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("dashboard summary response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "metrics", "recent_scans", "top_violations", "recent_events")
+
 	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/policies", nil, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("policies response status mismatch: got %d body=%s", resp.StatusCode, body)
@@ -317,6 +323,10 @@ func contractRequestPayloadAndHeaders(path, method string, fixture contractFixtu
 	switch {
 	case path == "/v1/auth/session" && method == http.MethodDelete:
 		headers["X-Baseline-CSRF"] = "1"
+		return nil, headers
+	case path == "/v1/api-keys/{id}" && method == http.MethodDelete:
+		headers["X-Baseline-Confirm"] = "revoke_api_key"
+		headers["X-Baseline-Reason"] = "contract-test"
 		return nil, headers
 	case path == "/v1/auth/register" && method == http.MethodPost:
 		return map[string]any{"enrollment_token": "enroll-viewer"}, headers

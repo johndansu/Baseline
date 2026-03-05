@@ -14,6 +14,7 @@ permissions:
 
 env:
   GO_VERSION: "1.24.13"
+  NODE_VERSION: "20"
   GOSEC_VERSION: "v2.21.4"
   GOVULNCHECK_VERSION: "v1.1.4"
   BASELINE_PRIMARY_BRANCH: "main"
@@ -55,11 +56,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.0.4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend-nodejs/package-lock.json
+
       - name: Setup Go
         uses: actions/setup-go@v5.0.2
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Run npm audit (prod deps, high+)
+        working-directory: frontend-nodejs
+        run: |
+          npm ci --ignore-scripts
+          npm audit --omit=dev --audit-level=high
 
       - name: Install security tooling
         run: |
