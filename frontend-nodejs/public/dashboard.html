@@ -7,8 +7,6 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link rel="icon" href="/assets/images/baseline favicon.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" type="module"></script>
-    <script type="module" src="/js/supabase-config.js"></script>
-    <script type="module" src="/js/auth.js"></script>
     <style>
         .tab-content.hidden { display: none; }
         
@@ -90,6 +88,12 @@
                         </svg>
                         Projects
                     </a>
+                    <a href="#" data-tab="users" onclick="switchTab('users'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5V18a4 4 0 00-4-4h-1m-4 6H4V18a4 4 0 014-4h5m-2-4a4 4 0 11-8 0 4 4 0 018 0zm10-2a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        Users
+                    </a>
                     <a href="#" data-tab="keys" onclick="switchTab('keys'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
@@ -131,24 +135,24 @@
                     
                     <div class="flex items-center gap-3">
                         <div class="relative">
-                            <input type="text" placeholder="Search policies, scans..." class="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <input id="dashboard-search" type="text" placeholder="Search current table..." class="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                             <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                             </svg>
                         </div>
                         
-                        <button onclick="openModal('notificationsModal')" class="relative p-2.5 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
+                        <button id="notifications-button" type="button" class="relative p-2.5 rounded-lg border border-gray-300 transition-colors hover:bg-gray-50 text-gray-600">
                             <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                             </svg>
                             <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500"></span>
                         </button>
                         
-                        <button onclick="openModal('cliModal')" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
+                        <button id="api-docs-button" type="button" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 transition-colors hover:bg-gray-50 text-gray-700">
                             <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                             </svg>
-                            <span class="text-xs font-mono text-gray-700">CLI</span>
+                            <span class="text-xs font-mono text-gray-700">API</span>
                         </button>
                         
                         <!-- User Profile Dropdown -->
@@ -181,12 +185,10 @@
                                     </div>
                                 </div>
                                 <div class="py-2">
-                                    <a href="#" class="block px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors">Configure GitHub</a>
-                                    <a href="#" class="block px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors">Configure GitLab</a>
-                                    <a href="#" class="block px-4 py-2 text-sm text-orange-600 hover:bg-orange-50 transition-colors">Manage Webhooks</a>
-                                    <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">Profile Settings</a>
-                                    <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">Account Preferences</a>
-                                    <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">API Documentation</a>
+                                    <a href="#" onclick="if(window.baselineDashboard){window.baselineDashboard.switchTab('integrations')} return false;" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Integrations</a>
+                                    <a href="#" onclick="if(window.baselineDashboard){window.baselineDashboard.switchTab('keys')} return false;" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">API Keys</a>
+                                    <a href="#" onclick="if(window.baselineDashboard){window.baselineDashboard.switchTab('audit')} return false;" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Audit Log</a>
+                                    <a href="/openapi.yaml" target="_blank" rel="noopener noreferrer" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">OpenAPI</a>
                                     <div class="border-t border-gray-100 my-2"></div>
                                     <button onclick="handleSignOut()" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors">Sign Out</button>
                                 </div>
@@ -266,26 +268,29 @@
                                 <div class="space-y-4">
                                     <div class="flex justify-between items-center">
                                         <span class="text-sm text-gray-700">Scan Success Rate</span>
-                                        <span class="text-sm font-medium text-gray-900">92%</span>
+                                        <span id="quick-success-rate-value" class="text-sm font-medium text-gray-900">0%</span>
                                     </div>
                                     <div class="w-full bg-gray-200 rounded-full h-2">
-                                        <div class="bg-orange-600 h-2 rounded-full" style="width: 92%"></div>
+                                        <div id="quick-success-rate-bar" class="bg-orange-600 h-2 rounded-full" style="width: 0%"></div>
                                     </div>
                                     
                                     <div class="flex justify-between items-center">
-                                        <span class="text-sm text-gray-700">Policy Compliance</span>
-                                        <span class="text-sm font-medium text-gray-900">85%</span>
+                                        <span class="text-sm text-gray-700">Failing Scan Rate</span>
+                                        <span id="quick-fail-rate-value" class="text-sm font-medium text-gray-900">0%</span>
                                     </div>
                                     <div class="w-full bg-gray-200 rounded-full h-2">
-                                        <div class="bg-orange-600 h-2 rounded-full" style="width: 85%"></div>
+                                        <div id="quick-fail-rate-bar" class="bg-orange-600 h-2 rounded-full" style="width: 0%"></div>
                                     </div>
                                     
                                     <div class="flex justify-between items-center">
-                                        <span class="text-sm text-gray-700">API Response Time</span>
-                                        <button onclick="openModal('auditDetailsModal')" class="text-xs font-medium text-blue-600 hover:text-blue-700">View Details →</button>
+                                        <span class="text-sm text-gray-700">Top Violation</span>
+                                        <span id="quick-top-violation-value" class="text-xs font-medium text-gray-900">None</span>
                                     </div>
                                     <div class="w-full bg-gray-200 rounded-full h-2">
-                                        <div class="bg-yellow-600 h-2 rounded-full" style="width: 75%"></div>
+                                        <div id="quick-top-violation-bar" class="bg-yellow-600 h-2 rounded-full" style="width: 0%"></div>
+                                    </div>
+                                    <div class="text-xs text-gray-600">
+                                        Blocking violations: <span id="quick-blocking-count" class="font-semibold text-gray-900">0</span>
                                     </div>
                                 </div>
                             </div>
@@ -684,6 +689,14 @@
                                     <button onclick="openModal('projectDetailsModal')" class="text-xs font-medium text-blue-600 hover:text-blue-700">Details →</button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Users Tab -->
+                    <div id="users-tab" class="tab-content hidden">
+                        <div class="bg-white rounded-lg border border-gray-200 p-6">
+                            <h3 class="text-lg font-semibold text-gray-900">Users</h3>
+                            <p class="text-sm text-gray-700 mt-1">Loading users...</p>
                         </div>
                     </div>
 
@@ -1307,28 +1320,28 @@
                                     <div class="mt-6 pt-6 border-t border-gray-200">
                                         <h4 class="text-sm font-medium text-gray-900 mb-4">Actions</h4>
                                         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                                            <button onclick="exportSettings()" class="px-3 py-1.5 bg-orange-600 text-white rounded hover:bg-orange-700 text-xs font-medium">
+                                            <button type="button" data-settings-disabled="1" class="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>
                                                 Export Settings
                                             </button>
-                                            <button onclick="importSettings()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                            <button type="button" data-settings-disabled="1" class="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>
                                                 Import Settings
                                             </button>
-                                            <button onclick="viewSystemLogs()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                            <button type="button" data-settings-disabled="1" class="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>
                                                 View Logs
                                             </button>
-                                            <button onclick="clearCache()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                            <button type="button" data-settings-disabled="1" class="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>
                                                 Clear Cache
                                             </button>
-                                            <button onclick="testConnection()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                            <button type="button" data-settings-disabled="1" class="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>
                                                 Test Connection
                                             </button>
-                                            <button onclick="generateReport()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
+                                            <button type="button" onclick="generateReport()" class="px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-xs font-medium">
                                                 Generate Report
                                             </button>
-                                            <button onclick="saveAllSettings()" class="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 text-xs font-medium">
+                                            <button type="button" data-settings-disabled="1" class="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>
                                                 Save All
                                             </button>
-                                            <button onclick="resetToDefaults()" class="px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 text-xs font-medium">
+                                            <button type="button" data-settings-disabled="1" class="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>
                                                 Reset
                                             </button>
                                         </div>
@@ -1385,113 +1398,123 @@
     <!-- Add Project Modal -->
     <div id="addProjectModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
-            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">Add New Project</h3>
-                <button onclick="closeModal('addProjectModal')" class="text-gray-400 hover:text-gray-700">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-            <div class="p-6 space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Project Name</label>
-                    <input type="text" placeholder="e.g., my-awesome-service" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <form id="add-project-form">
+                <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                    <h3 id="add-project-modal-title" class="text-lg font-bold text-gray-900">Add New Project</h3>
+                    <button type="button" onclick="closeModal('addProjectModal')" class="text-gray-400 hover:text-gray-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Repository URL</label>
-                    <input type="text" placeholder="github.com/company/repo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <div class="p-6 space-y-4">
+                    <div>
+                        <label for="add-project-name" class="block text-sm font-medium text-gray-700 mb-1">Project Name</label>
+                        <input id="add-project-name" type="text" required maxlength="128" placeholder="e.g. my-awesome-service" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="add-project-repo" class="block text-sm font-medium text-gray-700 mb-1">Repository URL</label>
+                        <input id="add-project-repo" type="text" maxlength="512" placeholder="https://github.com/company/repo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label for="add-project-branch" class="block text-sm font-medium text-gray-700 mb-1">Default Branch</label>
+                            <input id="add-project-branch" type="text" maxlength="128" placeholder="main" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label for="add-project-policy-set" class="block text-sm font-medium text-gray-700 mb-1">Policy Set</label>
+                            <input id="add-project-policy-set" type="text" maxlength="128" placeholder="baseline:prod" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+                    <p id="add-project-feedback" class="text-xs text-gray-500">
+                        Creates a new project and refreshes dashboard data.
+                    </p>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                    <textarea rows="3" placeholder="Brief description of the project..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                    <button type="button" onclick="closeModal('addProjectModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                    <button id="add-project-submit" type="submit" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Add Project</button>
                 </div>
-            </div>
-            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button onclick="closeModal('addProjectModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onclick="closeModal('addProjectModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Add Project</button>
-            </div>
+            </form>
         </div>
     </div>
 
     <!-- Generate API Key Modal -->
     <div id="generateKeyModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
-            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">Generate API Key</h3>
-                <button onclick="closeModal('generateKeyModal')" class="text-gray-400 hover:text-gray-700">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-            <div class="p-6 space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
-                    <input type="text" placeholder="e.g., Production Server Key" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <form id="generate-key-form">
+                <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-bold text-gray-900">Generate API Key</h3>
+                    <button type="button" onclick="closeModal('generateKeyModal')" class="text-gray-400 hover:text-gray-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option>Viewer</option>
-                        <option>Operator</option>
-                        <option>Admin</option>
-                    </select>
+                <div class="p-6 space-y-4">
+                    <div>
+                        <label for="generate-key-name" class="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
+                        <input id="generate-key-name" type="text" maxlength="128" placeholder="e.g. production-server" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="generate-key-role" class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                        <select id="generate-key-role" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="viewer">Viewer</option>
+                            <option value="operator">Operator</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <p id="generate-key-feedback" class="text-xs text-gray-500">
+                        Generated key value is shown once. Store it securely.
+                    </p>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
-                    <input type="text" placeholder="What is this key for?" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                    <button type="button" onclick="closeModal('generateKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                    <button id="generate-key-submit" type="submit" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Generate Key</button>
                 </div>
-                <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                    <p class="font-medium mb-1">⚠️ Important</p>
-                    <p class="text-amber-700">Copy your API key immediately. Once generated, the full key will only be shown once.</p>
-                </div>
-            </div>
-            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button onclick="closeModal('generateKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onclick="closeModal('generateKeyModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Generate Key</button>
-            </div>
+            </form>
         </div>
     </div>
 
     <!-- Run Scan Modal -->
     <div id="runScanModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
-            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">Run New Scan</h3>
-                <button onclick="closeModal('runScanModal')" class="text-gray-400 hover:text-gray-700">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-            <div class="p-6 space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Select Project</label>
-                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option>payments-service</option>
-                        <option>user-service</option>
-                        <option>analytics</option>
-                        <option>notifications</option>
-                    </select>
+            <form id="run-scan-form">
+                <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-bold text-gray-900">Run New Scan</h3>
+                    <button type="button" onclick="closeModal('runScanModal')" class="text-gray-400 hover:text-gray-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Scan Type</label>
-                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option>Full Scan</option>
-                        <option>Quick Scan</option>
-                        <option>Security Only</option>
-                    </select>
+                <div class="p-6 space-y-4">
+                    <div>
+                        <label for="run-scan-project" class="block text-sm font-medium text-gray-700 mb-1">Select Project</label>
+                        <select id="run-scan-project" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Loading projects...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="run-scan-status" class="block text-sm font-medium text-gray-700 mb-1">Expected Result</label>
+                        <select id="run-scan-status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="pass">Pass</option>
+                            <option value="warn">Warn</option>
+                            <option value="fail">Fail</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="run-scan-commit-sha" class="block text-sm font-medium text-gray-700 mb-1">Commit SHA (Optional)</label>
+                        <input id="run-scan-commit-sha" type="text" maxlength="128" placeholder="e.g. a1b2c3d4" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <p id="run-scan-feedback" class="text-xs text-gray-500">
+                        Creates a scan record in the backend and refreshes dashboard metrics/history.
+                    </p>
                 </div>
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-                    <p class="font-medium mb-1">📋 Scan Details</p>
-                    <p class="text-blue-700">Full scan will check all policies and may take 5-10 minutes.</p>
+                <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                    <button type="button" onclick="closeModal('runScanModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                    <button id="run-scan-submit" type="submit" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Start Scan</button>
                 </div>
-            </div>
-            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button onclick="closeModal('runScanModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onclick="closeModal('runScanModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Start Scan</button>
-            </div>
+            </form>
         </div>
     </div>
 
@@ -1563,8 +1586,8 @@
     <div id="copyKeyModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">API Key</h3>
-                <button onclick="closeModal('copyKeyModal')" class="text-gray-400 hover:text-gray-700">
+                <h3 class="text-lg font-bold text-gray-900">New API Key</h3>
+                <button type="button" onclick="closeModal('copyKeyModal')" class="text-gray-400 hover:text-gray-700">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -1572,19 +1595,20 @@
             </div>
             <div class="p-6 space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Key</label>
+                    <label for="issued-key-value" class="block text-sm font-medium text-gray-700 mb-1">Key</label>
                     <div class="flex items-center gap-2">
-                        <input type="text" value="bl_prod_1234567890abcdef" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-sm">
-                        <button onclick="navigator.clipboard.writeText('bl_prod_1234567890abcdef')" class="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Copy</button>
+                        <input id="issued-key-value" type="text" value="" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-sm">
+                        <button id="issued-key-copy-btn" type="button" class="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Copy</button>
                     </div>
                 </div>
+                <p id="issued-key-meta" class="text-xs text-gray-600"></p>
                 <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                    <p class="font-medium mb-1">🔒 Security Notice</p>
-                    <p class="text-amber-700">Treat this key like a password. Never share it publicly.</p>
+                    <p class="font-medium mb-1">Security Notice</p>
+                    <p class="text-amber-700">This is the only time full key value is shown.</p>
                 </div>
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button onclick="closeModal('copyKeyModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Done</button>
+                <button type="button" onclick="closeModal('copyKeyModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Done</button>
             </div>
         </div>
     </div>
@@ -1592,41 +1616,52 @@
     <!-- Revoke Key Modal -->
     <div id="revokeKeyModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
-            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h3 class="text-lg font-bold text-gray-900">Revoke API Key</h3>
-                <button onclick="closeModal('revokeKeyModal')" class="text-gray-400 hover:text-gray-700">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-            <div class="p-6 space-y-4">
-                <div class="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div class="flex items-center gap-3 mb-3">
-                        <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-                            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                            </svg>
-                        </div>
-                        <div>
-                            <h4 class="font-semibold text-gray-900">This action cannot be undone</h4>
-                            <p class="text-sm text-gray-700">Revoking this key will immediately disable access for all applications using it.</p>
+            <form id="revoke-key-form">
+                <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-bold text-gray-900">Revoke API Key</h3>
+                    <button type="button" onclick="closeModal('revokeKeyModal')" class="text-gray-400 hover:text-gray-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="p-6 space-y-4">
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold text-gray-900">This action cannot be undone</h4>
+                                <p class="text-sm text-gray-700">Revoking this key immediately disables access.</p>
+                            </div>
                         </div>
                     </div>
+                    <div>
+                        <label for="revoke-key-name" class="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
+                        <input id="revoke-key-name" type="text" value="" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label for="revoke-key-prefix" class="block text-sm font-medium text-gray-700 mb-1">Key Prefix</label>
+                        <input id="revoke-key-prefix" type="text" value="" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                    </div>
+                    <div>
+                        <label for="revoke-key-reason" class="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                        <input id="revoke-key-reason" type="text" maxlength="256" placeholder="e.g. rotation schedule" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500">
+                    </div>
+                    <div>
+                        <label for="revoke-key-confirm" class="block text-sm font-medium text-gray-700 mb-1">Confirm by typing revoke</label>
+                        <input id="revoke-key-confirm" type="text" placeholder="revoke" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500">
+                    </div>
+                    <p id="revoke-key-feedback" class="text-xs text-gray-500"></p>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
-                    <input type="text" value="Production Key" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
+                    <button type="button" onclick="closeModal('revokeKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                    <button id="revoke-key-submit" type="submit" class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700">Revoke Key</button>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Confirm by typing "revoke"</label>
-                    <input type="text" placeholder="Type revoke to confirm" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500">
-                </div>
-            </div>
-            <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button onclick="closeModal('revokeKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onclick="closeModal('revokeKeyModal')" class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700">Revoke Key</button>
-            </div>
+            </form>
         </div>
     </div>
 
@@ -1818,8 +1853,8 @@
             <div class="p-6 border-t border-gray-200 flex items-center justify-between">
                 <button onclick="closeModal('notificationsModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
                 <div class="flex items-center gap-2">
-                    <button onclick="closeModal('notificationsModal')" class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">Mark All Read</button>
-                    <button onclick="closeModal('notificationsModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors">Settings</button>
+                    <button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 text-sm font-medium rounded-lg bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>Mark All Read</button>
+                    <button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 text-sm font-medium rounded-lg bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>Settings</button>
                 </div>
             </div>
         </div>
@@ -1884,8 +1919,8 @@
             <div class="p-6 border-t border-gray-200 flex items-center justify-between">
                 <button onclick="closeModal('cliModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
                 <div class="flex items-center gap-2">
-                    <button onclick="closeModal('cliModal')" class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">Documentation</button>
-                    <button onclick="closeModal('cliModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors">Download</button>
+                    <button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 text-sm font-medium rounded-lg bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>Documentation</button>
+                    <button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 text-sm font-medium rounded-lg bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>Download</button>
                 </div>
             </div>
         </div>
@@ -1924,10 +1959,31 @@
 
         // Modal functions
         function openModal(modalId) {
+            const blockedPlaceholderModals = new Set([
+                'policyConfigModal',
+                'auditDetailsModal',
+                'projectDetailsModal',
+                'integrationConfigModal'
+            ]);
+            if (blockedPlaceholderModals.has(modalId)) {
+                return;
+            }
             const modal = document.getElementById(modalId);
             if (modal) {
                 modal.classList.remove('hidden');
                 modal.classList.add('flex');
+                if (modalId === 'addProjectModal' && window.baselineDashboard && typeof window.baselineDashboard.prepareAddProjectModal === 'function') {
+                    window.baselineDashboard.prepareAddProjectModal();
+                }
+                if (modalId === 'runScanModal' && window.baselineDashboard && typeof window.baselineDashboard.prepareRunScanModal === 'function') {
+                    window.baselineDashboard.prepareRunScanModal();
+                }
+                if (modalId === 'generateKeyModal' && window.baselineDashboard && typeof window.baselineDashboard.prepareGenerateKeyModal === 'function') {
+                    window.baselineDashboard.prepareGenerateKeyModal();
+                }
+                if (modalId === 'revokeKeyModal' && window.baselineDashboard && typeof window.baselineDashboard.prepareRevokeKeyModal === 'function') {
+                    window.baselineDashboard.prepareRevokeKeyModal();
+                }
             }
         }
 
@@ -1963,12 +2019,17 @@
         });
 
         // Handle sign out
-        function handleSignOut() {
-            if (confirm('Are you sure you want to sign out?')) {
-                // Sign out logic here
-                alert('Signed out successfully');
+        async function handleSignOut() {
+            if (!confirm('Are you sure you want to sign out?')) {
+                return;
             }
+            if (window.baselineDashboard && typeof window.baselineDashboard.signOut === 'function') {
+                await window.baselineDashboard.signOut();
+                return;
+            }
+            window.location.href = '/signin.html';
         }
     </script>
 </body>
 </html>
+

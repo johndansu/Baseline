@@ -356,6 +356,69 @@ func TestRequestIDHeaderPropagationAndGeneration(t *testing.T) {
 	}
 }
 
+func TestAuditEventsIncludeActorAndRequestIDForMutations(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"operator-key": RoleOperator,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	const reqID = "req-audit-project-create-001"
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"name": "audit-actor-request-id-check",
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+		requestIDHeader: reqID,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 project create, got %d body=%s", resp.StatusCode, body)
+	}
+	var created Project
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatalf("failed to decode created project: %v body=%s", err, body)
+	}
+	if strings.TrimSpace(created.ID) == "" {
+		t.Fatalf("expected created project id, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events?limit=20", nil, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 audit events, got %d body=%s", resp.StatusCode, body)
+	}
+	var auditPayload struct {
+		Events []AuditEvent `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(body), &auditPayload); err != nil {
+		t.Fatalf("failed to decode audit events: %v body=%s", err, body)
+	}
+
+	var matched *AuditEvent
+	for i := range auditPayload.Events {
+		event := &auditPayload.Events[i]
+		if event.EventType == "project_registered" && event.ProjectID == created.ID {
+			matched = event
+			break
+		}
+	}
+	if matched == nil {
+		t.Fatalf("expected project_registered event for project %q, events=%v", created.ID, auditPayload.Events)
+	}
+	if strings.TrimSpace(matched.Actor) == "" {
+		t.Fatalf("expected audit actor for project mutation, event=%+v", *matched)
+	}
+	if matched.RequestID != reqID {
+		t.Fatalf("expected request_id %q, got %q", reqID, matched.RequestID)
+	}
+}
+
 func TestRequestLoggingIncludesStructuredFields(t *testing.T) {
 	var output bytes.Buffer
 	originalLogger := baselinelog.Logger
@@ -399,6 +462,71 @@ func TestRequestLoggingIncludesStructuredFields(t *testing.T) {
 	for _, field := range expectedFields {
 		if !strings.Contains(logged, field) {
 			t.Fatalf("expected request log to contain %q, got logs:\n%s", field, logged)
+		}
+	}
+}
+
+func TestMutationLoggingIncludesActorActionAndOutcome(t *testing.T) {
+	var output bytes.Buffer
+	originalLogger := baselinelog.Logger
+	baselinelog.Logger = slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	defer func() {
+		baselinelog.Logger = originalLogger
+	}()
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	reqIDOK := "req-mut-log-ok"
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_mutation_log",
+		"name": "mutation-log-project",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+		requestIDHeader: reqIDOK,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 for project create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	reqIDFail := "req-mut-log-fail"
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_mutation_log_unauth",
+		"name": "mutation-log-unauth",
+	}, map[string]string{
+		requestIDHeader: reqIDFail,
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthorized project create, got %d body=%s", resp.StatusCode, body)
+	}
+
+	logged := output.String()
+	expectedFragments := []string{
+		"msg=dashboard_mutation",
+		"request_id=" + reqIDOK,
+		"action=projects.create",
+		"outcome=success",
+		"method=POST",
+		"path=/v1/projects",
+		"actor=api_key:",
+		"request_id=" + reqIDFail,
+		"outcome=failure",
+		"actor=anonymous",
+	}
+	for _, fragment := range expectedFragments {
+		if !strings.Contains(logged, fragment) {
+			t.Fatalf("expected mutation log to contain %q, got logs:\n%s", fragment, logged)
 		}
 	}
 }
@@ -500,6 +628,21 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 			adminStatus:    http.StatusCreated,
 		},
 		{
+			name:   "projects_update",
+			method: http.MethodPut,
+			path:   "/v1/projects/proj_rbac",
+			payload: map[string]any{
+				"name":           "rbac-seed-project-updated",
+				"repository_url": "https://github.com/acme/rbac",
+				"default_branch": "main",
+				"policy_set":     "baseline:prod",
+			},
+			unauthStatus:   http.StatusUnauthorized,
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusOK,
+			adminStatus:    http.StatusOK,
+		},
+		{
 			name:   "scans_create",
 			method: http.MethodPost,
 			path:   "/v1/scans",
@@ -585,6 +728,18 @@ func TestMutatingEndpointsRBACMatrix(t *testing.T) {
 			headers: map[string]string{
 				"X-Baseline-Confirm": "revoke_api_key",
 				"X-Baseline-Reason":  "rbac-test-revoke",
+			},
+			unauthStatus:   http.StatusUnauthorized,
+			viewerStatus:   http.StatusForbidden,
+			operatorStatus: http.StatusForbidden,
+			adminStatus:    http.StatusOK,
+		},
+		{
+			name:   "integration_secrets_update",
+			method: http.MethodPost,
+			path:   "/v1/integrations/secrets",
+			payload: map[string]any{
+				"github_api_url": "https://api.github.com",
 			},
 			unauthStatus:   http.StatusUnauthorized,
 			viewerStatus:   http.StatusForbidden,
@@ -2053,6 +2208,159 @@ func TestMetricsEndpointMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestMetricsEndpointExposesDashboardRequestMetrics(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"viewer-key": RoleViewer,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard", nil, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauth dashboard request, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard", nil, map[string]string{
+		"Authorization": "Bearer viewer-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for authorized dashboard summary, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard/capabilities", nil, map[string]string{
+		"Authorization": "Bearer viewer-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for authorized dashboard capabilities, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/metrics", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 metrics endpoint, got %d body=%s", resp.StatusCode, body)
+	}
+
+	expectedLines := []string{
+		`baseline_dashboard_requests_total{endpoint="/v1/dashboard",status_class="2xx"} 1`,
+		`baseline_dashboard_requests_total{endpoint="/v1/dashboard",status_class="4xx"} 1`,
+		`baseline_dashboard_requests_total{endpoint="/v1/dashboard/capabilities",status_class="2xx"} 1`,
+		`baseline_dashboard_request_errors_total{endpoint="/v1/dashboard"} 1`,
+		`baseline_dashboard_auth_failures_total{endpoint="/v1/dashboard"} 1`,
+		`baseline_dashboard_request_duration_seconds_count{endpoint="/v1/dashboard"} 2`,
+		`baseline_dashboard_request_duration_seconds_count{endpoint="/v1/dashboard/capabilities"} 1`,
+	}
+	for _, line := range expectedLines {
+		if !strings.Contains(body, line) {
+			t.Fatalf("expected metrics output to contain %q, body=%s", line, body)
+		}
+	}
+}
+
+func TestDashboardRolloutStageReadOnlyBlocksMutations(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.DashboardRolloutStage = DashboardRolloutStageReadOnly
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_rollout_read_only",
+		"name": "rollout-read-only",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for read_only rollout project mutation, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `"code":"rollout_blocked"`) {
+		t.Fatalf("expected rollout_blocked code, body=%s", body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/projects", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for read endpoint during read_only rollout, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestDashboardRolloutStageMutationsBlocksIntegrationsOnly(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.DashboardRolloutStage = DashboardRolloutStageMutations
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/projects", map[string]any{
+		"id":   "proj_rollout_mutations",
+		"name": "rollout-mutations",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 for core mutation during mutations rollout, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/secrets", map[string]any{
+		"github_webhook_secret": "secret-value",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for integrations mutation during mutations rollout, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `"code":"rollout_blocked"`) {
+		t.Fatalf("expected rollout_blocked code, body=%s", body)
+	}
+}
+
+func TestDashboardRolloutStageIntegrationsAllowsIntegrationsMutations(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	cfg.DashboardRolloutStage = DashboardRolloutStageIntegrations
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/secrets", map[string]any{
+		"github_webhook_secret": "secret-value",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for integrations mutation during integrations rollout, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
 func TestReadyEndpointInMemoryModeIsReady(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.APIKeys = map[string]Role{
@@ -2800,6 +3108,176 @@ func TestWebhookEnqueuesPersistentIntegrationJob(t *testing.T) {
 	}
 	if !strings.Contains(body, "integration_job_enqueued") {
 		t.Fatalf("expected integration_job_enqueued audit event, body=%s", body)
+	}
+}
+
+func TestIntegrationJobsEndpointFiltersAndRole(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "integration_jobs_endpoint.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	_, err = store.EnqueueIntegrationJob(IntegrationJob{
+		ID:            "job-github-failed",
+		Provider:      "github",
+		JobType:       "webhook_event",
+		ProjectRef:    "acme/repo",
+		ExternalRef:   "pr-42",
+		Status:        IntegrationJobFailed,
+		AttemptCount:  2,
+		MaxAttempts:   5,
+		LastError:     "upstream timeout",
+		NextAttemptAt: now.Add(2 * time.Minute),
+		CreatedAt:     now.Add(-10 * time.Minute),
+		UpdatedAt:     now.Add(-1 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("enqueue github integration job failed: %v", err)
+	}
+	_, err = store.EnqueueIntegrationJob(IntegrationJob{
+		ID:            "job-gitlab-succeeded",
+		Provider:      "gitlab",
+		JobType:       "webhook_event",
+		ProjectRef:    "acme/platform",
+		ExternalRef:   "mr-11",
+		Status:        IntegrationJobSucceeded,
+		AttemptCount:  1,
+		MaxAttempts:   5,
+		NextAttemptAt: now.Add(-1 * time.Minute),
+		CreatedAt:     now.Add(-20 * time.Minute),
+		UpdatedAt:     now.Add(-2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("enqueue gitlab integration job failed: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key":    RoleAdmin,
+		"operator-key": RoleOperator,
+		"viewer-key":   RoleViewer,
+	}
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodGet, ts.URL+"/v1/integrations/jobs", nil, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without auth, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/integrations/jobs", nil, map[string]string{
+		"Authorization": "Bearer viewer-key",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/integrations/jobs?provider=github&status=failed&limit=1", nil, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for operator list, got %d body=%s", resp.StatusCode, body)
+	}
+	if strings.Contains(body, "\"payload\"") {
+		t.Fatalf("integration jobs endpoint must not expose payload field, body=%s", body)
+	}
+
+	var payload struct {
+		Jobs []IntegrationJobSummary `json:"jobs"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatalf("failed to decode integration jobs payload: %v body=%s", err, body)
+	}
+	if len(payload.Jobs) != 1 {
+		t.Fatalf("expected one filtered integration job, got %d payload=%+v", len(payload.Jobs), payload)
+	}
+	if payload.Jobs[0].Provider != "github" || payload.Jobs[0].Status != IntegrationJobFailed {
+		t.Fatalf("unexpected filtered integration job: %+v", payload.Jobs[0])
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/integrations/jobs?provider=invalid", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid provider filter, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestIntegrationSecretsUpdateAdminOnlyAndNoSecretEcho(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key":    RoleAdmin,
+		"operator-key": RoleOperator,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/secrets", map[string]any{
+		"github_api_token": "operator-should-not-pass",
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for operator secret update, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/secrets", map[string]any{
+		"github_api_url": "not-a-url",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid github_api_url, got %d body=%s", resp.StatusCode, body)
+	}
+
+	const (
+		githubToken = "ghp_contract_sensitive_token"
+		gitlabToken = "glpat_contract_sensitive_token"
+	)
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/secrets", map[string]any{
+		"github_api_token": githubToken,
+		"gitlab_api_token": gitlabToken,
+		"github_api_url":   "https://api.github.com",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for admin secret update, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "updated") || !strings.Contains(body, "count") {
+		t.Fatalf("expected updated/count fields in response, body=%s", body)
+	}
+	if strings.Contains(body, githubToken) || strings.Contains(body, gitlabToken) {
+		t.Fatalf("response must not echo secret values, body=%s", body)
+	}
+	if server.config.GitHubAPIToken != githubToken || server.config.GitLabAPIToken != gitlabToken {
+		t.Fatalf("expected server runtime integration tokens to update")
+	}
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/audit/events?limit=20", nil, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for audit events after secret update, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "integration_secrets_updated") {
+		t.Fatalf("expected integration_secrets_updated audit event, body=%s", body)
+	}
+	if strings.Contains(body, githubToken) || strings.Contains(body, gitlabToken) {
+		t.Fatalf("audit payload must not expose secret values, body=%s", body)
 	}
 }
 

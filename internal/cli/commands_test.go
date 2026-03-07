@@ -496,6 +496,68 @@ func TestVerifyAPIProdConfigOIDCDetectsMisconfiguration(t *testing.T) {
 	}
 }
 
+func TestVerifyAPIProdConfigDashboardRolloutStageValidation(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = "api.example.com:443"
+	cfg.DBPath = "baseline_api.db"
+	cfg.RequireHTTPS = true
+	cfg.TrustProxyHeaders = true
+	cfg.APIKeys = map[string]api.Role{
+		"admin-key": api.RoleAdmin,
+	}
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.MaxBodyBytes = 1 << 20
+	cfg.ShutdownTimeout = 10 * time.Second
+	cfg.ReadTimeout = 5 * time.Second
+	cfg.WriteTimeout = 5 * time.Second
+	cfg.IdleTimeout = 30 * time.Second
+
+	result := verifyAPIProdConfig(cfg, func(key string) string {
+		if key == "BASELINE_API_DASHBOARD_ROLLOUT_STAGE" {
+			return "invalid_stage"
+		}
+		return ""
+	})
+	if len(result.Errors) == 0 {
+		t.Fatal("expected blocking error for invalid rollout stage, got none")
+	}
+	joined := strings.Join(result.Errors, "\n")
+	if !strings.Contains(joined, "BASELINE_API_DASHBOARD_ROLLOUT_STAGE") {
+		t.Fatalf("expected rollout stage validation error, got:\n%s", joined)
+	}
+}
+
+func TestVerifyAPIProdConfigDashboardRolloutStageWarning(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = "api.example.com:443"
+	cfg.DBPath = "baseline_api.db"
+	cfg.RequireHTTPS = true
+	cfg.TrustProxyHeaders = true
+	cfg.APIKeys = map[string]api.Role{
+		"admin-key": api.RoleAdmin,
+	}
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.MaxBodyBytes = 1 << 20
+	cfg.ShutdownTimeout = 10 * time.Second
+	cfg.ReadTimeout = 5 * time.Second
+	cfg.WriteTimeout = 5 * time.Second
+	cfg.IdleTimeout = 30 * time.Second
+
+	result := verifyAPIProdConfig(cfg, func(key string) string {
+		if key == "BASELINE_API_DASHBOARD_ROLLOUT_STAGE" {
+			return "mutations"
+		}
+		return ""
+	})
+	if len(result.Errors) != 0 {
+		t.Fatalf("expected no blocking errors, got %v", result.Errors)
+	}
+	joinedWarnings := strings.Join(result.Warnings, "\n")
+	if !strings.Contains(joinedWarnings, "Dashboard rollout stage is set to mutations") {
+		t.Fatalf("expected rollout stage warning, got:\n%s", joinedWarnings)
+	}
+}
+
 func TestLoadEnvFileIfPresent(t *testing.T) {
 	tempDir := t.TempDir()
 	envPath := filepath.Join(tempDir, "api.env")

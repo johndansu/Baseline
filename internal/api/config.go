@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+// DashboardRolloutStage controls phased dashboard mutation rollout.
+type DashboardRolloutStage string
+
+const (
+	DashboardRolloutStageReadOnly     DashboardRolloutStage = "read_only"
+	DashboardRolloutStageMutations    DashboardRolloutStage = "mutations"
+	DashboardRolloutStageIntegrations DashboardRolloutStage = "integrations"
+	DashboardRolloutStageFull         DashboardRolloutStage = "full"
+)
+
 // Config stores API runtime configuration.
 type Config struct {
 	Addr                         string
@@ -31,6 +41,7 @@ type Config struct {
 	DashboardAuthProxyEnabled    bool
 	DashboardAuthProxyUserHeader string
 	DashboardAuthProxyRoleHeader string
+	DashboardRolloutStage        DashboardRolloutStage
 	OIDCEnabled                  bool
 	OIDCIssuerURL                string
 	OIDCClientID                 string
@@ -83,6 +94,7 @@ func DefaultConfig() Config {
 		DashboardAuthProxyEnabled:    false,
 		DashboardAuthProxyUserHeader: "X-Forwarded-User",
 		DashboardAuthProxyRoleHeader: "X-Forwarded-Role",
+		DashboardRolloutStage:        DashboardRolloutStageFull,
 		OIDCEnabled:                  false,
 		OIDCIssuerURL:                "",
 		OIDCClientID:                 "",
@@ -202,6 +214,11 @@ func ConfigFromEnv() Config {
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER")); v != "" {
 		cfg.DashboardAuthProxyRoleHeader = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DASHBOARD_ROLLOUT_STAGE")); v != "" {
+		if stage, ok := parseDashboardRolloutStage(v); ok {
+			cfg.DashboardRolloutStage = stage
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_OIDC_ENABLED")); v != "" {
 		cfg.OIDCEnabled = parseBool(v, cfg.OIDCEnabled)
@@ -463,4 +480,19 @@ func normalizeSupabaseOIDCIssuer(raw string) string {
 		return value
 	}
 	return value + "/auth/v1"
+}
+
+func parseDashboardRolloutStage(raw string) (DashboardRolloutStage, bool) {
+	switch DashboardRolloutStage(strings.ToLower(strings.TrimSpace(raw))) {
+	case DashboardRolloutStageReadOnly:
+		return DashboardRolloutStageReadOnly, true
+	case DashboardRolloutStageMutations:
+		return DashboardRolloutStageMutations, true
+	case DashboardRolloutStageIntegrations:
+		return DashboardRolloutStageIntegrations, true
+	case DashboardRolloutStageFull:
+		return DashboardRolloutStageFull, true
+	default:
+		return "", false
+	}
 }

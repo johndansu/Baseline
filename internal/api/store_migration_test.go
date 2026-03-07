@@ -42,6 +42,7 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 		"idx_api_keys_revoked_created_at",
 		"idx_api_keys_id_revoked",
 		"idx_api_keys_source_created_at",
+		"idx_api_keys_owner_user_revoked_created_at",
 		"idx_audit_events_project_created_at",
 		"idx_projects_created_at",
 		"idx_scans_project_created_at",
@@ -49,9 +50,17 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 		"idx_user_identities_user_id",
 		"idx_auth_sessions_active",
 		"idx_auth_sessions_user_id",
+		"idx_users_role_status",
+		"idx_users_email",
 	} {
 		assertSQLiteObjectExists(t, store.db, "index", index)
 	}
+	assertSQLiteColumnExists(t, store.db, "users", "role")
+	assertSQLiteColumnExists(t, store.db, "users", "status")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "owner_user_id")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "created_by_user_id")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "revoked_by_user_id")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "revocation_reason")
 
 	now := time.Now().UTC()
 	apiKey := "fresh-bootstrap-key"
@@ -118,13 +127,22 @@ func TestNewStoreMigratesLegacySchemaAndPreservesData(t *testing.T) {
 		"idx_api_keys_key_hash",
 		"idx_api_keys_revoked_created_at",
 		"idx_api_keys_id_revoked",
+		"idx_api_keys_owner_user_revoked_created_at",
 		"idx_audit_events_project_created_at",
 		"idx_scans_project_created_at",
 		"idx_user_identities_user_id",
 		"idx_auth_sessions_active",
+		"idx_users_role_status",
+		"idx_users_email",
 	} {
 		assertSQLiteObjectExists(t, store.db, "index", index)
 	}
+	assertSQLiteColumnExists(t, store.db, "users", "role")
+	assertSQLiteColumnExists(t, store.db, "users", "status")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "owner_user_id")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "created_by_user_id")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "revoked_by_user_id")
+	assertSQLiteColumnExists(t, store.db, "api_keys", "revocation_reason")
 
 	keys, err := store.LoadAPIKeys()
 	if err != nil {
@@ -235,6 +253,107 @@ func TestStoreAuthPersistenceLifecycle(t *testing.T) {
 	}
 	if activeCount != 0 {
 		t.Fatalf("expected 0 active auth sessions after revoke, got %d", activeCount)
+	}
+}
+
+func TestStoreUserAdminAndOwnedAPIKeyHelpers(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "user_admin_owned_keys.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	userA, err := store.UpsertOIDCUser("https://issuer.example.com", "sub-user-a", "user.a@example.com", "User A", now)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser(userA) returned error: %v", err)
+	}
+	userB, err := store.UpsertOIDCUser("https://issuer.example.com", "sub-user-b", "user.b@example.com", "User B", now.Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser(userB) returned error: %v", err)
+	}
+
+	users, err := store.ListUsers(UserListFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListUsers returned error: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+
+	userARecord, found, err := store.GetUserByID(userA)
+	if err != nil {
+		t.Fatalf("GetUserByID returned error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected userA to exist")
+	}
+	if userARecord.Role != RoleViewer || userARecord.Status != UserStatusActive {
+		t.Fatalf("expected default role/status for userA, got role=%s status=%s", userARecord.Role, userARecord.Status)
+	}
+
+	updatedUserA, err := store.UpdateUserRoleAndStatus(userA, RoleOperator, UserStatusSuspended, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("UpdateUserRoleAndStatus returned error: %v", err)
+	}
+	if updatedUserA.Role != RoleOperator || updatedUserA.Status != UserStatusSuspended {
+		t.Fatalf("expected updated role/status for userA, got role=%s status=%s", updatedUserA.Role, updatedUserA.Status)
+	}
+
+	ownedKeyRaw := "owned-key-for-user-a"
+	ownedMeta := APIKeyMetadata{
+		ID:               "key_user_owned_a",
+		Name:             "owned-by-user-a",
+		Role:             RoleOperator,
+		Prefix:           keyPrefix(ownedKeyRaw),
+		Source:           "managed",
+		OwnerUserID:      userA,
+		OwnerSubject:     "sub-user-a",
+		OwnerEmail:       "user.a@example.com",
+		CreatedAt:        now,
+		CreatedBy:        "admin",
+		CreatedByUserID:  userB,
+		Revoked:          false,
+		RevocationReason: "",
+	}
+	if err := store.UpsertAPIKey(ownedKeyRaw, ownedMeta); err != nil {
+		t.Fatalf("UpsertAPIKey(owned) returned error: %v", err)
+	}
+
+	ownedActive, err := store.ListAPIKeysByOwnerUserID(userA, false, 10)
+	if err != nil {
+		t.Fatalf("ListAPIKeysByOwnerUserID(active) returned error: %v", err)
+	}
+	if len(ownedActive) != 1 {
+		t.Fatalf("expected 1 active owned key, got %d", len(ownedActive))
+	}
+	if ownedActive[0].OwnerUserID != userA || ownedActive[0].CreatedByUserID != userB {
+		t.Fatalf("unexpected ownership metadata on owned key: %+v", ownedActive[0])
+	}
+
+	revokedAt := now.Add(3 * time.Minute)
+	if err := store.RevokeAPIKeyWithContext(ownedMeta.ID, revokedAt, userB, "rotation"); err != nil {
+		t.Fatalf("RevokeAPIKeyWithContext returned error: %v", err)
+	}
+
+	ownedStillActive, err := store.ListAPIKeysByOwnerUserID(userA, false, 10)
+	if err != nil {
+		t.Fatalf("ListAPIKeysByOwnerUserID(active-after-revoke) returned error: %v", err)
+	}
+	if len(ownedStillActive) != 0 {
+		t.Fatalf("expected 0 active owned keys after revoke, got %d", len(ownedStillActive))
+	}
+
+	ownedAll, err := store.ListAPIKeysByOwnerUserID(userA, true, 10)
+	if err != nil {
+		t.Fatalf("ListAPIKeysByOwnerUserID(include-revoked) returned error: %v", err)
+	}
+	if len(ownedAll) != 1 {
+		t.Fatalf("expected 1 owned key (including revoked), got %d", len(ownedAll))
+	}
+	if !ownedAll[0].Revoked || ownedAll[0].RevokedByUserID != userB || ownedAll[0].RevocationReason != "rotation" {
+		t.Fatalf("unexpected revoked metadata on owned key: %+v", ownedAll[0])
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
@@ -51,12 +50,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	prNumber := payload.PullRequest.Number
 
 	s.dataMu.Lock()
-	s.appendEventLocked(AuditEvent{
-		EventType: "github_webhook_received",
-		ProjectID: repository,
-		ScanID:    integrationRef(prNumber),
-		CreatedAt: time.Now().UTC(),
-	})
+	s.appendEventLocked(s.newRequestAuditEvent(r, "integration_webhook", "github_webhook_received", repository, integrationRef(prNumber)))
 	s.dataMu.Unlock()
 	jobID, err := s.enqueueIntegrationJob(IntegrationJob{
 		Provider:    "github",
@@ -122,12 +116,7 @@ func (s *Server) handleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 	mrIID := payload.ObjectAttributes.IID
 
 	s.dataMu.Lock()
-	s.appendEventLocked(AuditEvent{
-		EventType: "gitlab_webhook_received",
-		ProjectID: repository,
-		ScanID:    integrationRef(mrIID),
-		CreatedAt: time.Now().UTC(),
-	})
+	s.appendEventLocked(s.newRequestAuditEvent(r, "integration_webhook", "gitlab_webhook_received", repository, integrationRef(mrIID)))
 	s.dataMu.Unlock()
 	jobID, err := s.enqueueIntegrationJob(IntegrationJob{
 		Provider:    "gitlab",
@@ -275,12 +264,7 @@ func (s *Server) handleGitHubCheckRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.dataMu.Lock()
-	s.appendEventLocked(AuditEvent{
-		EventType: "github_check_published",
-		ProjectID: owner + "/" + repo,
-		ScanID:    headSHA,
-		CreatedAt: time.Now().UTC(),
-	})
+	s.appendEventLocked(s.newRequestAuditEvent(r, authSource, "github_check_published", owner+"/"+repo, headSHA))
 	s.dataMu.Unlock()
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -383,12 +367,7 @@ func (s *Server) handleGitLabStatuses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.dataMu.Lock()
-	s.appendEventLocked(AuditEvent{
-		EventType: "gitlab_status_published",
-		ProjectID: projectID,
-		ScanID:    sha,
-		CreatedAt: time.Now().UTC(),
-	})
+	s.appendEventLocked(s.newRequestAuditEvent(r, authSource, "gitlab_status_published", projectID, sha))
 	s.dataMu.Unlock()
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -397,5 +376,106 @@ func (s *Server) handleGitLabStatuses(w http.ResponseWriter, r *http.Request) {
 		"project_id":      projectID,
 		"sha":             sha,
 		"upstream_status": upstreamResp.StatusCode,
+	})
+}
+
+func (s *Server) handleIntegrationSecrets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
+	principal, err := s.requestPrincipal(r)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+	if !s.enforceSessionCSRF(w, r, principal.AuthSource) {
+		return
+	}
+	if principal.Role != RoleAdmin {
+		writeError(w, http.StatusForbidden, "forbidden", "admin role required")
+		return
+	}
+
+	var req struct {
+		GitHubWebhookSecret string `json:"github_webhook_secret"`
+		GitLabWebhookToken  string `json:"gitlab_webhook_token"`
+		GitHubAPIToken      string `json:"github_api_token"`
+		GitHubAPIURL        string `json:"github_api_url"`
+		GitLabAPIToken      string `json:"gitlab_api_token"`
+		GitLabAPIURL        string `json:"gitlab_api_url"`
+	}
+	if !s.decodeJSONBody(w, r, &req) {
+		return
+	}
+
+	updated := make([]string, 0, 6)
+
+	if value := strings.TrimSpace(req.GitHubWebhookSecret); value != "" {
+		if len(value) > 4096 {
+			writeError(w, http.StatusBadRequest, "bad_request", "github_webhook_secret is too long")
+			return
+		}
+		s.config.GitHubWebhookSecret = value
+		updated = append(updated, "github_webhook_secret")
+	}
+	if value := strings.TrimSpace(req.GitLabWebhookToken); value != "" {
+		if len(value) > 4096 {
+			writeError(w, http.StatusBadRequest, "bad_request", "gitlab_webhook_token is too long")
+			return
+		}
+		s.config.GitLabWebhookToken = value
+		updated = append(updated, "gitlab_webhook_token")
+	}
+	if value := strings.TrimSpace(req.GitHubAPIToken); value != "" {
+		if len(value) > 4096 {
+			writeError(w, http.StatusBadRequest, "bad_request", "github_api_token is too long")
+			return
+		}
+		s.config.GitHubAPIToken = value
+		updated = append(updated, "github_api_token")
+	}
+	if value := strings.TrimSpace(req.GitLabAPIToken); value != "" {
+		if len(value) > 4096 {
+			writeError(w, http.StatusBadRequest, "bad_request", "gitlab_api_token is too long")
+			return
+		}
+		s.config.GitLabAPIToken = value
+		updated = append(updated, "gitlab_api_token")
+	}
+	if value := strings.TrimSpace(req.GitHubAPIURL); value != "" {
+		parsed, err := url.ParseRequestURI(value)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			writeError(w, http.StatusBadRequest, "bad_request", "github_api_url must be a valid http/https URL")
+			return
+		}
+		s.config.GitHubAPIBaseURL = value
+		updated = append(updated, "github_api_url")
+	}
+	if value := strings.TrimSpace(req.GitLabAPIURL); value != "" {
+		parsed, err := url.ParseRequestURI(value)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			writeError(w, http.StatusBadRequest, "bad_request", "gitlab_api_url must be a valid http/https URL")
+			return
+		}
+		s.config.GitLabAPIBaseURL = value
+		updated = append(updated, "gitlab_api_url")
+	}
+
+	if len(updated) == 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "at least one secret/config field must be provided")
+		return
+	}
+
+	s.dataMu.Lock()
+	s.appendEventLocked(s.newRequestAuditEvent(r, principal.AuthSource, "integration_secrets_updated", "", strings.Join(updated, ",")))
+	s.dataMu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"updated": updated,
+		"count":   len(updated),
 	})
 }

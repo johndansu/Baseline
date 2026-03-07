@@ -23,7 +23,7 @@ type persistedAPIKey struct {
 
 const (
 	storeSchemaVersionKey     = "schema_version"
-	currentStoreSchemaVersion = 4
+	currentStoreSchemaVersion = 6
 )
 
 type storeMigration struct {
@@ -124,6 +124,8 @@ func migrateStore(db *sql.DB) error {
 					event_type TEXT NOT NULL,
 					project_id TEXT,
 					scan_id TEXT,
+					actor TEXT,
+					request_id TEXT,
 					created_at TEXT NOT NULL
 				);`,
 				`CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);`,
@@ -216,6 +218,18 @@ func migrateStore(db *sql.DB) error {
 				);`,
 				`CREATE INDEX IF NOT EXISTS idx_auth_sessions_active ON auth_sessions(revoked, expires_at);`,
 				`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);`,
+			},
+		},
+		{
+			version: 5,
+			apply: func(tx *sql.Tx) error {
+				return migrateAuditEventsActorAndRequestIDTx(tx)
+			},
+		},
+		{
+			version: 6,
+			apply: func(tx *sql.Tx) error {
+				return migrateUserAndAPIKeyOwnershipTx(tx)
 			},
 		},
 	}
@@ -455,6 +469,85 @@ func ensureAPIKeyIndexesTx(tx *sql.Tx) error {
 	return nil
 }
 
+func migrateAuditEventsActorAndRequestIDTx(tx *sql.Tx) error {
+	hasActor, err := tableHasColumnTx(tx, "audit_events", "actor")
+	if err != nil {
+		return err
+	}
+	if !hasActor {
+		if _, err := tx.Exec(`ALTER TABLE audit_events ADD COLUMN actor TEXT`); err != nil {
+			return err
+		}
+	}
+
+	hasRequestID, err := tableHasColumnTx(tx, "audit_events", "request_id")
+	if err != nil {
+		return err
+	}
+	if !hasRequestID {
+		if _, err := tx.Exec(`ALTER TABLE audit_events ADD COLUMN request_id TEXT`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateUserAndAPIKeyOwnershipTx(tx *sql.Tx) error {
+	if err := ensureColumnWithDefaultTx(tx, "users", "role", "TEXT NOT NULL DEFAULT 'viewer'"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefaultTx(tx, "users", "status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE users SET role = 'viewer' WHERE role IS NULL OR TRIM(role) = ''`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_users_role_status ON users(role, status, updated_at DESC);`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);`); err != nil {
+		return err
+	}
+
+	if err := ensureColumnWithDefaultTx(tx, "api_keys", "owner_user_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefaultTx(tx, "api_keys", "owner_subject", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefaultTx(tx, "api_keys", "owner_email", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefaultTx(tx, "api_keys", "created_by_user_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefaultTx(tx, "api_keys", "revoked_by_user_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefaultTx(tx, "api_keys", "revocation_reason", "TEXT"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_api_keys_owner_user_revoked_created_at ON api_keys(owner_user_id, revoked, created_at DESC);`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureColumnWithDefaultTx(tx *sql.Tx, tableName, columnName, columnDDL string) error {
+	hasColumn, err := tableHasColumnTx(tx, tableName, columnName)
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = tx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, columnDDL))
+	return err
+}
+
 func tableHasColumnTx(tx *sql.Tx, tableName, columnName string) (bool, error) {
 	rows, err := tx.Query(fmt.Sprintf(`PRAGMA table_info(%s);`, tableName))
 	if err != nil {
@@ -501,28 +594,43 @@ func (s *Store) UpsertAPIKey(rawKey string, metadata APIKeyMetadata) error {
 		return errors.New("missing API key id")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO api_keys (id, key_hash, name, role, prefix, source, created_at, created_by, revoked, revoked_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO api_keys (
+			id, key_hash, name, role, prefix, source, owner_user_id, owner_subject, owner_email,
+			created_at, created_by, created_by_user_id, revoked, revoked_at, revoked_by_user_id, revocation_reason
+		)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(key_hash) DO UPDATE SET
 		   id=excluded.id,
 		   name=excluded.name,
 		   role=excluded.role,
 		   prefix=excluded.prefix,
 		   source=excluded.source,
+		   owner_user_id=excluded.owner_user_id,
+		   owner_subject=excluded.owner_subject,
+		   owner_email=excluded.owner_email,
 		   created_at=excluded.created_at,
 		   created_by=excluded.created_by,
+		   created_by_user_id=excluded.created_by_user_id,
 		   revoked=excluded.revoked,
-		   revoked_at=excluded.revoked_at`,
+		   revoked_at=excluded.revoked_at,
+		   revoked_by_user_id=excluded.revoked_by_user_id,
+		   revocation_reason=excluded.revocation_reason`,
 		metadata.ID,
 		keyHash,
 		strings.TrimSpace(metadata.Name),
 		string(metadata.Role),
 		strings.TrimSpace(metadata.Prefix),
 		strings.TrimSpace(metadata.Source),
+		strings.TrimSpace(metadata.OwnerUserID),
+		strings.TrimSpace(metadata.OwnerSubject),
+		strings.ToLower(strings.TrimSpace(metadata.OwnerEmail)),
 		metadata.CreatedAt.UTC().Format(time.RFC3339Nano),
 		strings.TrimSpace(metadata.CreatedBy),
+		strings.TrimSpace(metadata.CreatedByUserID),
 		boolToInt(metadata.Revoked),
 		timePtrToString(metadata.RevokedAt),
+		strings.TrimSpace(metadata.RevokedByUserID),
+		strings.TrimSpace(metadata.RevocationReason),
 	)
 	return err
 }
@@ -543,8 +651,11 @@ func (s *Store) EnsureBootstrapAPIKey(rawKey string, metadata APIKeyMetadata) er
 		return errors.New("missing API key id")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO api_keys (id, key_hash, name, role, prefix, source, created_at, created_by, revoked, revoked_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO api_keys (
+			id, key_hash, name, role, prefix, source, owner_user_id, owner_subject, owner_email,
+			created_at, created_by, created_by_user_id, revoked, revoked_at, revoked_by_user_id, revocation_reason
+		)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(key_hash) DO NOTHING`,
 		metadata.ID,
 		keyHash,
@@ -552,10 +663,16 @@ func (s *Store) EnsureBootstrapAPIKey(rawKey string, metadata APIKeyMetadata) er
 		string(metadata.Role),
 		strings.TrimSpace(metadata.Prefix),
 		"bootstrap",
+		strings.TrimSpace(metadata.OwnerUserID),
+		strings.TrimSpace(metadata.OwnerSubject),
+		strings.ToLower(strings.TrimSpace(metadata.OwnerEmail)),
 		metadata.CreatedAt.UTC().Format(time.RFC3339Nano),
 		strings.TrimSpace(metadata.CreatedBy),
+		strings.TrimSpace(metadata.CreatedByUserID),
 		boolToInt(metadata.Revoked),
 		timePtrToString(metadata.RevokedAt),
+		strings.TrimSpace(metadata.RevokedByUserID),
+		strings.TrimSpace(metadata.RevocationReason),
 	)
 	return err
 }
@@ -565,7 +682,8 @@ func (s *Store) LoadAPIKeys() ([]persistedAPIKey, error) {
 		return []persistedAPIKey{}, nil
 	}
 	rows, err := s.db.Query(
-		`SELECT id, key_hash, name, role, prefix, source, created_at, created_by, revoked, revoked_at
+		`SELECT id, key_hash, name, role, prefix, source, owner_user_id, owner_subject, owner_email,
+		        created_at, created_by, created_by_user_id, revoked, revoked_at, revoked_by_user_id, revocation_reason
 		 FROM api_keys
 		 ORDER BY created_at DESC`,
 	)
@@ -578,6 +696,8 @@ func (s *Store) LoadAPIKeys() ([]persistedAPIKey, error) {
 	for rows.Next() {
 		var (
 			id, keyHash, name, roleRaw, prefix, source, createdRaw, createdBy string
+			ownerUserID, ownerSubject, ownerEmail                             sql.NullString
+			createdByUserID, revokedByUserID, revocationReason                sql.NullString
 			revoked                                                           int
 			revokedRaw                                                        sql.NullString
 		)
@@ -588,10 +708,16 @@ func (s *Store) LoadAPIKeys() ([]persistedAPIKey, error) {
 			&roleRaw,
 			&prefix,
 			&source,
+			&ownerUserID,
+			&ownerSubject,
+			&ownerEmail,
 			&createdRaw,
 			&createdBy,
+			&createdByUserID,
 			&revoked,
 			&revokedRaw,
+			&revokedByUserID,
+			&revocationReason,
 		); err != nil {
 			return nil, err
 		}
@@ -610,15 +736,21 @@ func (s *Store) LoadAPIKeys() ([]persistedAPIKey, error) {
 		out = append(out, persistedAPIKey{
 			KeyHash: normalizeStoredAPIKeyHash(keyHash),
 			Metadata: APIKeyMetadata{
-				ID:        id,
-				Name:      name,
-				Role:      Role(strings.ToLower(strings.TrimSpace(roleRaw))),
-				Prefix:    prefix,
-				Source:    source,
-				CreatedAt: createdAt,
-				CreatedBy: createdBy,
-				Revoked:   revoked != 0,
-				RevokedAt: revokedAt,
+				ID:               id,
+				Name:             name,
+				Role:             Role(strings.ToLower(strings.TrimSpace(roleRaw))),
+				Prefix:           prefix,
+				Source:           source,
+				OwnerUserID:      strings.TrimSpace(ownerUserID.String),
+				OwnerSubject:     strings.TrimSpace(ownerSubject.String),
+				OwnerEmail:       strings.ToLower(strings.TrimSpace(ownerEmail.String)),
+				CreatedAt:        createdAt,
+				CreatedBy:        createdBy,
+				CreatedByUserID:  strings.TrimSpace(createdByUserID.String),
+				Revoked:          revoked != 0,
+				RevokedAt:        revokedAt,
+				RevokedByUserID:  strings.TrimSpace(revokedByUserID.String),
+				RevocationReason: strings.TrimSpace(revocationReason.String),
 			},
 		})
 	}
@@ -629,6 +761,10 @@ func (s *Store) LoadAPIKeys() ([]persistedAPIKey, error) {
 }
 
 func (s *Store) RevokeAPIKey(id string, revokedAt time.Time) error {
+	return s.RevokeAPIKeyWithContext(id, revokedAt, "", "")
+}
+
+func (s *Store) RevokeAPIKeyWithContext(id string, revokedAt time.Time, revokedByUserID, reason string) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
@@ -638,9 +774,11 @@ func (s *Store) RevokeAPIKey(id string, revokedAt time.Time) error {
 	}
 	result, err := s.db.Exec(
 		`UPDATE api_keys
-		 SET revoked = 1, revoked_at = ?
+		 SET revoked = 1, revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ?
 		 WHERE id = ?`,
 		revokedAt.UTC().Format(time.RFC3339Nano),
+		strings.TrimSpace(revokedByUserID),
+		strings.TrimSpace(reason),
 		keyID,
 	)
 	if err != nil {
@@ -661,11 +799,13 @@ func (s *Store) AppendAuditEvent(event AuditEvent) error {
 		return nil
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO audit_events (event_type, project_id, scan_id, created_at)
-		 VALUES (?, ?, ?, ?)`,
+		`INSERT INTO audit_events (event_type, project_id, scan_id, actor, request_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
 		strings.TrimSpace(event.EventType),
 		strings.TrimSpace(event.ProjectID),
 		strings.TrimSpace(event.ScanID),
+		strings.TrimSpace(event.Actor),
+		strings.TrimSpace(event.RequestID),
 		event.CreatedAt.UTC().Format(time.RFC3339Nano),
 	)
 	return err
@@ -680,7 +820,7 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 		maxRows = 500
 	}
 	rows, err := s.db.Query(
-		`SELECT event_type, project_id, scan_id, created_at
+		`SELECT event_type, project_id, scan_id, actor, request_id, created_at
 		 FROM audit_events
 		 ORDER BY created_at DESC
 		 LIMIT ?`,
@@ -693,8 +833,9 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 
 	out := []AuditEvent{}
 	for rows.Next() {
-		var eventType, projectID, scanID, createdRaw string
-		if err := rows.Scan(&eventType, &projectID, &scanID, &createdRaw); err != nil {
+		var eventType, createdRaw string
+		var projectID, scanID, actor, requestID sql.NullString
+		if err := rows.Scan(&eventType, &projectID, &scanID, &actor, &requestID, &createdRaw); err != nil {
 			return nil, err
 		}
 		createdAt, err := parseStoredTime(createdRaw)
@@ -703,8 +844,10 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 		}
 		out = append(out, AuditEvent{
 			EventType: eventType,
-			ProjectID: projectID,
-			ScanID:    scanID,
+			ProjectID: strings.TrimSpace(projectID.String),
+			ScanID:    strings.TrimSpace(scanID.String),
+			Actor:     strings.TrimSpace(actor.String),
+			RequestID: strings.TrimSpace(requestID.String),
 			CreatedAt: createdAt,
 		})
 	}
@@ -712,6 +855,109 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func (s *Store) ListAuditEventsByActors(actors []string, limit, offset int, eventType string, from, to *time.Time) (UserListResult, []AuditEvent, error) {
+	if s == nil || s.db == nil {
+		return UserListResult{Limit: limit, Offset: offset}, []AuditEvent{}, nil
+	}
+	if len(actors) == 0 {
+		return UserListResult{Limit: limit, Offset: offset}, []AuditEvent{}, nil
+	}
+
+	maxRows := limit
+	if maxRows <= 0 || maxRows > 200 {
+		maxRows = 50
+	}
+	start := offset
+	if start < 0 {
+		start = 0
+	}
+
+	placeholders := make([]string, 0, len(actors))
+	args := make([]any, 0, len(actors))
+	for _, actor := range actors {
+		value := strings.TrimSpace(actor)
+		if value == "" {
+			continue
+		}
+		placeholders = append(placeholders, "?")
+		args = append(args, value)
+	}
+	if len(placeholders) == 0 {
+		return UserListResult{Limit: maxRows, Offset: start}, []AuditEvent{}, nil
+	}
+
+	whereClauses := []string{"actor IN (" + strings.Join(placeholders, ",") + ")"}
+	filteredEventType := strings.TrimSpace(strings.ToLower(eventType))
+	if filteredEventType != "" {
+		whereClauses = append(whereClauses, "event_type = ?")
+		args = append(args, filteredEventType)
+	}
+	if from != nil {
+		whereClauses = append(whereClauses, "julianday(created_at) >= julianday(?)")
+		args = append(args, from.UTC().Format(time.RFC3339Nano))
+	}
+	if to != nil {
+		whereClauses = append(whereClauses, "julianday(created_at) <= julianday(?)")
+		args = append(args, to.UTC().Format(time.RFC3339Nano))
+	}
+
+	where := " WHERE " + strings.Join(whereClauses, " AND ")
+
+	var totalQueryBuilder strings.Builder
+	totalQueryBuilder.WriteString("SELECT COUNT(1) FROM audit_events")
+	totalQueryBuilder.WriteString(where)
+	totalQuery := totalQueryBuilder.String()
+	var total int
+	if err := s.db.QueryRow(totalQuery, args...).Scan(&total); err != nil {
+		return UserListResult{}, nil, err
+	}
+
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("SELECT event_type, project_id, scan_id, actor, request_id, created_at FROM audit_events")
+	queryBuilder.WriteString(where)
+	queryBuilder.WriteString(" ORDER BY created_at DESC LIMIT ? OFFSET ?")
+	query := queryBuilder.String()
+	queryArgs := append(append([]any{}, args...), maxRows, start)
+	rows, err := s.db.Query(query, queryArgs...)
+	if err != nil {
+		return UserListResult{}, nil, err
+	}
+	defer rows.Close()
+
+	out := []AuditEvent{}
+	for rows.Next() {
+		var eventType, createdRaw string
+		var projectID, scanID, actor, requestID sql.NullString
+		if err := rows.Scan(&eventType, &projectID, &scanID, &actor, &requestID, &createdRaw); err != nil {
+			return UserListResult{}, nil, err
+		}
+		createdAt, err := parseStoredTime(createdRaw)
+		if err != nil {
+			return UserListResult{}, nil, err
+		}
+		out = append(out, AuditEvent{
+			EventType: eventType,
+			ProjectID: strings.TrimSpace(projectID.String),
+			ScanID:    strings.TrimSpace(scanID.String),
+			Actor:     strings.TrimSpace(actor.String),
+			RequestID: strings.TrimSpace(requestID.String),
+			CreatedAt: createdAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return UserListResult{}, nil, err
+	}
+
+	hasMore := start+len(out) < total
+	meta := UserListResult{
+		Total:   total,
+		Limit:   maxRows,
+		Offset:  start,
+		HasMore: hasMore,
+	}
+	return meta, out, nil
 }
 
 func (s *Store) UpsertOIDCUser(provider, subject, email, displayName string, now time.Time) (string, error) {
@@ -838,6 +1084,322 @@ func (s *Store) UpsertOIDCUser(provider, subject, email, displayName string, now
 		return "", err
 	}
 	return userID, nil
+}
+
+type UserListFilter struct {
+	Limit   int
+	Offset  int
+	SortBy  string
+	SortDir string
+	Role    Role
+	Status  UserStatus
+	Query   string
+}
+
+type UserListResult struct {
+	Users   []UserRecord
+	Total   int
+	Limit   int
+	Offset  int
+	HasMore bool
+}
+
+func (s *Store) ListUsers(filter UserListFilter) ([]UserRecord, error) {
+	result, err := s.ListUsersPage(filter)
+	if err != nil {
+		return nil, err
+	}
+	return result.Users, nil
+}
+
+func (s *Store) ListUsersPage(filter UserListFilter) (UserListResult, error) {
+	if s == nil || s.db == nil {
+		return UserListResult{Users: []UserRecord{}}, nil
+	}
+	limit := filter.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	roleRaw := strings.TrimSpace(string(filter.Role))
+	statusRaw := strings.TrimSpace(string(filter.Status))
+	queryRaw := strings.ToLower(strings.TrimSpace(filter.Query))
+	sortBy := strings.TrimSpace(strings.ToLower(filter.SortBy))
+	if sortBy == "" {
+		sortBy = "updated_at"
+	}
+	sortDir := strings.TrimSpace(strings.ToLower(filter.SortDir))
+	if sortDir == "" {
+		sortDir = "desc"
+	}
+
+	orderColumn := "updated_at"
+	switch sortBy {
+	case "user":
+		orderColumn = "lower(COALESCE(NULLIF(email, ''), NULLIF(display_name, ''), id))"
+	case "role":
+		orderColumn = "role"
+	case "status":
+		orderColumn = "status"
+	case "last_login_at":
+		orderColumn = "last_login_at"
+	case "created_at":
+		orderColumn = "created_at"
+	case "updated_at":
+		orderColumn = "updated_at"
+	default:
+		orderColumn = "updated_at"
+	}
+
+	orderDirection := "DESC"
+	if sortDir == "asc" {
+		orderDirection = "ASC"
+	}
+
+	var total int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(1)
+		 FROM users
+		 WHERE (? = '' OR role = ?)
+		   AND (? = '' OR status = ?)
+		   AND (? = '' OR lower(display_name) LIKE '%' || ? || '%' OR lower(email) LIKE '%' || ? || '%')`,
+		roleRaw,
+		roleRaw,
+		statusRaw,
+		statusRaw,
+		queryRaw,
+		queryRaw,
+		queryRaw,
+	).Scan(&total); err != nil {
+		return UserListResult{}, err
+	}
+
+	query := fmt.Sprintf(
+		`SELECT id, display_name, email, role, status, last_login_at, created_at, updated_at
+		 FROM users
+		 WHERE (? = '' OR role = ?)
+		   AND (? = '' OR status = ?)
+		   AND (? = '' OR lower(display_name) LIKE '%%' || ? || '%%' OR lower(email) LIKE '%%' || ? || '%%')
+		 ORDER BY %s %s, id ASC
+		 LIMIT ? OFFSET ?`,
+		orderColumn,
+		orderDirection,
+	)
+	rows, err := s.db.Query(
+		query,
+		roleRaw,
+		roleRaw,
+		statusRaw,
+		statusRaw,
+		queryRaw,
+		queryRaw,
+		queryRaw,
+		limit,
+		offset,
+	)
+	if err != nil {
+		return UserListResult{}, err
+	}
+	defer rows.Close()
+
+	out := []UserRecord{}
+	for rows.Next() {
+		user, err := scanUserRecord(rows)
+		if err != nil {
+			return UserListResult{}, err
+		}
+		out = append(out, user)
+	}
+	if err := rows.Err(); err != nil {
+		return UserListResult{}, err
+	}
+
+	hasMore := false
+	if total > 0 {
+		hasMore = offset+len(out) < total
+	}
+	return UserListResult{
+		Users:   out,
+		Total:   total,
+		Limit:   limit,
+		Offset:  offset,
+		HasMore: hasMore,
+	}, nil
+}
+
+func (s *Store) GetUserByID(userID string) (UserRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return UserRecord{}, false, nil
+	}
+	id := strings.TrimSpace(userID)
+	if id == "" {
+		return UserRecord{}, false, errors.New("user id is required")
+	}
+
+	row := s.db.QueryRow(
+		`SELECT id, display_name, email, role, status, last_login_at, created_at, updated_at
+		 FROM users
+		 WHERE id = ?`,
+		id,
+	)
+	user, err := scanUserRecord(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UserRecord{}, false, nil
+	}
+	if err != nil {
+		return UserRecord{}, false, err
+	}
+	return user, true, nil
+}
+
+func (s *Store) UpdateUserRoleAndStatus(userID string, role Role, status UserStatus, updatedAt time.Time) (UserRecord, error) {
+	if s == nil || s.db == nil {
+		return UserRecord{}, nil
+	}
+	id := strings.TrimSpace(userID)
+	if id == "" {
+		return UserRecord{}, errors.New("user id is required")
+	}
+	if !isValidRole(role) {
+		return UserRecord{}, errors.New("invalid user role")
+	}
+	if !isValidUserStatus(status) {
+		return UserRecord{}, errors.New("invalid user status")
+	}
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	updatedAtRaw := updatedAt.UTC().Format(time.RFC3339Nano)
+
+	result, err := s.db.Exec(
+		`UPDATE users
+		 SET role = ?, status = ?, updated_at = ?
+		 WHERE id = ?`,
+		string(role),
+		string(status),
+		updatedAtRaw,
+		id,
+	)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return UserRecord{}, err
+	}
+	if affected == 0 {
+		return UserRecord{}, fmt.Errorf("user %s not found", id)
+	}
+
+	user, found, err := s.GetUserByID(id)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	if !found {
+		return UserRecord{}, fmt.Errorf("user %s not found", id)
+	}
+	return user, nil
+}
+
+func (s *Store) ListAPIKeysByOwnerUserID(ownerUserID string, includeRevoked bool, limit int) ([]APIKeyMetadata, error) {
+	if s == nil || s.db == nil {
+		return []APIKeyMetadata{}, nil
+	}
+	ownerID := strings.TrimSpace(ownerUserID)
+	if ownerID == "" {
+		return []APIKeyMetadata{}, errors.New("owner user id is required")
+	}
+	maxRows := limit
+	if maxRows <= 0 || maxRows > 500 {
+		maxRows = 100
+	}
+	revokedFilter := 0
+	if includeRevoked {
+		revokedFilter = 1
+	}
+
+	rows, err := s.db.Query(
+		`SELECT id, name, role, prefix, source, owner_user_id, owner_subject, owner_email,
+		        created_at, created_by, created_by_user_id, revoked, revoked_at, revoked_by_user_id, revocation_reason
+		 FROM api_keys
+		 WHERE owner_user_id = ?
+		   AND (? = 1 OR revoked = 0)
+		 ORDER BY created_at DESC
+		 LIMIT ?`,
+		ownerID,
+		revokedFilter,
+		maxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []APIKeyMetadata{}
+	for rows.Next() {
+		var (
+			id, name, roleRaw, prefix, source, createdRaw, createdBy string
+			ownerUser, ownerSubject, ownerEmail                      sql.NullString
+			createdByUserID, revokedByUserID, revocationReason       sql.NullString
+			revoked                                                  int
+			revokedRaw                                               sql.NullString
+		)
+		if err := rows.Scan(
+			&id,
+			&name,
+			&roleRaw,
+			&prefix,
+			&source,
+			&ownerUser,
+			&ownerSubject,
+			&ownerEmail,
+			&createdRaw,
+			&createdBy,
+			&createdByUserID,
+			&revoked,
+			&revokedRaw,
+			&revokedByUserID,
+			&revocationReason,
+		); err != nil {
+			return nil, err
+		}
+		createdAt, err := parseStoredTime(createdRaw)
+		if err != nil {
+			return nil, err
+		}
+		var revokedAt *time.Time
+		if revokedRaw.Valid && strings.TrimSpace(revokedRaw.String) != "" {
+			parsed, err := parseStoredTime(revokedRaw.String)
+			if err != nil {
+				return nil, err
+			}
+			revokedAt = &parsed
+		}
+		out = append(out, APIKeyMetadata{
+			ID:               strings.TrimSpace(id),
+			Name:             strings.TrimSpace(name),
+			Role:             Role(strings.ToLower(strings.TrimSpace(roleRaw))),
+			Prefix:           strings.TrimSpace(prefix),
+			Source:           strings.TrimSpace(source),
+			OwnerUserID:      strings.TrimSpace(ownerUser.String),
+			OwnerSubject:     strings.TrimSpace(ownerSubject.String),
+			OwnerEmail:       strings.ToLower(strings.TrimSpace(ownerEmail.String)),
+			CreatedAt:        createdAt,
+			CreatedBy:        strings.TrimSpace(createdBy),
+			CreatedByUserID:  strings.TrimSpace(createdByUserID.String),
+			Revoked:          revoked != 0,
+			RevokedAt:        revokedAt,
+			RevokedByUserID:  strings.TrimSpace(revokedByUserID.String),
+			RevocationReason: strings.TrimSpace(revocationReason.String),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) UpsertAuthSession(rawToken string, session dashboardSession, now time.Time) error {
@@ -1227,6 +1789,10 @@ type integrationJobScanner interface {
 	Scan(dest ...any) error
 }
 
+type userRecordScanner interface {
+	Scan(dest ...any) error
+}
+
 func scanIntegrationJob(scanner integrationJobScanner) (IntegrationJob, error) {
 	var (
 		job                                    IntegrationJob
@@ -1265,6 +1831,55 @@ func scanIntegrationJob(scanner integrationJobScanner) (IntegrationJob, error) {
 	job.CreatedAt = createdAt
 	job.UpdatedAt = updatedAt
 	return job, nil
+}
+
+func scanUserRecord(scanner userRecordScanner) (UserRecord, error) {
+	var (
+		user                                       UserRecord
+		id, displayName, email, roleRaw, statusRaw string
+		lastLoginRaw, createdRaw, updatedRaw       string
+	)
+	if err := scanner.Scan(
+		&id,
+		&displayName,
+		&email,
+		&roleRaw,
+		&statusRaw,
+		&lastLoginRaw,
+		&createdRaw,
+		&updatedRaw,
+	); err != nil {
+		return UserRecord{}, err
+	}
+	lastLoginAt, err := parseStoredTime(lastLoginRaw)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	createdAt, err := parseStoredTime(createdRaw)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	updatedAt, err := parseStoredTime(updatedRaw)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	user = UserRecord{
+		ID:          strings.TrimSpace(id),
+		DisplayName: strings.TrimSpace(displayName),
+		Email:       strings.ToLower(strings.TrimSpace(email)),
+		Role:        Role(strings.ToLower(strings.TrimSpace(roleRaw))),
+		Status:      UserStatus(strings.ToLower(strings.TrimSpace(statusRaw))),
+		LastLoginAt: lastLoginAt,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+	}
+	if !isValidRole(user.Role) {
+		user.Role = RoleViewer
+	}
+	if !isValidUserStatus(user.Status) {
+		user.Status = UserStatusActive
+	}
+	return user, nil
 }
 
 func parseStoredTime(value string) (time.Time, error) {

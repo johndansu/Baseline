@@ -8,7 +8,14 @@ import (
 	"time"
 )
 
-func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string, APIKeyMetadata, error) {
+type issueAPIKeyOptions struct {
+	OwnerUserID     string
+	OwnerSubject    string
+	OwnerEmail      string
+	CreatedByUserID string
+}
+
+func (s *Server) issueAPIKey(role Role, name, source, createdBy string, opts *issueAPIKeyOptions) (string, APIKeyMetadata, error) {
 	if !isValidRole(role) {
 		return "", APIKeyMetadata{}, errors.New("invalid role")
 	}
@@ -70,15 +77,20 @@ func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string,
 	}
 
 	now := time.Now().UTC()
+	options := optsOrEmpty(opts)
 	metadata := APIKeyMetadata{
-		ID:        id,
-		Name:      strings.TrimSpace(name),
-		Role:      role,
-		Prefix:    keyPrefix(key),
-		Source:    strings.TrimSpace(source),
-		CreatedAt: now,
-		CreatedBy: strings.TrimSpace(createdBy),
-		Revoked:   false,
+		ID:              id,
+		Name:            strings.TrimSpace(name),
+		Role:            role,
+		Prefix:          keyPrefix(key),
+		Source:          strings.TrimSpace(source),
+		OwnerUserID:     strings.TrimSpace(options.OwnerUserID),
+		OwnerSubject:    strings.TrimSpace(options.OwnerSubject),
+		OwnerEmail:      strings.ToLower(strings.TrimSpace(options.OwnerEmail)),
+		CreatedAt:       now,
+		CreatedBy:       strings.TrimSpace(createdBy),
+		CreatedByUserID: strings.TrimSpace(options.CreatedByUserID),
+		Revoked:         false,
 	}
 	s.config.APIKeys[key] = role
 	s.keyIndex[key] = id
@@ -94,6 +106,13 @@ func (s *Server) issueAPIKey(role Role, name, source, createdBy string) (string,
 		}
 	}
 	return key, metadata, nil
+}
+
+func optsOrEmpty(opts *issueAPIKeyOptions) issueAPIKeyOptions {
+	if opts == nil {
+		return issueAPIKeyOptions{}
+	}
+	return *opts
 }
 
 func (s *Server) findKeyIDByTokenLocked(token string) (string, bool) {

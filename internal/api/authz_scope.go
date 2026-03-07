@@ -10,6 +10,10 @@ type authPrincipal struct {
 	Role       Role
 	AuthSource string
 	OwnerID    string
+	UserID     string
+	Subject    string
+	Email      string
+	KeyID      string
 }
 
 func (s *Server) requestPrincipal(r *http.Request) (authPrincipal, error) {
@@ -29,8 +33,29 @@ func (s *Server) requestPrincipal(r *http.Request) (authPrincipal, error) {
 			return authPrincipal{}, errors.New("missing or invalid credentials")
 		}
 		principal.OwnerID = sessionOwnerID(session)
+		principal.UserID = strings.TrimSpace(session.UserID)
+		principal.Subject = strings.TrimSpace(session.Subject)
+		principal.Email = strings.ToLower(strings.TrimSpace(session.Email))
 	case "api_key":
-		principal.OwnerID = s.apiKeyOwnerIDFromRequest(r)
+		metadata, found := s.apiKeyMetadataFromRequest(r)
+		if found {
+			principal.KeyID = strings.TrimSpace(metadata.ID)
+			principal.UserID = strings.TrimSpace(metadata.OwnerUserID)
+			principal.Subject = strings.TrimSpace(metadata.OwnerSubject)
+			principal.Email = strings.ToLower(strings.TrimSpace(metadata.OwnerEmail))
+			if principal.UserID != "" {
+				principal.OwnerID = "user:" + strings.ToLower(principal.UserID)
+			} else if principal.Subject != "" {
+				principal.OwnerID = "sub:" + strings.ToLower(principal.Subject)
+			} else if principal.Email != "" {
+				principal.OwnerID = "email:" + principal.Email
+			} else if principal.KeyID != "" {
+				principal.OwnerID = "api_key:" + principal.KeyID
+			}
+		}
+		if principal.OwnerID == "" {
+			principal.OwnerID = s.apiKeyOwnerIDFromRequest(r)
+		}
 	}
 	return principal, nil
 }
@@ -66,6 +91,19 @@ func sessionOwnerID(session dashboardSession) string {
 }
 
 func (s *Server) apiKeyOwnerIDFromRequest(r *http.Request) string {
+	metadata, found := s.apiKeyMetadataFromRequest(r)
+	if found {
+		if owner := strings.TrimSpace(metadata.OwnerUserID); owner != "" {
+			return "user:" + strings.ToLower(owner)
+		}
+		if subject := strings.TrimSpace(metadata.OwnerSubject); subject != "" {
+			return "sub:" + strings.ToLower(subject)
+		}
+		if email := strings.ToLower(strings.TrimSpace(metadata.OwnerEmail)); email != "" {
+			return "email:" + email
+		}
+	}
+
 	authz := strings.TrimSpace(r.Header.Get("Authorization"))
 	if authz == "" {
 		return ""
@@ -85,4 +123,31 @@ func (s *Server) apiKeyOwnerIDFromRequest(r *http.Request) string {
 		return "api_key:" + keyID
 	}
 	return ""
+}
+
+func (s *Server) apiKeyMetadataFromRequest(r *http.Request) (APIKeyMetadata, bool) {
+	authz := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authz == "" {
+		return APIKeyMetadata{}, false
+	}
+	parts := strings.SplitN(authz, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return APIKeyMetadata{}, false
+	}
+	token := strings.TrimSpace(parts[1])
+	if token == "" {
+		return APIKeyMetadata{}, false
+	}
+
+	s.authMu.RLock()
+	defer s.authMu.RUnlock()
+	keyID, ok := s.findKeyIDByTokenLocked(token)
+	if !ok {
+		return APIKeyMetadata{}, false
+	}
+	metadata, exists := s.keysByID[keyID]
+	if !exists {
+		return APIKeyMetadata{}, false
+	}
+	return metadata, true
 }

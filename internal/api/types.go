@@ -21,6 +21,23 @@ func isValidRole(role Role) bool {
 	}
 }
 
+// UserStatus represents the lifecycle state of an authenticated user.
+type UserStatus string
+
+const (
+	UserStatusActive    UserStatus = "active"
+	UserStatusSuspended UserStatus = "suspended"
+)
+
+func isValidUserStatus(status UserStatus) bool {
+	switch status {
+	case UserStatusActive, UserStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
 // Project is a compact dashboard project model.
 type Project struct {
 	ID            string `json:"id"`
@@ -87,6 +104,33 @@ type DashboardViolationCount struct {
 	Count    int    `json:"count"`
 }
 
+// DashboardCapabilitiesResponse provides frontend-safe feature flags
+// and role/source context for the currently authenticated principal.
+type DashboardCapabilitiesResponse struct {
+	Role         Role            `json:"role"`
+	Source       string          `json:"source"`
+	Capabilities map[string]bool `json:"capabilities"`
+}
+
+// DashboardActivityItem represents one normalized dashboard feed event.
+type DashboardActivityItem struct {
+	ID        string    `json:"id"`
+	Type      string    `json:"type"`
+	Action    string    `json:"action"`
+	Status    string    `json:"status,omitempty"`
+	ProjectID string    `json:"project_id,omitempty"`
+	ScanID    string    `json:"scan_id,omitempty"`
+	Actor     string    `json:"actor,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	RequestID string    `json:"request_id,omitempty"`
+}
+
+// DashboardActivityResponse is the paginated activity feed payload.
+type DashboardActivityResponse struct {
+	Items      []DashboardActivityItem `json:"items"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
 // PolicyVersion is an immutable policy version payload.
 type PolicyVersion struct {
 	Name        string                 `json:"name"`
@@ -119,20 +163,40 @@ type AuditEvent struct {
 	EventType string    `json:"event_type"`
 	ProjectID string    `json:"project_id,omitempty"`
 	ScanID    string    `json:"scan_id,omitempty"`
+	Actor     string    `json:"actor,omitempty"`
+	RequestID string    `json:"request_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 // APIKeyMetadata is a non-secret view of one API key.
 type APIKeyMetadata struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name,omitempty"`
-	Role      Role       `json:"role"`
-	Prefix    string     `json:"prefix"`
-	Source    string     `json:"source,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	CreatedBy string     `json:"created_by,omitempty"`
-	Revoked   bool       `json:"revoked"`
-	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name,omitempty"`
+	Role             Role       `json:"role"`
+	Prefix           string     `json:"prefix"`
+	Source           string     `json:"source,omitempty"`
+	OwnerUserID      string     `json:"owner_user_id,omitempty"`
+	OwnerSubject     string     `json:"owner_subject,omitempty"`
+	OwnerEmail       string     `json:"owner_email,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	CreatedBy        string     `json:"created_by,omitempty"`
+	CreatedByUserID  string     `json:"created_by_user_id,omitempty"`
+	Revoked          bool       `json:"revoked"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	RevokedByUserID  string     `json:"revoked_by_user_id,omitempty"`
+	RevocationReason string     `json:"revocation_reason,omitempty"`
+}
+
+// UserRecord is the persisted non-secret user model for admin operations.
+type UserRecord struct {
+	ID          string     `json:"id"`
+	DisplayName string     `json:"display_name,omitempty"`
+	Email       string     `json:"email,omitempty"`
+	Role        Role       `json:"role"`
+	Status      UserStatus `json:"status"`
+	LastLoginAt time.Time  `json:"last_login_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 const (
@@ -157,4 +221,25 @@ type IntegrationJob struct {
 	NextAttemptAt time.Time `json:"next_attempt_at"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// IntegrationJobSummary is a frontend-safe view of one integration job.
+type IntegrationJobSummary struct {
+	ID            string    `json:"id"`
+	Provider      string    `json:"provider"`
+	JobType       string    `json:"job_type"`
+	ProjectRef    string    `json:"project_ref,omitempty"`
+	ExternalRef   string    `json:"external_ref,omitempty"`
+	Status        string    `json:"status"`
+	AttemptCount  int       `json:"attempt_count"`
+	MaxAttempts   int       `json:"max_attempts"`
+	LastError     string    `json:"last_error,omitempty"`
+	NextAttemptAt time.Time `json:"next_attempt_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// IntegrationJobsResponse is the integrations jobs list payload.
+type IntegrationJobsResponse struct {
+	Jobs []IntegrationJobSummary `json:"jobs"`
 }

@@ -13,6 +13,8 @@ STDOUT_LOG="${RUN_DIR}/api-server.out.log"
 STDERR_LOG="${RUN_DIR}/api-server.err.log"
 SUMMARY_LOG="${RUN_DIR}/summary.log"
 DB_PATH="${RUN_DIR}/baseline-api-smoke.db"
+SMOKE_BIN="${RUN_DIR}/baseline-smoke"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if [[ "${ADDR}" == :* ]]; then
   BASE_URL="http://127.0.0.1${ADDR}"
@@ -20,7 +22,9 @@ else
   BASE_URL="http://${ADDR}"
 fi
 
-ADMIN_KEY="$(go run ./cmd/baseline api keygen | tr -d '\r\n')"
+go build -o "${SMOKE_BIN}" ./cmd/baseline
+
+ADMIN_KEY="$("${SMOKE_BIN}" api keygen | tr -d '\r\n')"
 if [[ -z "${ADMIN_KEY}" ]]; then
   echo "Failed to generate API key" >&2
   exit 1
@@ -31,7 +35,7 @@ BASELINE_API_DB_PATH="${DB_PATH}" \
 BASELINE_API_SELF_SERVICE_ENABLED=false \
 BASELINE_API_DASHBOARD_SESSION_ENABLED=false \
 BASELINE_API_REQUIRE_HTTPS=false \
-go run ./cmd/baseline api serve --addr "${ADDR}" >"${STDOUT_LOG}" 2>"${STDERR_LOG}" &
+"${SMOKE_BIN}" api serve --addr "${ADDR}" >"${STDOUT_LOG}" 2>"${STDERR_LOG}" &
 SERVER_PID=$!
 
 cleanup() {
@@ -106,6 +110,35 @@ run_step() {
   echo "${step} ok (HTTP ${status})"
 }
 
+extract_json_field() {
+  local body_file="$1"
+  local field_name="$2"
+  "${PYTHON_BIN}" - "$body_file" "$field_name" <<'PY'
+import json
+import sys
+
+body_path = sys.argv[1]
+field_name = sys.argv[2]
+
+with open(body_path, "r", encoding="utf-8") as f:
+    payload = json.load(f)
+
+value = payload.get(field_name, "")
+if value is None:
+    value = ""
+print(str(value))
+PY
+}
+
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+  if command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+  else
+    echo "Python interpreter is required for JSON parsing in api-smoke.sh" >&2
+    exit 1
+  fi
+fi
+
 wait_for_health
 
 {
@@ -116,29 +149,55 @@ wait_for_health
 AUTH_HEADER="Authorization: Bearer ${ADMIN_KEY}"
 PROJECT_PAYLOAD='{"id":"smoke-project","name":"Smoke Project","default_branch":"main","policy_set":"baseline:prod"}'
 SCAN_PAYLOAD='{"id":"smoke-scan-1","project_id":"smoke-project","commit_sha":"abc123","status":"fail","violations":[{"policy_id":"A1","severity":"block","message":"smoke violation"}]}'
+KEY_PAYLOAD='{"name":"smoke-managed-key","role":"operator"}'
 
 run_step "01-healthz" "GET" "/healthz" "200" "" '"status":"ok"' ""
 run_step "02-readyz" "GET" "/readyz" "200" "" '"status":"ready"' ""
-run_step "03-projects-unauthorized" "GET" "/v1/projects" "401" "" '"code":"unauthorized"' "www-authenticate"
-run_step "04-project-create" "POST" "/v1/projects" "201" "${PROJECT_PAYLOAD}" '"id":"smoke-project"' "" \
+run_step "03-auth-me-unauthorized" "GET" "/v1/auth/me" "401" "" '"code":"unauthorized"' "www-authenticate"
+run_step "04-auth-me-admin" "GET" "/v1/auth/me" "200" "" '"auth_source":"api_key"' "" \
+  "${AUTH_HEADER}"
+run_step "05-projects-unauthorized" "GET" "/v1/projects" "401" "" '"code":"unauthorized"' "www-authenticate"
+run_step "06-project-create" "POST" "/v1/projects" "201" "${PROJECT_PAYLOAD}" '"id":"smoke-project"' "" \
   "${AUTH_HEADER}" "Content-Type: application/json"
 
-run_step "05-scan-create" "POST" "/v1/scans" "201" "${SCAN_PAYLOAD}" '"id":"smoke-scan-1"' "" \
+run_step "07-scan-create" "POST" "/v1/scans" "201" "${SCAN_PAYLOAD}" '"id":"smoke-scan-1"' "" \
   "${AUTH_HEADER}" "Content-Type: application/json" "Idempotency-Key: smoke-idempotency-1"
 
-run_step "06-scan-idempotent-replay" "POST" "/v1/scans" "201" "${SCAN_PAYLOAD}" '"id":"smoke-scan-1"' "x-idempotency-replayed: true" \
+run_step "08-scan-idempotent-replay" "POST" "/v1/scans" "201" "${SCAN_PAYLOAD}" '"id":"smoke-scan-1"' "x-idempotency-replayed: true" \
   "${AUTH_HEADER}" "Content-Type: application/json" "Idempotency-Key: smoke-idempotency-1"
 
-run_step "07-scan-sarif" "GET" "/v1/scans/smoke-scan-1/report?format=sarif" "200" "" '"runs"' "" \
+run_step "09-scan-sarif" "GET" "/v1/scans/smoke-scan-1/report?format=sarif" "200" "" '"runs"' "" \
   "${AUTH_HEADER}"
 
-run_step "08-audit-events" "GET" "/v1/audit/events?limit=5" "200" "" '"events"' "" \
+run_step "10-api-key-create" "POST" "/v1/api-keys" "201" "${KEY_PAYLOAD}" '"api_key"' "" \
+  "${AUTH_HEADER}" "Content-Type: application/json"
+
+MANAGED_KEY_ID="$(extract_json_field "${RUN_DIR}/10-api-key-create.body" "id" | tr -d '\r\n')"
+MANAGED_API_KEY="$(extract_json_field "${RUN_DIR}/10-api-key-create.body" "api_key" | tr -d '\r\n')"
+
+if [[ -z "${MANAGED_KEY_ID}" || -z "${MANAGED_API_KEY}" ]]; then
+  echo "Failed to parse managed API key create response" >&2
+  exit 1
+fi
+
+MANAGED_AUTH_HEADER="Authorization: Bearer ${MANAGED_API_KEY}"
+
+run_step "11-auth-me-managed-key" "GET" "/v1/auth/me" "200" "" '"role":"operator"' "" \
+  "${MANAGED_AUTH_HEADER}"
+
+run_step "12-api-key-revoke" "DELETE" "/v1/api-keys/${MANAGED_KEY_ID}" "200" "" '"revoked":true' "" \
+  "${AUTH_HEADER}" "X-Baseline-Confirm: revoke_api_key" "X-Baseline-Reason: smoke_rotation"
+
+run_step "13-auth-me-revoked-key" "GET" "/v1/auth/me" "401" "" '"code":"unauthorized"' "www-authenticate" \
+  "${MANAGED_AUTH_HEADER}"
+
+run_step "14-audit-events" "GET" "/v1/audit/events?limit=5" "200" "" '"events"' "" \
   "${AUTH_HEADER}"
 
-run_step "09-api-keys" "GET" "/v1/api-keys" "200" "" '"api_keys"' "" \
+run_step "15-api-keys" "GET" "/v1/api-keys" "200" "" '"api_keys"' "" \
   "${AUTH_HEADER}"
 
-run_step "10-metrics" "GET" "/metrics" "200" "" "baseline_projects_total" ""
+run_step "16-metrics" "GET" "/metrics" "200" "" "baseline_projects_total" ""
 
 echo
 echo "API smoke passed. Artifacts written to: ${RUN_DIR}"

@@ -5,11 +5,8 @@ Baseline is a Go-based production-readiness gate for software delivery.
 It provides:
 - a CLI for deterministic policy checks before shipping
 - an optional HTTP API for automation and operations
+- dashboard backend endpoints for summary/capabilities/activity
 - auth frontend pages (`signin`, `signup`) for human login via OIDC (Supabase/Auth0 supported)
-
-This repository is currently in an auth-first rebuild phase:
-- the dashboard UI has been removed temporarily
-- API and auth flows remain active and are the supported path
 
 ## Why Baseline
 
@@ -64,10 +61,12 @@ Supported now:
 - API key auth
 - OIDC login for humans (Supabase/Auth0)
 - Baseline session cookie auth (`/v1/auth/session`)
+- dashboard backend endpoints:
+  - `GET /v1/dashboard`
+  - `GET /v1/dashboard/capabilities`
+  - `GET /v1/dashboard/activity`
 - Auth frontend pages at `http://127.0.0.1:8080/signin.html` and `http://127.0.0.1:8080/signup.html`
-
-Temporarily removed / rebuilding:
-- dashboard UI pages and dashboard summary endpoint (`/v1/dashboard`)
+- dashboard proxy service via `baseline dashboard`
 
 ## Repository Overview
 
@@ -75,12 +74,13 @@ Temporarily removed / rebuilding:
 - `internal/policy` - deterministic policy evaluation
 - `internal/api` - HTTP API server, auth, persistence, integrations
 - `internal/ai` - AI-assisted scaffolding helpers
-- `frontend/` - landing + auth pages (`index.html`, `signin.html`, `signup.html`)
+- `frontend/` - API-hosted landing + auth pages (`index.html`, `signin.html`, `signup.html`)
+- `frontend-nodejs/public/` - dashboard template frontend (`dashboard.html`, JS modules)
 - `scripts/` - smoke tests, release gates, operational scripts
 
 ## Requirements
 
-- Go `1.24.13+` (or Go `1.25+`) (see `go.mod`)
+- Go `1.26.1+` (see `go.mod`)
 - Git in `PATH`
 - Optional:
   - Ollama or OpenRouter (for AI scaffold commands)
@@ -116,6 +116,15 @@ Open:
 - `http://127.0.0.1:8080/signin.html`
 - `http://127.0.0.1:8080/signup.html`
 
+Optional dashboard proxy (read-only proxy for selected API endpoints):
+
+```bash
+baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
+```
+
+Open:
+- `http://127.0.0.1:8091/`
+
 If using OIDC (Supabase/Auth0), configure the env vars in the `Supabase Auth` or `Auth0` sections below first.
 
 ### 3) Minimal local API smoke (manual)
@@ -150,7 +159,7 @@ curl http://127.0.0.1:8080/metrics
 - `baseline api serve` - run HTTP API server
 - `baseline api keygen` - generate random API key
 - `baseline api verify-prod [--strict]` - validate API production env config
-- `baseline dashboard` - legacy proxy dashboard service (not the supported auth path during rebuild)
+- `baseline dashboard` - local dashboard proxy service for selected read APIs
 
 For a concise command list, see `command.md`.
 
@@ -297,10 +306,18 @@ BASELINE_API_DB_PATH=.baseline/baseline.db
 
 #### Integrations
 
+- `GET /v1/integrations/jobs`
+- `POST /v1/integrations/secrets` (admin)
 - `POST /v1/integrations/github/webhook`
 - `POST /v1/integrations/gitlab/webhook`
 - `POST /v1/integrations/github/check-runs`
 - `POST /v1/integrations/gitlab/statuses`
+
+#### Dashboard Backend Endpoints
+
+- `GET /v1/dashboard`
+- `GET /v1/dashboard/capabilities`
+- `GET /v1/dashboard/activity`
 
 #### Core API Resources
 
@@ -356,6 +373,7 @@ Env files auto-load in this order:
 - `BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED`
 - `BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER`
 - `BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER`
+- `BASELINE_API_DASHBOARD_ROLLOUT_STAGE` (`read_only|mutations|integrations|full`)
 
 ### Self-Service API Key Enrollment
 
@@ -423,6 +441,16 @@ Env files auto-load in this order:
 - `BASELINE_API_AI_ENABLED`
 
 For managed API key rotation, use `scripts/api-key-rotate.ps1`.
+
+### Role Requirements (API)
+
+- `viewer`: read endpoints only (`/v1/dashboard*`, projects/scans/policies/rulesets/audit reads)
+- `operator`: viewer + standard mutations (project create/update, scan create)
+- `admin`: operator + admin-sensitive mutations (API key create/revoke, integration secret updates)
+
+Notes:
+- session mutations require `X-Baseline-CSRF: 1`
+- sensitive operations (for example key revocation) also require confirm/reason headers and may require `POST /v1/auth/reauth` + `X-Baseline-Reauth`
 
 ## Supabase Auth (Recommended Human Login)
 
@@ -535,17 +563,26 @@ curl http://127.0.0.1:8080/metrics
 4. Verify auth-protected API access:
 
 ```bash
-curl -H "Authorization: Bearer <admin_key>" http://127.0.0.1:8080/v1/projects
+curl -H "Authorization: Bearer <admin_key>" http://127.0.0.1:8080/v1/dashboard
 ```
 
-5. Inspect audit trail:
+5. Verify capability payload and activity feed:
+
+```bash
+curl -H "Authorization: Bearer <admin_key>" \
+  "http://127.0.0.1:8080/v1/dashboard/capabilities"
+curl -H "Authorization: Bearer <admin_key>" \
+  "http://127.0.0.1:8080/v1/dashboard/activity?limit=10"
+```
+
+6. Inspect audit trail:
 
 ```bash
 curl -H "Authorization: Bearer <admin_key>" \
   "http://127.0.0.1:8080/v1/audit/events?limit=20"
 ```
 
-6. Rotate/revoke managed API keys (Windows PowerShell):
+7. Rotate/revoke managed API keys (Windows PowerShell):
 
 ```powershell
 .\scripts\api-key-rotate.ps1 `
@@ -556,7 +593,7 @@ curl -H "Authorization: Bearer <admin_key>" \
   -RevokeKeyId "<old_key_id>"
 ```
 
-7. Production preflight:
+8. Production preflight:
 
 ```bash
 baseline api verify-prod --strict
@@ -572,6 +609,13 @@ Windows PowerShell:
 ```
 
 Artifacts are written under `.artifacts/api-smoke/<timestamp>`.
+
+Smoke suite coverage now includes:
+- health and readiness
+- auth identity (`/v1/auth/me`) unauth/auth/revoked-key checks
+- API key lifecycle create/revoke flow
+- project and scan creation (including idempotent replay)
+- report export, audit, and metrics checks
 
 ## GitHub Branch Protection (Required)
 
@@ -629,6 +673,31 @@ Check:
 - session cookie is present
 - mutating requests include `X-Baseline-CSRF: 1`
 - API key revoke requests include `X-Baseline-Confirm` and `X-Baseline-Reason`
+
+### Dashboard API returns `403 forbidden`
+
+Likely role/capability mismatch.
+
+Check:
+- `GET /v1/dashboard/capabilities` for the current principal
+- whether your action requires `operator` or `admin`
+
+### Sensitive action returns `428 reauth_required`
+
+Required step-up auth token is missing/expired.
+
+Fix:
+- call `POST /v1/auth/reauth`
+- retry with `X-Baseline-Reauth: <token>`
+- include `X-Baseline-Confirm` and `X-Baseline-Reason` where required
+
+### Mutation returns `503 rollout_blocked`
+
+Dashboard rollout stage is restricting writes.
+
+Check:
+- `BASELINE_API_DASHBOARD_ROLLOUT_STAGE`
+- allowed values: `read_only`, `mutations`, `integrations`, `full`
 
 ## Example API Usage
 

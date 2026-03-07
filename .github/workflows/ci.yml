@@ -13,9 +13,9 @@ permissions:
   security-events: write
 
 env:
-  GO_VERSION: "1.24.13"
+  GO_VERSION: "1.26.1"
   NODE_VERSION: "20"
-  GOSEC_VERSION: "v2.21.4"
+  GOSEC_VERSION: "v2.22.9"
   GOVULNCHECK_VERSION: "v1.1.4"
   BASELINE_PRIMARY_BRANCH: "main"
 
@@ -69,6 +69,9 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - name: Run dashboard secret scan gate
+        run: bash ./scripts/secret-scan-dashboard.sh
+
       - name: Run npm audit (prod deps, high+)
         working-directory: frontend-nodejs
         run: |
@@ -92,7 +95,7 @@ jobs:
             ./...
 
       - name: Upload gosec SARIF
-        if: always()
+        if: always() && hashFiles('security/gosec.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3.27.9
         with:
           sarif_file: security/gosec.sarif
@@ -126,6 +129,9 @@ jobs:
 
       - name: Run API contract + e2e + performance smoke gates
         run: go test ./internal/api -run "TestOpenAPIOperationsReturnDocumentedStatuses|TestContractResponseShapesForCoreEndpoints|TestBackendE2ESuite|TestHighReadEndpointsPerformanceSmoke" -count=1
+
+      - name: Run CLI parity matrix gates (dashboard backend)
+        run: go test ./internal/api -run "TestCLIDashboardParityMatrix|TestCLIDashboardParityPolicyCatalogFX07|TestCLIDashboardParityReportFormatsFX08" -count=1
 
   api-smoke:
     name: API Smoke

@@ -19,6 +19,7 @@ $stdoutLog = Join-Path $runDir "api-server.out.log"
 $stderrLog = Join-Path $runDir "api-server.err.log"
 $dbPath = Join-Path $runDir "baseline-api-smoke.db"
 $summaryPath = Join-Path $runDir "summary.log"
+$smokeBinary = Join-Path $runDir "baseline-smoke.exe"
 
 function Resolve-BaseURL {
     param([string]$RawAddr)
@@ -109,22 +110,53 @@ function Invoke-APICheck {
     Write-Host "$Step ok (HTTP $status)"
 }
 
-$adminKey = (& go run ./cmd/baseline api keygen).Trim()
+function Read-JSONField {
+    param(
+        [string]$Path,
+        [string]$Field
+    )
+
+    $payload = Get-Content -Path $Path -Raw | ConvertFrom-Json
+    if ($null -eq $payload) {
+        return ""
+    }
+
+    $prop = $payload.PSObject.Properties[$Field]
+    if ($null -eq $prop) {
+        return ""
+    }
+    if ($null -eq $prop.Value) {
+        return ""
+    }
+    return [string]$prop.Value
+}
+
+& go build -o $smokeBinary ./cmd/baseline
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to build baseline binary for smoke run"
+}
+
+$adminKey = (& $smokeBinary api keygen).Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($adminKey)) {
     throw "Unable to generate API key"
 }
 
 $baseURL = Resolve-BaseURL -RawAddr $Addr
-$serverCommand = @(
-    "set BASELINE_API_KEY=$adminKey",
-    "set `"BASELINE_API_DB_PATH=$dbPath`"",
-    "set BASELINE_API_SELF_SERVICE_ENABLED=false",
-    "set BASELINE_API_DASHBOARD_SESSION_ENABLED=false",
-    "set BASELINE_API_REQUIRE_HTTPS=false",
-    "go run ./cmd/baseline api serve --addr `"$Addr`""
-) -join "&& "
+$envBackup = @{
+    BASELINE_API_KEY                       = $env:BASELINE_API_KEY
+    BASELINE_API_DB_PATH                   = $env:BASELINE_API_DB_PATH
+    BASELINE_API_SELF_SERVICE_ENABLED      = $env:BASELINE_API_SELF_SERVICE_ENABLED
+    BASELINE_API_DASHBOARD_SESSION_ENABLED = $env:BASELINE_API_DASHBOARD_SESSION_ENABLED
+    BASELINE_API_REQUIRE_HTTPS             = $env:BASELINE_API_REQUIRE_HTTPS
+}
 
-$serverProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $serverCommand -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+$env:BASELINE_API_KEY = $adminKey
+$env:BASELINE_API_DB_PATH = $dbPath
+$env:BASELINE_API_SELF_SERVICE_ENABLED = "false"
+$env:BASELINE_API_DASHBOARD_SESSION_ENABLED = "false"
+$env:BASELINE_API_REQUIRE_HTTPS = "false"
+
+$serverProcess = Start-Process -FilePath $smokeBinary -ArgumentList @("api", "serve", "--addr", $Addr) -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
 
 try {
     Wait-ForHealthyServer -URL $baseURL -TimeoutSeconds $StartupTimeoutSeconds
@@ -136,20 +168,35 @@ try {
 
     Invoke-APICheck -Step "01-healthz" -Method "GET" -Path "/healthz" -ExpectedStatus 200 -Headers @() -RequestBody "" -ExpectedBodyText '"status":"ok"' -ExpectedHeaderText ""
     Invoke-APICheck -Step "02-readyz" -Method "GET" -Path "/readyz" -ExpectedStatus 200 -Headers @() -RequestBody "" -ExpectedBodyText '"status":"ready"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "03-projects-unauthorized" -Method "GET" -Path "/v1/projects" -ExpectedStatus 401 -Headers @() -RequestBody "" -ExpectedBodyText '"code":"unauthorized"' -ExpectedHeaderText "www-authenticate"
+    Invoke-APICheck -Step "03-auth-me-unauthorized" -Method "GET" -Path "/v1/auth/me" -ExpectedStatus 401 -Headers @() -RequestBody "" -ExpectedBodyText '"code":"unauthorized"' -ExpectedHeaderText "www-authenticate"
+    Invoke-APICheck -Step "04-auth-me-admin" -Method "GET" -Path "/v1/auth/me" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"auth_source":"api_key"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "05-projects-unauthorized" -Method "GET" -Path "/v1/projects" -ExpectedStatus 401 -Headers @() -RequestBody "" -ExpectedBodyText '"code":"unauthorized"' -ExpectedHeaderText "www-authenticate"
 
     $projectPayload = '{"id":"smoke-project","name":"Smoke Project","default_branch":"main","policy_set":"baseline:prod"}'
-    Invoke-APICheck -Step "04-project-create" -Method "POST" -Path "/v1/projects" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json")) -RequestBody $projectPayload -ExpectedBodyText '"id":"smoke-project"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "06-project-create" -Method "POST" -Path "/v1/projects" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json")) -RequestBody $projectPayload -ExpectedBodyText '"id":"smoke-project"' -ExpectedHeaderText ""
 
     $scanPayload = '{"id":"smoke-scan-1","project_id":"smoke-project","commit_sha":"abc123","status":"fail","violations":[{"policy_id":"A1","severity":"block","message":"smoke violation"}]}'
-    Invoke-APICheck -Step "05-scan-create" -Method "POST" -Path "/v1/scans" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json", "Idempotency-Key: smoke-idempotency-1")) -RequestBody $scanPayload -ExpectedBodyText '"id":"smoke-scan-1"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "07-scan-create" -Method "POST" -Path "/v1/scans" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json", "Idempotency-Key: smoke-idempotency-1")) -RequestBody $scanPayload -ExpectedBodyText '"id":"smoke-scan-1"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "08-scan-idempotent-replay" -Method "POST" -Path "/v1/scans" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json", "Idempotency-Key: smoke-idempotency-1")) -RequestBody $scanPayload -ExpectedBodyText '"id":"smoke-scan-1"' -ExpectedHeaderText "x-idempotency-replayed: true"
+    Invoke-APICheck -Step "09-scan-sarif" -Method "GET" -Path "/v1/scans/smoke-scan-1/report?format=sarif" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"runs"' -ExpectedHeaderText ""
 
-    Invoke-APICheck -Step "06-scan-idempotent-replay" -Method "POST" -Path "/v1/scans" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json", "Idempotency-Key: smoke-idempotency-1")) -RequestBody $scanPayload -ExpectedBodyText '"id":"smoke-scan-1"' -ExpectedHeaderText "x-idempotency-replayed: true"
+    $apiKeyPayload = '{"name":"smoke-managed-key","role":"operator"}'
+    Invoke-APICheck -Step "10-api-key-create" -Method "POST" -Path "/v1/api-keys" -ExpectedStatus 201 -Headers ($authHeaders + @("Content-Type: application/json")) -RequestBody $apiKeyPayload -ExpectedBodyText '"api_key"' -ExpectedHeaderText ""
+    $createdKeyBodyPath = Join-Path $runDir "10-api-key-create.body"
+    $managedKeyID = Read-JSONField -Path $createdKeyBodyPath -Field "id"
+    $managedAPIKey = Read-JSONField -Path $createdKeyBodyPath -Field "api_key"
+    if ([string]::IsNullOrWhiteSpace($managedKeyID) -or [string]::IsNullOrWhiteSpace($managedAPIKey)) {
+        throw "Unable to parse id/api_key from 10-api-key-create response"
+    }
+    $managedHeaders = @("Authorization: Bearer $managedAPIKey")
 
-    Invoke-APICheck -Step "07-scan-sarif" -Method "GET" -Path "/v1/scans/smoke-scan-1/report?format=sarif" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"runs"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "08-audit-events" -Method "GET" -Path "/v1/audit/events?limit=5" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"events"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "09-api-keys" -Method "GET" -Path "/v1/api-keys" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"api_keys"' -ExpectedHeaderText ""
-    Invoke-APICheck -Step "10-metrics" -Method "GET" -Path "/metrics" -ExpectedStatus 200 -Headers @() -RequestBody "" -ExpectedBodyText "baseline_projects_total" -ExpectedHeaderText ""
+    Invoke-APICheck -Step "11-auth-me-managed-key" -Method "GET" -Path "/v1/auth/me" -ExpectedStatus 200 -Headers $managedHeaders -RequestBody "" -ExpectedBodyText '"role":"operator"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "12-api-key-revoke" -Method "DELETE" -Path "/v1/api-keys/$managedKeyID" -ExpectedStatus 200 -Headers ($authHeaders + @("X-Baseline-Confirm: revoke_api_key", "X-Baseline-Reason: smoke_rotation")) -RequestBody "" -ExpectedBodyText '"revoked":true' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "13-auth-me-revoked-key" -Method "GET" -Path "/v1/auth/me" -ExpectedStatus 401 -Headers $managedHeaders -RequestBody "" -ExpectedBodyText '"code":"unauthorized"' -ExpectedHeaderText "www-authenticate"
+
+    Invoke-APICheck -Step "14-audit-events" -Method "GET" -Path "/v1/audit/events?limit=5" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"events"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "15-api-keys" -Method "GET" -Path "/v1/api-keys" -ExpectedStatus 200 -Headers $authHeaders -RequestBody "" -ExpectedBodyText '"api_keys"' -ExpectedHeaderText ""
+    Invoke-APICheck -Step "16-metrics" -Method "GET" -Path "/metrics" -ExpectedStatus 200 -Headers @() -RequestBody "" -ExpectedBodyText "baseline_projects_total" -ExpectedHeaderText ""
 
     Write-Host ""
     Write-Host "API smoke passed. Artifacts written to: $runDir"
@@ -157,5 +204,14 @@ try {
 finally {
     if ($null -ne $serverProcess -and -not $serverProcess.HasExited) {
         Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+    foreach ($name in $envBackup.Keys) {
+        $value = $envBackup[$name]
+        if ($null -eq $value) {
+            Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue
+        }
+        else {
+            Set-Item -Path "Env:$name" -Value $value
+        }
     }
 }

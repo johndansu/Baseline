@@ -34,7 +34,7 @@ func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID, X-Baseline-CSRF, X-Baseline-Confirm, X-Baseline-Reason, X-Baseline-Reauth")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Add("Vary", "Origin")
@@ -136,6 +136,99 @@ func (s *Server) logRequest(r *http.Request, statusCode, bytes int, start time.T
 		"remote_addr", strings.TrimSpace(r.RemoteAddr),
 		"user_agent", strings.TrimSpace(r.UserAgent()),
 	)
+}
+
+func (s *Server) logMutationAction(r *http.Request, statusCode int) {
+	action := mutationActionForRequest(r.Method, r.URL.Path)
+	if action == "" {
+		return
+	}
+
+	actor := "anonymous"
+	role := ""
+	authSource := "none"
+	if principal, err := s.requestPrincipal(r); err == nil {
+		authSource = strings.TrimSpace(principal.AuthSource)
+		role = string(principal.Role)
+		if ownerID := strings.TrimSpace(principal.OwnerID); ownerID != "" {
+			actor = ownerID
+		}
+	} else if session, err := s.getDashboardSession(r); err == nil {
+		authSource = "session"
+		role = string(session.Role)
+		if ownerID := strings.TrimSpace(sessionOwnerID(session)); ownerID != "" {
+			actor = ownerID
+		}
+	}
+
+	outcome := "success"
+	if statusCode >= http.StatusBadRequest {
+		outcome = "failure"
+	}
+
+	baselinelog.Info(
+		"dashboard_mutation",
+		"request_id", requestIDFromContext(r.Context()),
+		"actor", actor,
+		"action", action,
+		"outcome", outcome,
+		"status", statusCode,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"auth_source", authSource,
+		"role", role,
+	)
+}
+
+func mutationActionForRequest(method, path string) string {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+	default:
+		return ""
+	}
+
+	switch {
+	case method == http.MethodPost && path == "/v1/projects":
+		return "projects.create"
+	case method == http.MethodPut && strings.HasPrefix(path, "/v1/projects/"):
+		return "projects.update"
+	case method == http.MethodPost && path == "/v1/scans":
+		return "scans.create"
+	case method == http.MethodPost && path == "/v1/api-keys":
+		return "api_keys.create"
+	case method == http.MethodDelete && strings.HasPrefix(path, "/v1/api-keys/"):
+		return "api_keys.revoke"
+	case method == http.MethodPost && path == "/v1/me/api-keys":
+		return "api_keys.self.create"
+	case method == http.MethodDelete && strings.HasPrefix(path, "/v1/me/api-keys/"):
+		return "api_keys.self.revoke"
+	case method == http.MethodPatch && strings.HasPrefix(path, "/v1/users/"):
+		return "users.update"
+	case method == http.MethodPost && strings.HasPrefix(path, "/v1/users/") && strings.Contains(path, "/api-keys"):
+		return "users.api_keys.create"
+	case method == http.MethodDelete && strings.HasPrefix(path, "/v1/users/") && strings.Contains(path, "/api-keys/"):
+		return "users.api_keys.revoke"
+	case method == http.MethodPost && path == "/v1/integrations/github/check-runs":
+		return "integrations.github.check_runs.publish"
+	case method == http.MethodPost && path == "/v1/integrations/gitlab/statuses":
+		return "integrations.gitlab.statuses.publish"
+	case method == http.MethodPost && path == "/v1/integrations/secrets":
+		return "integrations.secrets.update"
+	case method == http.MethodPost && path == "/v1/auth/reauth":
+		return "auth.reauth.issue"
+	case method == http.MethodPost && path == "/v1/auth/session":
+		return "auth.session.create"
+	case method == http.MethodDelete && path == "/v1/auth/session":
+		return "auth.session.delete"
+	case method == http.MethodPost && path == "/v1/auth/register":
+		return "auth.register"
+	case method == http.MethodPost && strings.HasPrefix(path, "/v1/policies/") && strings.HasSuffix(path, "/versions"):
+		return "policies.version.create"
+	case method == http.MethodPost && path == "/v1/rulesets":
+		return "rulesets.create"
+	default:
+		return ""
+	}
 }
 
 func (s *Server) applySecurityHeaders(w http.ResponseWriter, r *http.Request) {

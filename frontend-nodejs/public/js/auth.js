@@ -21,15 +21,15 @@
   var lastAuthState = null;
   var uiUpdateTimeout = null;
   var SAFE_RETURN_PATHS = {
-    '/dashboard.html': true,
     '/dashboard': true,
+    '/dashboard.html': true,
     '/index.html': true,
     '/signin.html': true,
     '/signup.html': true
   };
 
   function safeAuthReturnTo(rawReturnTo) {
-    var fallback = '/dashboard.html';
+    var fallback = '/dashboard';
     var value = String(rawReturnTo || '').trim();
     if (!value) return fallback;
 
@@ -185,7 +185,7 @@
       var currentPath = window.location.pathname;
       var isCallbackPage = currentPath.includes('/auth/callback') || currentPath.includes('/signin.html');
       
-      if (!isCallbackPage && currentPath !== '/dashboard.html') {
+      if (!isCallbackPage && currentPath !== '/dashboard') {
         isRedirecting = true;
         var rawReturnUrl = new URLSearchParams(window.location.search).get('return_to');
         var returnUrl = safeAuthReturnTo(rawReturnUrl);
@@ -263,7 +263,7 @@
     var authOptions = {
       provider: provider,
       options: {
-        redirectTo: (options && options.redirectTo) || window.location.origin + '/dashboard.html',
+        redirectTo: (options && options.redirectTo) || window.location.origin + '/dashboard',
         scopes: options && options.scopes || config.providers[provider].scopes
       }
     };
@@ -428,7 +428,7 @@
           // For email/password auth, redirect to dashboard after successful login
           if (mode === "signin") {
             setTimeout(function() {
-              window.location.href = '/dashboard.html';
+              window.location.href = '/dashboard';
             }, 1500); // Brief delay to show success message
           }
         })

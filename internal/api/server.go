@@ -49,6 +49,9 @@ type Server struct {
 	rateState map[string]rateWindowCounter
 	rateSweep time.Time
 
+	dashboardMetricsMu sync.Mutex
+	dashboardMetrics   map[string]*dashboardEndpointMetrics
+
 	sensitiveMu          sync.Mutex
 	sensitiveReauth      map[string]sensitiveActionGrant
 	sensitiveReauthSweep time.Time
@@ -154,6 +157,7 @@ func NewServer(config Config, store *Store) (*Server, error) {
 		sessions:           map[string]dashboardSession{},
 		oidcState:          map[string]pendingOIDCLogin{},
 		rateState:          map[string]rateWindowCounter{},
+		dashboardMetrics:   map[string]*dashboardEndpointMetrics{},
 		sensitiveReauth:    map[string]sensitiveActionGrant{},
 		projects:           []Project{},
 		scans:              []ScanSummary{},
@@ -286,17 +290,13 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "bad_request", "role must be one of viewer|operator|admin")
 			return
 		}
-		key, metadata, err := s.issueAPIKey(targetRole, strings.TrimSpace(req.Name), "managed", string(role))
+		key, metadata, err := s.issueAPIKey(targetRole, strings.TrimSpace(req.Name), "managed", string(role), nil)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "system_error", "unable to generate API key")
 			return
 		}
 		s.dataMu.Lock()
-		s.appendEventLocked(AuditEvent{
-			EventType: "api_key_issued",
-			ScanID:    metadata.ID,
-			CreatedAt: time.Now().UTC(),
-		})
+		s.appendEventLocked(s.newRequestAuditEvent(r, authSource, "api_key_issued", "", metadata.ID))
 		s.dataMu.Unlock()
 		writeJSON(w, http.StatusCreated, map[string]any{
 			"id":         metadata.ID,
@@ -380,11 +380,9 @@ func (s *Server) handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 		s.authMu.Unlock()
 
 		s.dataMu.Lock()
-		s.appendEventLocked(AuditEvent{
-			EventType: "api_key_revoked",
-			ScanID:    metadata.ID,
-			CreatedAt: now,
-		})
+		event := s.newRequestAuditEvent(r, principal.AuthSource, "api_key_revoked", "", metadata.ID)
+		event.CreatedAt = now
+		s.appendEventLocked(event)
 		s.dataMu.Unlock()
 
 		writeJSON(w, http.StatusOK, map[string]any{

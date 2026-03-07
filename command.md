@@ -30,7 +30,7 @@ baseline api keygen
 baseline api verify-prod
 baseline api verify-prod --strict
 baseline api serve --addr :8080
-# legacy proxy dashboard (rebuild in progress; not supported for auth flow)
+# local dashboard proxy service (selected read-only API proxy paths)
 baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
 ```
 
@@ -126,10 +126,19 @@ curl http://127.0.0.1:8080/metrics
 
 # 4) auth-protected API probe
 curl -H "Authorization: Bearer <admin_key>" \
-  http://127.0.0.1:8080/v1/projects
+  http://127.0.0.1:8080/v1/dashboard
+
+# 4b) capability + activity probes
+curl -H "Authorization: Bearer <admin_key>" \
+  http://127.0.0.1:8080/v1/dashboard/capabilities
+curl -H "Authorization: Bearer <admin_key>" \
+  "http://127.0.0.1:8080/v1/dashboard/activity?limit=10"
 
 # optional: inspect current human session identity
 curl http://127.0.0.1:8080/v1/auth/me
+
+# optional: verify rollout stage before mutation-heavy tests
+# (set via BASELINE_API_DASHBOARD_ROLLOUT_STAGE=read_only|mutations|integrations|full)
 
 # 5) audit stream probe
 curl -H "Authorization: Bearer <admin_key>" \
