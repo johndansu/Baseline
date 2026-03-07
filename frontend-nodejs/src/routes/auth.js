@@ -32,6 +32,13 @@ router.post('/signin', async (req, res) => {
       });
     }
 
+    // Store session for browser access
+    if (data.session) {
+      req.session.token = data.session.access_token;
+      req.session.user = data.session.user;
+      req.session.save(() => {});
+    }
+
     res.json({
       success: true,
       user: data.user,
@@ -108,6 +115,17 @@ router.post('/signout', async (req, res) => {
         error: 'Sign out failed',
         message: 'Unable to complete sign out. Please try again.'
       });
+    }
+
+    if (req.session) {
+      req.session.destroy(() => {
+        res.clearCookie('connect.sid');
+        res.json({
+          success: true,
+          message: 'Sign out successful'
+        });
+      });
+      return;
     }
 
     res.json({

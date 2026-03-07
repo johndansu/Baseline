@@ -11,7 +11,30 @@ function authenticateToken(req, res, next) {
     return next();
   }
 
-  // Extract token from Authorization header
+  // Browser dashboard routes use the server session first.
+  if (req.path === '/dashboard' || req.path === '/dashboard.html') {
+    const token = req.session?.token || extractTokenFromHeader(req.headers.authorization);
+    
+    if (!token) {
+      return res.redirect('/signin.html');
+    }
+    
+    return verifyJWT(token)
+      .then(user => {
+        if (!user) {
+          return res.redirect('/signin.html');
+        }
+        req.user = user;
+        req.token = token;
+        return next();
+      })
+      .catch(error => {
+        console.error('Token verification error:', error);
+        return res.redirect('/signin.html');
+      });
+  }
+
+  // For API routes, require Authorization header
   const authHeader = req.headers.authorization;
   const token = extractTokenFromHeader(authHeader);
 

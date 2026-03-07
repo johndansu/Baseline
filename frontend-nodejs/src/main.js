@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
+const session = require('express-session');
 const path = require('path');
 const { authenticateToken, optionalAuth } = require('./middleware/auth');
 const { authRateLimit } = require('./middleware/security');
@@ -15,16 +16,27 @@ const { initializeWebSocket } = require('./utils/websocket');
 const app = express();
 const PORT = process.env.PORT || 8001;
 
+function resolveSessionSecret() {
+  const configured = String(process.env.SESSION_SECRET || '').trim();
+  if (configured) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET is required in production');
+  }
+  return 'baseline-dev-session-secret';
+}
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "https://*.supabase.co"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.gstatic.com", "https://jsdelivr.net"],
+      imgSrc: ["'self'", "data:", "https:", "https://cdn.jsdelivr.net"],
+      connectSrc: ["'self'", "https://*.supabase.co", "https://cdn.jsdelivr.net"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
     },
   },
 }));
@@ -35,6 +47,19 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'apikey']
+}));
+
+// Session configuration
+app.use(session({
+  secret: resolveSessionSecret(),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
 }));
 
 // Compression and logging
