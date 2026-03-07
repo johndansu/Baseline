@@ -3012,14 +3012,15 @@ code {
   }
 }
 
-/* Override landing-body min-height for auth pages */
-.experience-page.landing-body {
+/* Auth pages center the form card without affecting the landing page layout. */
+.experience-page.auth-page.landing-body {
   min-height: auto;
   min-height: 100vh;
 }
 
-.experience-page.landing-body .landing-wrap {
+.experience-page.auth-page.landing-body .landing-wrap {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 100vh;

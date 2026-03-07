@@ -37,35 +37,19 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Redirect(w, r, target, http.StatusFound)
 		return
-	case "/":
-	case "/index.html":
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		if content, ok := readUnifiedDashboardFile(filepath.Join("frontend", "index.html")); ok {
-			_, _ = w.Write(content)
-			return
-		}
-		writeError(w, http.StatusNotFound, "not_found", "landing page unavailable")
+	case "/", "/index.html":
+		serveDashboardPublicFile(w, "index.html", "text/html; charset=utf-8")
+		return
+	case "/dashboard", "/dashboard.html":
+		serveDashboardPublicFile(w, "dashboard.html", "text/html; charset=utf-8")
 		return
 	case "/styles.css":
-		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		if content, ok := readUnifiedDashboardFile(filepath.Join("frontend", "styles.css")); ok {
-			_, _ = w.Write(content)
-			return
-		}
-		writeError(w, http.StatusNotFound, "not_found", "styles asset unavailable")
+		serveDashboardPublicFile(w, filepath.Join("css", "styles.css"), "text/css; charset=utf-8")
 		return
 	case "/app.js":
 		fallthrough
 	case "/auth.js":
-		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		if content, ok := readUnifiedDashboardFile(filepath.Join("frontend", strings.TrimPrefix(r.URL.Path, "/"))); ok {
-			_, _ = w.Write(content)
-			return
-		}
-		writeError(w, http.StatusNotFound, "not_found", "script asset unavailable")
+		serveDashboardPublicFile(w, filepath.Join("js", strings.TrimPrefix(r.URL.Path, "/")), "application/javascript; charset=utf-8")
 		return
 	case "/assets/baseline-logo.png":
 		fallthrough
@@ -81,24 +65,24 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(content)
 		return
 	case "/signin", "/signin.html":
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		if content, ok := readUnifiedDashboardFile(filepath.Join("frontend", "signin.html")); ok {
-			_, _ = w.Write(content)
-			return
-		}
-		writeError(w, http.StatusNotFound, "not_found", "signin page unavailable")
+		serveDashboardPublicFile(w, "signin.html", "text/html; charset=utf-8")
 		return
 	case "/signup", "/signup.html":
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		if content, ok := readUnifiedDashboardFile(filepath.Join("frontend", "signup.html")); ok {
-			_, _ = w.Write(content)
-			return
-		}
-		writeError(w, http.StatusNotFound, "not_found", "signup page unavailable")
+		serveDashboardPublicFile(w, "signup.html", "text/html; charset=utf-8")
 		return
 	default:
+		if strings.HasPrefix(r.URL.Path, "/css/") {
+			serveDashboardPublicFile(w, strings.TrimPrefix(r.URL.Path, "/"), "text/css; charset=utf-8")
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/js/") {
+			serveDashboardPublicFile(w, strings.TrimPrefix(r.URL.Path, "/"), "application/javascript; charset=utf-8")
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/assets/images/") {
+			serveDashboardPublicFile(w, strings.TrimPrefix(r.URL.Path, "/"), "image/png")
+			return
+		}
 		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
@@ -119,17 +103,20 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func isDashboardPath(path string) bool {
-	switch strings.TrimSpace(path) {
+	trimmed := strings.TrimSpace(path)
+	switch trimmed {
 	case "/",
 		"/login", "/login.html", "/register", "/register.html",
 		"/signin", "/signin.html", "/signup", "/signup.html", "/index.html",
+		"/dashboard", "/dashboard.html",
 		"/styles.css", "/app.js", "/auth.js",
 		"/assets/baseline-logo.png",
 		"/img/baseline logo.png", "/img/baseline favicon.png":
 		return true
-	default:
-		return false
 	}
+	return strings.HasPrefix(trimmed, "/css/") ||
+		strings.HasPrefix(trimmed, "/js/") ||
+		strings.HasPrefix(trimmed, "/assets/images/")
 }
 
 func mustLoadDashboardAsset(name string) []byte {
@@ -143,15 +130,25 @@ func mustLoadDashboardAsset(name string) []byte {
 func loadUnifiedDashboardImage(requestPath string) []byte {
 	switch strings.TrimSpace(requestPath) {
 	case "/img/baseline favicon.png":
-		if content, ok := readUnifiedDashboardFile(filepath.Join("img", "baseline favicon.png")); ok {
+		if content, ok := readUnifiedDashboardFile(filepath.Join("assets", "images", "baseline favicon.png")); ok {
 			return content
 		}
 	case "/img/baseline logo.png", "/assets/baseline-logo.png":
-		if content, ok := readUnifiedDashboardFile(filepath.Join("img", "baseline logo.png")); ok {
+		if content, ok := readUnifiedDashboardFile(filepath.Join("assets", "images", "baseline logo.png")); ok {
 			return content
 		}
 	}
 	return nil
+}
+
+func serveDashboardPublicFile(w http.ResponseWriter, relPath, contentType string) {
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-store")
+	if content, ok := readUnifiedDashboardFile(relPath); ok {
+		_, _ = w.Write(content)
+		return
+	}
+	writeError(w, http.StatusNotFound, "not_found", "dashboard asset unavailable")
 }
 
 func readUnifiedDashboardFile(relPath string) ([]byte, bool) {
@@ -177,8 +174,14 @@ func readUnifiedDashboardFile(relPath string) ([]byte, bool) {
 func dashboardFileCandidates(relPath string) []string {
 	candidates := []string{
 		relPath,
+		filepath.Join("frontend-nodejs", "public", relPath),
+		filepath.Join("frontend", relPath),
 		filepath.Join("..", relPath),
+		filepath.Join("..", "frontend-nodejs", "public", relPath),
+		filepath.Join("..", "frontend", relPath),
 		filepath.Join("..", "..", relPath),
+		filepath.Join("..", "..", "frontend-nodejs", "public", relPath),
+		filepath.Join("..", "..", "frontend", relPath),
 	}
 
 	if exe, err := os.Executable(); err == nil {
