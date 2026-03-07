@@ -80,7 +80,7 @@ Supported now:
 
 ## Requirements
 
-- Go `1.24.13+` (or Go `1.25+`) (see `go.mod`)
+- Go `1.26.1+` (see `go.mod`)
 - Git in `PATH`
 - Optional:
   - Ollama or OpenRouter (for AI scaffold commands)
