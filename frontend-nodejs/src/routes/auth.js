@@ -34,7 +34,7 @@ router.post('/signin', async (req, res) => {
 
     // Store session for browser access
     if (data.session) {
-      req.session.token = data.session.access_token;
+      req.session.accessToken = data.session.access_token;
       req.session.user = data.session.user;
       req.session.save(() => {});
     }
@@ -189,8 +189,8 @@ router.get('/session', async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const session = await getUserSession(token);
+    const accessToken = authHeader.replace('Bearer ', '');
+    const session = await getUserSession(accessToken);
 
     if (!session) {
       return res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });

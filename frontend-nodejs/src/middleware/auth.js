@@ -13,19 +13,19 @@ function authenticateToken(req, res, next) {
 
   // Browser dashboard routes use the server session first.
   if (req.path === '/dashboard' || req.path === '/dashboard.html') {
-    const token = req.session?.token || extractTokenFromHeader(req.headers.authorization);
+    const accessToken = req.session?.accessToken || extractTokenFromHeader(req.headers.authorization);
     
-    if (!token) {
+    if (!accessToken) {
       return res.redirect('/signin.html');
     }
     
-    return verifyJWT(token)
+    return verifyJWT(accessToken)
       .then(user => {
         if (!user) {
           return res.redirect('/signin.html');
         }
         req.user = user;
-        req.token = token;
+        req.accessToken = accessToken;
         return next();
       })
       .catch(error => {
@@ -36,9 +36,9 @@ function authenticateToken(req, res, next) {
 
   // For API routes, require Authorization header
   const authHeader = req.headers.authorization;
-  const token = extractTokenFromHeader(authHeader);
+  const accessToken = extractTokenFromHeader(authHeader);
 
-  if (!token) {
+  if (!accessToken) {
     return res.status(401).json({
       error: 'Access token required',
       message: 'Please provide a valid access token in the Authorization header'
@@ -46,7 +46,7 @@ function authenticateToken(req, res, next) {
   }
 
   // Verify the token
-  verifyJWT(token)
+  verifyJWT(accessToken)
     .then(user => {
       if (!user) {
         return res.status(401).json({
@@ -57,7 +57,7 @@ function authenticateToken(req, res, next) {
 
       // Attach user to request object
       req.user = user;
-      req.token = token;
+      req.accessToken = accessToken;
       next();
     })
     .catch(error => {
@@ -75,19 +75,19 @@ function authenticateToken(req, res, next) {
  */
 function optionalAuth(req, res, next) {
   const authHeader = req.headers.authorization;
-  const token = extractTokenFromHeader(authHeader);
+  const accessToken = extractTokenFromHeader(authHeader);
 
-  if (!token) {
+  if (!accessToken) {
     // No token provided, continue without user context
     return next();
   }
 
   // Try to verify token but don't fail if invalid
-  verifyJWT(token)
+  verifyJWT(accessToken)
     .then(user => {
       if (user) {
         req.user = user;
-        req.token = token;
+        req.accessToken = accessToken;
       }
       next();
     })
@@ -129,9 +129,9 @@ function authorizeRoles(allowedRoles) {
  * API key authentication middleware for server-to-server requests
  */
 function authenticateApiKey(req, res, next) {
-  const apiKey = req.headers['x-api-key'];
+  const presentedAPIKey = req.headers['x-api-key'];
   
-  if (!apiKey) {
+  if (!presentedAPIKey) {
     return res.status(401).json({
       error: 'API key required',
       message: 'Please provide a valid API key in the X-API-Key header'
@@ -141,14 +141,14 @@ function authenticateApiKey(req, res, next) {
   // In a real implementation, you would validate against a database
   const validApiKeys = process.env.VALID_API_KEYS?.split(',') || [];
   
-  if (!validApiKeys.includes(apiKey)) {
+  if (!validApiKeys.includes(presentedAPIKey)) {
     return res.status(401).json({
       error: 'Invalid API key',
       message: 'The provided API key is invalid'
     });
   }
 
-  req.apiKey = apiKey;
+  req.presentedAPIKey = presentedAPIKey;
   next();
 }
 

@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
 const session = require('express-session');
+const crypto = require('crypto');
 const path = require('path');
 const { authenticateToken, optionalAuth } = require('./middleware/auth');
 const { authRateLimit } = require('./middleware/security');
@@ -15,6 +16,7 @@ const { initializeWebSocket } = require('./utils/websocket');
 
 const app = express();
 const PORT = process.env.PORT || 8001;
+let generatedDevSessionSecret = '';
 
 function resolveSessionSecret() {
   const configured = String(process.env.SESSION_SECRET || '').trim();
@@ -24,7 +26,10 @@ function resolveSessionSecret() {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('SESSION_SECRET is required in production');
   }
-  return 'baseline-dev-session-secret';
+  if (!generatedDevSessionSecret) {
+    generatedDevSessionSecret = crypto.randomBytes(32).toString('hex');
+  }
+  return generatedDevSessionSecret;
 }
 
 // Security middleware

@@ -17,10 +17,10 @@ function sessionManager(req, res, next) {
     return next();
   }
 
-  const token = authHeader.replace('Bearer ', '');
+  const accessToken = authHeader.replace('Bearer ', '');
   
   // Check if session is still valid
-  getUserSession(token)
+  getUserSession(accessToken)
     .then(session => {
       if (!session) {
         // Session invalid, try refresh
