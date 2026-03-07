@@ -905,14 +905,20 @@ func (s *Store) ListAuditEventsByActors(actors []string, limit, offset int, even
 
 	where := " WHERE " + strings.Join(whereClauses, " AND ")
 
-	totalQuery := "SELECT COUNT(1) FROM audit_events" + where
+	var totalQueryBuilder strings.Builder
+	totalQueryBuilder.WriteString("SELECT COUNT(1) FROM audit_events")
+	totalQueryBuilder.WriteString(where)
+	totalQuery := totalQueryBuilder.String()
 	var total int
 	if err := s.db.QueryRow(totalQuery, args...).Scan(&total); err != nil {
 		return UserListResult{}, nil, err
 	}
 
-	query := "SELECT event_type, project_id, scan_id, actor, request_id, created_at FROM audit_events" +
-		where + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("SELECT event_type, project_id, scan_id, actor, request_id, created_at FROM audit_events")
+	queryBuilder.WriteString(where)
+	queryBuilder.WriteString(" ORDER BY created_at DESC LIMIT ? OFFSET ?")
+	query := queryBuilder.String()
 	queryArgs := append(append([]any{}, args...), maxRows, start)
 	rows, err := s.db.Query(query, queryArgs...)
 	if err != nil {
