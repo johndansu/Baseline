@@ -101,13 +101,77 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		s.dataMu.Lock()
 		s.projects = append(s.projects, project)
-		s.appendEventLocked(AuditEvent{
-			EventType: "project_registered",
-			ProjectID: project.ID,
-			CreatedAt: time.Now().UTC(),
-		})
+		s.appendEventLocked(s.newRequestAuditEvent(r, principal.AuthSource, "project_registered", project.ID, ""))
 		s.dataMu.Unlock()
 		writeJSON(w, http.StatusCreated, project)
+	case http.MethodPut:
+		principal, err := s.requestPrincipal(r)
+		if err != nil {
+			writeUnauthorized(w, err.Error())
+			return
+		}
+		if projectID == "" {
+			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			return
+		}
+		if !s.requestBodyAllowed(w, r) {
+			return
+		}
+		if !s.enforceSessionCSRF(w, r, principal.AuthSource) {
+			return
+		}
+		if principal.Role == RoleViewer {
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+			return
+		}
+
+		var req struct {
+			Name          string `json:"name"`
+			RepositoryURL string `json:"repository_url"`
+			DefaultBranch string `json:"default_branch"`
+			PolicySet     string `json:"policy_set"`
+		}
+		if !s.decodeJSONBody(w, r, &req) {
+			return
+		}
+		if strings.TrimSpace(req.Name) == "" {
+			writeError(w, http.StatusBadRequest, "bad_request", "project name is required")
+			return
+		}
+
+		s.dataMu.Lock()
+		defer s.dataMu.Unlock()
+
+		index := -1
+		for i := range s.projects {
+			if s.projects[i].ID == projectID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			return
+		}
+		if principal.enforceOwnership() && !principal.canAccessOwner(s.projects[index].OwnerID) {
+			writeError(w, http.StatusForbidden, "forbidden", "project access denied")
+			return
+		}
+
+		updated := s.projects[index]
+		updated.Name = strings.TrimSpace(req.Name)
+		updated.RepositoryURL = strings.TrimSpace(req.RepositoryURL)
+		updated.DefaultBranch = strings.TrimSpace(req.DefaultBranch)
+		updated.PolicySet = strings.TrimSpace(req.PolicySet)
+		if updated.DefaultBranch == "" {
+			updated.DefaultBranch = "main"
+		}
+		if updated.PolicySet == "" {
+			updated.PolicySet = "baseline:prod"
+		}
+		s.projects[index] = updated
+		s.appendEventLocked(s.newRequestAuditEvent(r, principal.AuthSource, "project_updated", updated.ID, ""))
+		writeJSON(w, http.StatusOK, updated)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
@@ -270,19 +334,9 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.scans = append([]ScanSummary{scan}, s.scans...)
-		s.appendEventLocked(AuditEvent{
-			EventType: "scan_uploaded",
-			ProjectID: scan.ProjectID,
-			ScanID:    scan.ID,
-			CreatedAt: time.Now().UTC(),
-		})
+		s.appendEventLocked(s.newRequestAuditEvent(r, principal.AuthSource, "scan_uploaded", scan.ProjectID, scan.ID))
 		if strings.EqualFold(scan.Status, "fail") {
-			s.appendEventLocked(AuditEvent{
-				EventType: "enforcement_failed",
-				ProjectID: scan.ProjectID,
-				ScanID:    scan.ID,
-				CreatedAt: time.Now().UTC(),
-			})
+			s.appendEventLocked(s.newRequestAuditEvent(r, principal.AuthSource, "enforcement_failed", scan.ProjectID, scan.ID))
 		}
 		if hasIdempotency {
 			if s.scanIdempotency == nil {
@@ -454,17 +508,45 @@ func (s *Server) handleScanReport(w http.ResponseWriter, r *http.Request, scanID
 	if format == "" {
 		format = "json"
 	}
+	fileBase := reportFileBase(scan.ID)
 
 	switch format {
 	case "json":
+		w.Header().Set("Content-Disposition", `attachment; filename="`+fileBase+`.json"`)
 		writeJSON(w, http.StatusOK, map[string]any{"scan": scan})
 	case "text":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+fileBase+`.txt"`)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(renderScanTextReport(*scan)))
 	case "sarif":
-		writeJSON(w, http.StatusOK, renderScanSARIF(*scan))
+		w.Header().Set("Content-Type", "application/sarif+json; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+fileBase+`.sarif"`)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(renderScanSARIF(*scan))
 	default:
 		writeError(w, http.StatusBadRequest, "bad_request", "unsupported report format; use json|text|sarif")
 	}
+}
+
+func reportFileBase(scanID string) string {
+	trimmed := strings.TrimSpace(scanID)
+	if trimmed == "" {
+		return "baseline-scan"
+	}
+	sanitized := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '-' || r == '_':
+			return r
+		default:
+			return '-'
+		}
+	}, trimmed)
+	return "baseline-scan-" + sanitized
 }

@@ -69,6 +69,9 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - name: Run dashboard secret scan gate
+        run: bash ./scripts/secret-scan-dashboard.sh
+
       - name: Run npm audit (prod deps, high+)
         working-directory: frontend-nodejs
         run: |
@@ -126,6 +129,9 @@ jobs:
 
       - name: Run API contract + e2e + performance smoke gates
         run: go test ./internal/api -run "TestOpenAPIOperationsReturnDocumentedStatuses|TestContractResponseShapesForCoreEndpoints|TestBackendE2ESuite|TestHighReadEndpointsPerformanceSmoke" -count=1
+
+      - name: Run CLI parity matrix gates (dashboard backend)
+        run: go test ./internal/api -run "TestCLIDashboardParityMatrix|TestCLIDashboardParityPolicyCatalogFX07|TestCLIDashboardParityReportFormatsFX08" -count=1
 
   api-smoke:
     name: API Smoke

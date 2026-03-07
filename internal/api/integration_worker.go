@@ -8,6 +8,14 @@ import (
 )
 
 func (s *Server) appendEventLocked(event AuditEvent) {
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	event.EventType = strings.TrimSpace(event.EventType)
+	event.ProjectID = strings.TrimSpace(event.ProjectID)
+	event.ScanID = strings.TrimSpace(event.ScanID)
+	event.Actor = strings.TrimSpace(event.Actor)
+	event.RequestID = strings.TrimSpace(event.RequestID)
 	s.events = append([]AuditEvent{event}, s.events...)
 	if len(s.events) > 500 {
 		s.events = s.events[:500]

@@ -107,11 +107,7 @@ func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
 				PublishedBy: "api",
 			}
 			s.policies[policyName] = append(existing, item)
-			s.appendEventLocked(AuditEvent{
-				EventType: "policy_updated",
-				ScanID:    policyName + "@" + version,
-				CreatedAt: time.Now().UTC(),
-			})
+			s.appendEventLocked(s.newRequestAuditEvent(r, authSource, "policy_updated", "", policyName+"@"+version))
 			s.dataMu.Unlock()
 			writeJSON(w, http.StatusCreated, item)
 		default:
@@ -207,11 +203,7 @@ func (s *Server) handleRulesets(w http.ResponseWriter, r *http.Request) {
 			CreatedBy:   "api",
 		}
 		s.rulesets = append(s.rulesets, item)
-		s.appendEventLocked(AuditEvent{
-			EventType: "ruleset_updated",
-			ScanID:    version,
-			CreatedAt: time.Now().UTC(),
-		})
+		s.appendEventLocked(s.newRequestAuditEvent(r, authSource, "ruleset_updated", "", version))
 		s.dataMu.Unlock()
 		writeJSON(w, http.StatusCreated, item)
 		return

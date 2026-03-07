@@ -137,3 +137,19 @@ func TestConfigFromEnvSupabaseAliases(t *testing.T) {
 		t.Fatalf("expected allowed email domains from Supabase alias, got %#v", cfg.OIDCAllowedEmailDomains)
 	}
 }
+
+func TestConfigFromEnvDashboardRolloutStage(t *testing.T) {
+	t.Setenv("BASELINE_API_DASHBOARD_ROLLOUT_STAGE", "mutations")
+	cfg := ConfigFromEnv()
+	if cfg.DashboardRolloutStage != DashboardRolloutStageMutations {
+		t.Fatalf("expected rollout stage mutations, got %q", cfg.DashboardRolloutStage)
+	}
+}
+
+func TestConfigFromEnvDashboardRolloutStageInvalidFallsBack(t *testing.T) {
+	t.Setenv("BASELINE_API_DASHBOARD_ROLLOUT_STAGE", "invalid-stage")
+	cfg := ConfigFromEnv()
+	if cfg.DashboardRolloutStage != DashboardRolloutStageFull {
+		t.Fatalf("expected invalid stage to fall back to full, got %q", cfg.DashboardRolloutStage)
+	}
+}

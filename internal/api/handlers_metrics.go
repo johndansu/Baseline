@@ -3,9 +3,29 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
+
+type dashboardEndpointMetrics struct {
+	RequestTotal      int64
+	ErrorTotal        int64
+	AuthFailuresTotal int64
+	DurationSeconds   float64
+	DurationCount     int64
+	StatusClassTotals map[string]int64
+}
+
+type dashboardMetricsSample struct {
+	Endpoint          string
+	RequestTotal      int64
+	ErrorTotal        int64
+	AuthFailuresTotal int64
+	DurationSeconds   float64
+	DurationCount     int64
+	StatusClassTotals map[string]int64
+}
 
 type metricsSnapshot struct {
 	projects           int
@@ -16,6 +36,7 @@ type metricsSnapshot struct {
 	activeAPIKeys      int
 	revokedAPIKeys     int
 	activeSessions     int
+	dashboardEndpoints []dashboardMetricsSample
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +79,45 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	builder.WriteString("# HELP baseline_dashboard_sessions_active_total Total number of active dashboard sessions.\n")
 	builder.WriteString("# TYPE baseline_dashboard_sessions_active_total gauge\n")
 	builder.WriteString(fmt.Sprintf("baseline_dashboard_sessions_active_total %d\n", snapshot.activeSessions))
+
+	builder.WriteString("# HELP baseline_dashboard_requests_total Total number of dashboard API requests by endpoint and status class.\n")
+	builder.WriteString("# TYPE baseline_dashboard_requests_total counter\n")
+	for _, endpoint := range snapshot.dashboardEndpoints {
+		statusClasses := sortedDashboardMetricClassKeys(endpoint.StatusClassTotals)
+		for _, classLabel := range statusClasses {
+			total := endpoint.StatusClassTotals[classLabel]
+			builder.WriteString(fmt.Sprintf("baseline_dashboard_requests_total{endpoint=\"%s\",status_class=\"%s\"} %d\n",
+				prometheusLabelEscape(endpoint.Endpoint), prometheusLabelEscape(classLabel), total))
+		}
+	}
+
+	builder.WriteString("# HELP baseline_dashboard_request_duration_seconds_sum Cumulative dashboard API request duration in seconds by endpoint.\n")
+	builder.WriteString("# TYPE baseline_dashboard_request_duration_seconds_sum counter\n")
+	for _, endpoint := range snapshot.dashboardEndpoints {
+		builder.WriteString(fmt.Sprintf("baseline_dashboard_request_duration_seconds_sum{endpoint=\"%s\"} %.6f\n",
+			prometheusLabelEscape(endpoint.Endpoint), endpoint.DurationSeconds))
+	}
+
+	builder.WriteString("# HELP baseline_dashboard_request_duration_seconds_count Total number of observed dashboard API request durations by endpoint.\n")
+	builder.WriteString("# TYPE baseline_dashboard_request_duration_seconds_count counter\n")
+	for _, endpoint := range snapshot.dashboardEndpoints {
+		builder.WriteString(fmt.Sprintf("baseline_dashboard_request_duration_seconds_count{endpoint=\"%s\"} %d\n",
+			prometheusLabelEscape(endpoint.Endpoint), endpoint.DurationCount))
+	}
+
+	builder.WriteString("# HELP baseline_dashboard_request_errors_total Total number of dashboard API requests with HTTP status >= 400 by endpoint.\n")
+	builder.WriteString("# TYPE baseline_dashboard_request_errors_total counter\n")
+	for _, endpoint := range snapshot.dashboardEndpoints {
+		builder.WriteString(fmt.Sprintf("baseline_dashboard_request_errors_total{endpoint=\"%s\"} %d\n",
+			prometheusLabelEscape(endpoint.Endpoint), endpoint.ErrorTotal))
+	}
+
+	builder.WriteString("# HELP baseline_dashboard_auth_failures_total Total number of dashboard API requests with HTTP 401 responses by endpoint.\n")
+	builder.WriteString("# TYPE baseline_dashboard_auth_failures_total counter\n")
+	for _, endpoint := range snapshot.dashboardEndpoints {
+		builder.WriteString(fmt.Sprintf("baseline_dashboard_auth_failures_total{endpoint=\"%s\"} %d\n",
+			prometheusLabelEscape(endpoint.Endpoint), endpoint.AuthFailuresTotal))
+	}
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -108,6 +168,106 @@ func (s *Server) captureMetricsSnapshot() metricsSnapshot {
 		}
 	}
 	s.sessionMu.RUnlock()
+	snapshot.dashboardEndpoints = s.captureDashboardMetricsSamples()
 
 	return snapshot
+}
+
+func (s *Server) captureDashboardMetricsSamples() []dashboardMetricsSample {
+	s.dashboardMetricsMu.Lock()
+	defer s.dashboardMetricsMu.Unlock()
+
+	samples := make([]dashboardMetricsSample, 0, len(s.dashboardMetrics))
+	for endpoint, item := range s.dashboardMetrics {
+		copiedStatusClasses := make(map[string]int64, len(item.StatusClassTotals))
+		for classLabel, total := range item.StatusClassTotals {
+			copiedStatusClasses[classLabel] = total
+		}
+		samples = append(samples, dashboardMetricsSample{
+			Endpoint:          endpoint,
+			RequestTotal:      item.RequestTotal,
+			ErrorTotal:        item.ErrorTotal,
+			AuthFailuresTotal: item.AuthFailuresTotal,
+			DurationSeconds:   item.DurationSeconds,
+			DurationCount:     item.DurationCount,
+			StatusClassTotals: copiedStatusClasses,
+		})
+	}
+
+	sort.Slice(samples, func(i, j int) bool {
+		return samples[i].Endpoint < samples[j].Endpoint
+	})
+	return samples
+}
+
+func (s *Server) recordDashboardRequestMetrics(path string, statusCode int, duration time.Duration) {
+	if !strings.HasPrefix(path, "/v1/dashboard") {
+		return
+	}
+	endpoint := normalizeDashboardMetricsEndpoint(path)
+	if endpoint == "" {
+		return
+	}
+	classLabel := dashboardStatusClassLabel(statusCode)
+
+	s.dashboardMetricsMu.Lock()
+	defer s.dashboardMetricsMu.Unlock()
+
+	entry := s.dashboardMetrics[endpoint]
+	if entry == nil {
+		entry = &dashboardEndpointMetrics{
+			StatusClassTotals: map[string]int64{},
+		}
+		s.dashboardMetrics[endpoint] = entry
+	}
+	entry.RequestTotal++
+	entry.DurationSeconds += duration.Seconds()
+	entry.DurationCount++
+	entry.StatusClassTotals[classLabel]++
+	if statusCode >= http.StatusBadRequest {
+		entry.ErrorTotal++
+	}
+	if statusCode == http.StatusUnauthorized {
+		entry.AuthFailuresTotal++
+	}
+}
+
+func normalizeDashboardMetricsEndpoint(path string) string {
+	normalized := strings.TrimSpace(path)
+	if normalized == "" {
+		return ""
+	}
+	if normalized == "/v1/dashboard/" {
+		return "/v1/dashboard"
+	}
+	return normalized
+}
+
+func dashboardStatusClassLabel(statusCode int) string {
+	switch {
+	case statusCode >= 500:
+		return "5xx"
+	case statusCode >= 400:
+		return "4xx"
+	case statusCode >= 300:
+		return "3xx"
+	case statusCode >= 200:
+		return "2xx"
+	default:
+		return "1xx"
+	}
+}
+
+func sortedDashboardMetricClassKeys(values map[string]int64) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func prometheusLabelEscape(raw string) string {
+	safe := strings.ReplaceAll(raw, "\\", "\\\\")
+	return strings.ReplaceAll(safe, "\"", "\\\"")
 }

@@ -280,6 +280,469 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         "409":
           $ref: "#/components/responses/ErrorResponse"
+  /v1/me/api-keys:
+    get:
+      summary: List API keys owned by the authenticated user
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: include_revoked
+          required: false
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User-owned API key inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APIKeyMetadata"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      summary: Create API key for authenticated user
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+      responses:
+        "201":
+          description: API key created (secret returned once)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/APIKeyMetadata"
+                  - type: object
+                    properties:
+                      api_key:
+                        type: string
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/me/api-keys/{key_id}:
+    delete:
+      summary: Revoke API key owned by authenticated user
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: key_id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+        - in: header
+          name: X-Baseline-Confirm
+          required: true
+          schema:
+            type: string
+            enum: ["revoke_api_key"]
+        - in: header
+          name: X-Baseline-Reason
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-Reauth
+          required: false
+          description: Required when `BASELINE_API_SENSITIVE_ACTION_REAUTH_ENABLED=true`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: API key revoked
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/users:
+    get:
+      summary: List users (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: role
+          required: false
+          schema:
+            $ref: "#/components/schemas/Role"
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: "#/components/schemas/UserStatus"
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          required: false
+          schema:
+            type: integer
+        - in: query
+          name: sort_by
+          required: false
+          schema:
+            type: string
+            enum: [user, role, status, last_login_at, created_at, updated_at]
+        - in: query
+          name: sort_dir
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: User inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UserRecord"
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_more:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/users/{user_id}:
+    get:
+      summary: Get user detail (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRecord"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+    patch:
+      summary: Update user role/status (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRecord"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/users/{user_id}/activity:
+    get:
+      summary: List user activity events (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          required: false
+          schema:
+            type: integer
+        - in: query
+          name: event_type
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: from
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: User activity events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEvent"
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_more:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/users/{user_id}/api-keys:
+    get:
+      summary: List API keys for user (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: include_revoked
+          required: false
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User API key inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APIKeyMetadata"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      summary: Create API key for user (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+      responses:
+        "201":
+          description: API key created (secret returned once)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/APIKeyMetadata"
+                  - type: object
+                    properties:
+                      api_key:
+                        type: string
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/users/{user_id}/api-keys/{key_id}:
+    delete:
+      summary: Revoke API key for user (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key_id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+        - in: header
+          name: X-Baseline-Confirm
+          required: true
+          schema:
+            type: string
+            enum: ["revoke_api_key"]
+        - in: header
+          name: X-Baseline-Reason
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-Reauth
+          required: false
+          description: Required when `BASELINE_API_SENSITIVE_ACTION_REAUTH_ENABLED=true`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: API key revoked
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ErrorResponse"
   /v1/integrations/github/webhook:
     post:
       summary: Receive GitHub webhook events (signed)
@@ -382,6 +845,86 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         "502":
           $ref: "#/components/responses/ErrorResponse"
+  /v1/integrations/jobs:
+    get:
+      summary: List integration jobs (queue/retry/backoff visibility)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - in: query
+          name: provider
+          required: false
+          schema:
+            type: string
+            enum: [github, gitlab]
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [pending, running, succeeded, failed]
+      responses:
+        "200":
+          description: Integration jobs list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationJobsResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/integrations/secrets:
+    post:
+      summary: Update runtime integration secrets/config (admin only)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationSecretsUpdateRequest"
+      responses:
+        "200":
+          description: Integration secret references updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
   /v1/projects:
     get:
       summary: List projects
@@ -448,6 +991,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+    put:
+      summary: Update project
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "200":
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
         "404":
           $ref: "#/components/responses/ErrorResponse"
   /v1/scans:
@@ -552,6 +1133,31 @@ paths:
       responses:
         "200":
           description: Scan report
+          headers:
+            Content-Disposition:
+              description: Attachment filename for downloaded report.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan:
+                    $ref: "#/components/schemas/ScanSummary"
+            text/plain:
+              schema:
+                type: string
+            application/sarif+json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
   /v1/dashboard:
     get:
       summary: Dashboard aggregate summary
@@ -565,6 +1171,75 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardSummary"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+  /v1/dashboard/capabilities:
+    get:
+      summary: Dashboard role/capability flags
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Capabilities for current principal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardCapabilitiesResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+  /v1/dashboard/activity:
+    get:
+      summary: Dashboard activity feed
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: type
+          required: false
+          schema:
+            type: string
+            enum: [scan, audit, integration]
+        - in: query
+          name: actor
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: from
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Activity feed page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardActivityResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
         "401":
           $ref: "#/components/responses/UnauthorizedError"
   /v1/policies:
@@ -753,6 +1428,9 @@ components:
     Role:
       type: string
       enum: [viewer, operator, admin]
+    UserStatus:
+      type: string
+      enum: [active, suspended]
     SessionState:
       type: object
       properties:
@@ -789,11 +1467,52 @@ components:
           format: date-time
         created_by:
           type: string
+        created_by_user_id:
+          type: string
+        owner_user_id:
+          type: string
+        owner_subject:
+          type: string
+        owner_email:
+          type: string
         revoked:
           type: boolean
         revoked_at:
           type: string
           format: date-time
+        revoked_by_user_id:
+          type: string
+        revocation_reason:
+          type: string
+    UserRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        last_login_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UpdateUserRequest:
+      type: object
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/UserStatus"
     GitHubCheckRunRequest:
       type: object
       required: [owner, repository, head_sha, name]
@@ -840,6 +1559,59 @@ components:
         description:
           type: string
         ref:
+          type: string
+    IntegrationJobSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        job_type:
+          type: string
+        project_ref:
+          type: string
+        external_ref:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed]
+        attempt_count:
+          type: integer
+        max_attempts:
+          type: integer
+        last_error:
+          type: string
+        next_attempt_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    IntegrationJobsResponse:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/IntegrationJobSummary"
+    IntegrationSecretsUpdateRequest:
+      type: object
+      properties:
+        github_webhook_secret:
+          type: string
+        gitlab_webhook_token:
+          type: string
+        github_api_token:
+          type: string
+        gitlab_api_token:
+          type: string
+        github_api_url:
+          type: string
+        gitlab_api_url:
           type: string
     ErrorEnvelope:
       type: object
@@ -979,6 +1751,10 @@ components:
           type: string
         scan_id:
           type: string
+        actor:
+          type: string
+        request_id:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -999,3 +1775,70 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AuditEvent"
+    DashboardCapabilities:
+      type: object
+      properties:
+        dashboard.view:
+          type: boolean
+        projects.read:
+          type: boolean
+        projects.write:
+          type: boolean
+        scans.read:
+          type: boolean
+        scans.run:
+          type: boolean
+        api_keys.read:
+          type: boolean
+        api_keys.write:
+          type: boolean
+        audit.read:
+          type: boolean
+        integrations.read:
+          type: boolean
+        integrations.write:
+          type: boolean
+        integrations.secrets.write:
+          type: boolean
+    DashboardCapabilitiesResponse:
+      type: object
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+        source:
+          type: string
+          enum: [api_key, session]
+        capabilities:
+          $ref: "#/components/schemas/DashboardCapabilities"
+    DashboardActivityItem:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [scan, audit, integration]
+        action:
+          type: string
+        status:
+          type: string
+        project_id:
+          type: string
+        scan_id:
+          type: string
+        actor:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+    DashboardActivityResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardActivityItem"
+        next_cursor:
+          type: string

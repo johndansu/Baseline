@@ -151,11 +151,23 @@ func TestContractResponseShapesForCoreEndpoints(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("scan json report response status mismatch: got %d body=%s", resp.StatusCode, body)
 	}
+	if got := strings.ToLower(resp.Header.Get("Content-Type")); !strings.Contains(got, "application/json") {
+		t.Fatalf("scan json report content-type mismatch: got %q", got)
+	}
+	if got := resp.Header.Get("Content-Disposition"); !strings.Contains(got, "baseline-scan-"+fixture.scanID+".json") {
+		t.Fatalf("scan json report missing expected content-disposition filename: got %q", got)
+	}
 	assertJSONContainsTopLevelKeys(t, body, "scan")
 
 	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/scans/"+fixture.scanID+"/report?format=text", nil, headers)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("scan text report response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	if got := strings.ToLower(resp.Header.Get("Content-Type")); !strings.Contains(got, "text/plain") {
+		t.Fatalf("scan text report content-type mismatch: got %q", got)
+	}
+	if got := resp.Header.Get("Content-Disposition"); !strings.Contains(got, "baseline-scan-"+fixture.scanID+".txt") {
+		t.Fatalf("scan text report missing expected content-disposition filename: got %q", got)
 	}
 	if !strings.Contains(body, "scan_id:") {
 		t.Fatalf("text report missing scan_id line: body=%s", body)
@@ -165,6 +177,12 @@ func TestContractResponseShapesForCoreEndpoints(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("scan sarif report response status mismatch: got %d body=%s", resp.StatusCode, body)
 	}
+	if got := strings.ToLower(resp.Header.Get("Content-Type")); !strings.Contains(got, "application/sarif+json") {
+		t.Fatalf("scan sarif report content-type mismatch: got %q", got)
+	}
+	if got := resp.Header.Get("Content-Disposition"); !strings.Contains(got, "baseline-scan-"+fixture.scanID+".sarif") {
+		t.Fatalf("scan sarif report missing expected content-disposition filename: got %q", got)
+	}
 	assertJSONContainsTopLevelKeys(t, body, "version", "$schema", "runs")
 
 	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard", nil, headers)
@@ -172,6 +190,32 @@ func TestContractResponseShapesForCoreEndpoints(t *testing.T) {
 		t.Fatalf("dashboard summary response status mismatch: got %d body=%s", resp.StatusCode, body)
 	}
 	assertJSONContainsTopLevelKeys(t, body, "metrics", "recent_scans", "top_violations", "recent_events")
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard/capabilities", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("dashboard capabilities response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "role", "source", "capabilities")
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/dashboard/activity", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("dashboard activity response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "items")
+
+	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/integrations/jobs?limit=10", nil, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("integration jobs response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "jobs")
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/integrations/secrets", map[string]any{
+		"github_api_url": "https://api.github.com",
+	}, headers)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("integration secrets update response status mismatch: got %d body=%s", resp.StatusCode, body)
+	}
+	assertJSONContainsTopLevelKeys(t, body, "updated", "count")
 
 	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/policies", nil, headers)
 	if resp.StatusCode != http.StatusOK {
@@ -353,6 +397,10 @@ func contractRequestPayloadAndHeaders(path, method string, fixture contractFixtu
 			"sha":        fixture.headSHA,
 			"state":      "success",
 			"name":       "baseline/enforce",
+		}, headers
+	case path == "/v1/integrations/secrets" && method == http.MethodPost:
+		return map[string]any{
+			"github_api_url": "https://api.github.com",
 		}, headers
 	case path == "/v1/projects" && method == http.MethodPost:
 		return map[string]any{"name": "contract-created-project"}, headers

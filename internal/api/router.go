@@ -16,27 +16,37 @@ func (s *Server) Handler() http.Handler {
 
 		writer := &statusCapturingResponseWriter{ResponseWriter: w}
 		writer.Header().Set(requestIDHeader, requestID)
+		finalize := func() {
+			duration := time.Since(startedAt)
+			s.recordDashboardRequestMetrics(r.URL.Path, writer.status(), duration)
+			s.logMutationAction(r, writer.status())
+			s.logRequest(r, writer.status(), writer.bytes, startedAt)
+		}
 
 		s.applySecurityHeaders(writer, r)
 		if s.handleCORS(writer, r) {
-			s.logRequest(r, writer.status(), writer.bytes, startedAt)
+			finalize()
 			return
 		}
 		if s.config.RequireHTTPS && !s.isRequestSecure(r) {
 			writeError(writer, http.StatusForbidden, "https_required", "HTTPS is required")
-			s.logRequest(r, writer.status(), writer.bytes, startedAt)
+			finalize()
 			return
 		}
 		if !s.allowRequestByRateLimit(writer, r) {
-			s.logRequest(r, writer.status(), writer.bytes, startedAt)
+			finalize()
 			return
 		}
 		s.route(writer, r)
-		s.logRequest(r, writer.status(), writer.bytes, startedAt)
+		finalize()
 	})
 }
 
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
+	if !s.allowMutationByRollout(w, r) {
+		return
+	}
+
 	switch r.URL.Path {
 	case "/",
 		"/login", "/login.html", "/register", "/register.html",
@@ -73,8 +83,16 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthSession(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/register"):
 		s.handleAuthRegister(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/me/api-keys"):
+		s.handleMeAPIKeys(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/users"):
+		s.handleUsers(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/api-keys"):
 		s.handleAPIKeys(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/jobs"):
+		s.handleIntegrationJobs(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/integrations/secrets"):
+		s.handleIntegrationSecrets(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/integrations/github/webhook"):
 		s.handleGitHubWebhook(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/webhook"):
@@ -84,7 +102,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/v1/integrations/gitlab/statuses"):
 		s.handleGitLabStatuses(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/dashboard"):
-		s.handleDashboardSummary(w, r)
+		s.handleDashboardRoutes(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/projects"):
 		s.handleProjects(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/scans"):
@@ -95,6 +113,19 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleRulesets(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/audit/events"):
 		s.handleAuditEvents(w, r)
+	default:
+		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+	}
+}
+
+func (s *Server) handleDashboardRoutes(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/v1/dashboard":
+		s.handleDashboardSummary(w, r)
+	case "/v1/dashboard/capabilities":
+		s.handleDashboardCapabilities(w, r)
+	case "/v1/dashboard/activity":
+		s.handleDashboardActivity(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 	}

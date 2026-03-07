@@ -165,17 +165,13 @@ func (s *Server) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden", "invalid enrollment token")
 		return
 	}
-	key, metadata, err := s.issueAPIKey(role, "self-service", "self_service", "enrollment_token")
+	key, metadata, err := s.issueAPIKey(role, "self-service", "self_service", "enrollment_token", nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "system_error", "unable to generate API key")
 		return
 	}
 	s.dataMu.Lock()
-	s.appendEventLocked(AuditEvent{
-		EventType: "api_key_issued",
-		ScanID:    metadata.ID,
-		CreatedAt: time.Now().UTC(),
-	})
+	s.appendEventLocked(s.newRequestAuditEvent(r, "enrollment_token", "api_key_issued", "", metadata.ID))
 	s.dataMu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":        metadata.ID,

@@ -1075,6 +1075,13 @@ func verifyAPIProdConfig(cfg api.Config, getenv func(string) string) prodVerifyR
 			result.Errors = append(result.Errors, "BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER must not be empty when auth proxy is enabled.")
 		}
 	}
+	if raw := strings.ToLower(strings.TrimSpace(getenv("BASELINE_API_DASHBOARD_ROLLOUT_STAGE"))); raw != "" {
+		if !isValidDashboardRolloutStage(raw) {
+			result.Errors = append(result.Errors, "BASELINE_API_DASHBOARD_ROLLOUT_STAGE must be one of read_only|mutations|integrations|full.")
+		} else if raw != string(api.DashboardRolloutStageFull) {
+			result.Warnings = append(result.Warnings, "Dashboard rollout stage is set to "+raw+"; some mutation endpoints are intentionally disabled.")
+		}
+	}
 
 	if !hasAdminKey(cfg.APIKeys) {
 		result.Warnings = append(result.Warnings, "No admin API key is bootstrapped via environment; ensure an active admin key exists in the database.")
@@ -1196,6 +1203,18 @@ func containsStringFold(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func isValidDashboardRolloutStage(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case string(api.DashboardRolloutStageReadOnly),
+		string(api.DashboardRolloutStageMutations),
+		string(api.DashboardRolloutStageIntegrations),
+		string(api.DashboardRolloutStageFull):
+		return true
+	default:
+		return false
+	}
 }
 
 func parseBoolWithDefault(raw string, fallback bool) bool {
