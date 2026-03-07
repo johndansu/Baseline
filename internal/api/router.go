@@ -51,6 +51,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	case "/",
 		"/login", "/login.html", "/register", "/register.html",
 		"/signin", "/signin.html", "/signup", "/signup.html", "/index.html",
+		"/dashboard", "/dashboard.html",
 		"/styles.css", "/app.js", "/auth.js",
 		"/assets/baseline-logo.png",
 		"/img/baseline logo.png", "/img/baseline favicon.png":
@@ -71,6 +72,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case isDashboardPath(r.URL.Path):
+		s.handleDashboard(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/me"):
 		s.handleAuthMe(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/oidc/login"):
