@@ -32,6 +32,13 @@ router.post('/signin', async (req, res) => {
       });
     }
 
+    // Store session for browser access
+    if (data.session) {
+      req.session.accessToken = data.session.access_token;
+      req.session.user = data.session.user;
+      req.session.save(() => {});
+    }
+
     res.json({
       success: true,
       user: data.user,
@@ -110,6 +117,17 @@ router.post('/signout', async (req, res) => {
       });
     }
 
+    if (req.session) {
+      req.session.destroy(() => {
+        res.clearCookie('connect.sid');
+        res.json({
+          success: true,
+          message: 'Sign out successful'
+        });
+      });
+      return;
+    }
+
     res.json({
       success: true,
       message: 'Sign out successful'
@@ -171,8 +189,8 @@ router.get('/session', async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const session = await getUserSession(token);
+    const accessToken = authHeader.replace('Bearer ', '');
+    const session = await getUserSession(accessToken);
 
     if (!session) {
       return res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
