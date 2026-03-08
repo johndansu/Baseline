@@ -1,7 +1,11 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -34,6 +38,11 @@ func (s *Server) handleAuthReauth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/v1/auth/session/exchange" {
+		s.handleAuthSessionExchange(w, r)
+		return
+	}
+
 	if !s.config.DashboardSessionEnabled && !s.config.OIDCEnabled {
 		writeError(w, http.StatusForbidden, "session_disabled", "dashboard session auth is disabled")
 		return
@@ -133,6 +142,187 @@ func (s *Server) handleAuthSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"active": false})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+	}
+}
+
+type supabaseUserInfo struct {
+	ID               string         `json:"id"`
+	Email            string         `json:"email"`
+	EmailConfirmedAt string         `json:"email_confirmed_at"`
+	UserMetadata     map[string]any `json:"user_metadata"`
+}
+
+func (s *Server) handleAuthSessionExchange(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
+
+	var req struct {
+		AccessToken string `json:"access_token"`
+	}
+	if !s.decodeJSONBody(w, r, &req) {
+		return
+	}
+
+	accessToken := strings.TrimSpace(req.AccessToken)
+	if accessToken == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "access_token is required")
+		return
+	}
+
+	supabaseUser, issuerURL, err := s.fetchSupabaseUser(r.Context(), accessToken)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+
+	verified := strings.TrimSpace(supabaseUser.EmailConfirmedAt) != ""
+	claims := oidcIDTokenClaims{
+		Subject: strings.TrimSpace(supabaseUser.ID),
+		Email:   strings.TrimSpace(strings.ToLower(supabaseUser.Email)),
+		Name:    pickSupabaseDisplayName(supabaseUser.UserMetadata),
+	}
+	if claims.Name == "" {
+		claims.Name = claims.Email
+	}
+	claims.EmailVerified = &verified
+
+	if err := s.validateOIDCIdentity(claims); err != nil {
+		writeError(w, http.StatusForbidden, "oidc_identity_rejected", "OIDC identity did not satisfy policy requirements")
+		return
+	}
+
+	userLabel := pickOIDCDisplayUser(claims)
+	userID := ""
+	if s.store != nil {
+		persistedUserID, err := s.store.UpsertOIDCUser(
+			issuerURL,
+			claims.Subject,
+			strings.TrimSpace(strings.ToLower(claims.Email)),
+			userLabel,
+			time.Now().UTC(),
+		)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "system_error", "unable to persist OIDC user")
+			return
+		}
+		userID = strings.TrimSpace(persistedUserID)
+	}
+
+	role := s.config.OIDCDefaultRole
+	if !isValidRole(role) {
+		role = s.config.DashboardSessionRole
+	}
+	if !isValidRole(role) {
+		role = RoleViewer
+	}
+
+	if err := s.issueDashboardSession(w, r, dashboardSession{
+		UserID:     userID,
+		Role:       role,
+		User:       userLabel,
+		Subject:    claims.Subject,
+		Email:      claims.Email,
+		AuthSource: "supabase",
+		ExpiresAt:  time.Now().UTC().Add(s.config.DashboardSessionTTL),
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "unable to create dashboard session")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"authenticated": true,
+		"role":          role,
+		"auth_source":   "session",
+		"identity": map[string]any{
+			"source":  "supabase",
+			"user_id": userID,
+			"user":    userLabel,
+			"email":   claims.Email,
+			"sub":     claims.Subject,
+		},
+	})
+}
+
+func (s *Server) fetchSupabaseUser(parent context.Context, accessToken string) (supabaseUserInfo, string, error) {
+	baseURL, publicKey := configuredSupabaseRuntime()
+	if baseURL == "" || publicKey == "" {
+		return supabaseUserInfo{}, "", errors.New("supabase session exchange is not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(parent, 8*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/user", nil)
+	if err != nil {
+		return supabaseUserInfo{}, "", errors.New("supabase session exchange failed")
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("apikey", publicKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return supabaseUserInfo{}, "", errors.New("supabase session exchange failed")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return supabaseUserInfo{}, "", errors.New("invalid or expired external session")
+	}
+
+	var user supabaseUserInfo
+	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		return supabaseUserInfo{}, "", errors.New("supabase session exchange failed")
+	}
+	if strings.TrimSpace(user.ID) == "" {
+		return supabaseUserInfo{}, "", errors.New("invalid or expired external session")
+	}
+
+	return user, baseURL, nil
+}
+
+func configuredSupabaseRuntime() (string, string) {
+	baseURL := strings.TrimSpace(os.Getenv("BASELINE_API_SUPABASE_URL"))
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(os.Getenv("SUPABASE_URL"))
+	}
+	publicKey := strings.TrimSpace(os.Getenv("SUPABASE_ANON_KEY"))
+	if publicKey == "" {
+		publicKey = strings.TrimSpace(os.Getenv("SUPABASE_PUBLISHABLE_KEY"))
+	}
+	if baseURL == "" || publicKey == "" {
+		return "", ""
+	}
+	return normalizeSupabaseOIDCIssuer(baseURL), publicKey
+}
+
+func pickSupabaseDisplayName(metadata map[string]any) string {
+	if metadata == nil {
+		return ""
+	}
+	for _, key := range []string{"full_name", "name", "preferred_username", "user_name"} {
+		if value, ok := metadata[key]; ok {
+			if text := strings.TrimSpace(toString(value)); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func toString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return ""
 	}
 }
 

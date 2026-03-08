@@ -1,47 +1,48 @@
 // Supabase Configuration
-// This file must not contain real secrets. Configure values via deployment/runtime.
+// Public values are injected at runtime via /js/runtime-config.js when available.
 
-window.SUPABASE_CONFIG = {
-  // Baseline Auth Supabase project
-  url: 'https://twnkjfrpxmdmlcxswizf.supabase.co',
-  
-  // Public anon key placeholder (replace at deploy/runtime, not in git).
-  anonKey: '<SUPABASE_ANON_KEY>',
-  
-  // OAuth providers configuration
-  providers: {
-    google: {
-      enabled: true,
-      scopes: 'email profile'
-    },
-    github: {
-      enabled: true,
-      scopes: 'user:email'
-    }
-  },
-  
-  // Authentication settings
-  auth: {
-    // Redirect URL after authentication
-    redirectTo: window.location.origin + '/dashboard.html',
-    
-    // Session settings
-    persistSession: true,
-    detectSessionInUrl: true,
-    
-    // Flow type (implicit, pkce, or magic-link)
-    flowType: 'pkce'
+(function () {
+  function cleanValue(value) {
+    var normalized = String(value || '').trim();
+    if (!normalized) return '';
+    if (normalized === '<SUPABASE_ANON_KEY>') return '';
+    if (normalized === 'your-anon-key') return '';
+    if (normalized === 'https://your-project.supabase.co') return '';
+    return normalized;
   }
-};
 
-// Helper function to get configuration from environment or defaults
-function getSupabaseConfig() {
-  // Do not allow runtime URL/query overrides for auth provider configuration.
-  // Query-based overrides can redirect credentials to an attacker-controlled tenant.
-  return Object.assign({}, window.SUPABASE_CONFIG);
-}
+  var runtime = window.RUNTIME_CONFIG || {};
+  var defaultRedirect =
+    window.location.origin +
+    '/signin.html?return_to=' +
+    encodeURIComponent('/dashboard');
 
-// Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getSupabaseConfig };
-}
+  window.SUPABASE_CONFIG = {
+    url: cleanValue(runtime.SUPABASE_URL) || 'https://twnkjfrpxmdmlcxswizf.supabase.co',
+    anonKey: cleanValue(runtime.SUPABASE_ANON_KEY),
+    providers: {
+      google: {
+        enabled: true,
+        scopes: 'email profile'
+      },
+      github: {
+        enabled: true,
+        scopes: 'user:email'
+      }
+    },
+    auth: {
+      redirectTo: cleanValue(runtime.SUPABASE_AUTH_REDIRECT_TO) || defaultRedirect,
+      persistSession: true,
+      detectSessionInUrl: true,
+      flowType: 'pkce'
+    }
+  };
+
+  window.getSupabaseConfig = function getSupabaseConfig() {
+    return Object.assign({}, window.SUPABASE_CONFIG);
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getSupabaseConfig: window.getSupabaseConfig };
+  }
+})();

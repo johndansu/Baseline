@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Baseline CLI Guide</title>
+  <meta name="description" content="Detailed command guide for the Baseline CLI, including when to use each command, example invocations, output behavior, and operational workflows.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/images/baseline favicon.png">
+  <link rel="apple-touch-icon" href="/assets/images/baseline favicon.png">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="cli-guide-page">
+  <button class="guide-back-to-top" id="guideBackToTop" type="button" aria-label="Back to top">
+    ↑
+  </button>
+
+  <div class="guide-sheet">
+    <header class="guide-topbar">
+      <a class="guide-brand" href="./index.html">
+        <img src="/assets/images/baseline logo.png" alt="Baseline logo" class="guide-brand-logo">
+        <div>
+          <strong>Baseline</strong>
+          <span>CLI Guide</span>
+        </div>
+      </a>
+      <div class="guide-topbar-actions">
+        <a class="guide-link-button" href="./index.html">Back Home</a>
+        <a class="guide-link-button guide-link-button-primary" href="./signin.html">Get Started</a>
+      </div>
+    </header>
+
+    <nav class="guide-nav" aria-label="CLI guide sections">
+      <a href="#overview">Overview</a>
+      <a href="#core">Core</a>
+      <a href="#ai">AI</a>
+      <a href="#api">API</a>
+      <a href="#ops">Operations</a>
+      <a href="#release">Release</a>
+      <a href="#reference">Reference</a>
+    </nav>
+
+    <main class="guide-content">
+      <section id="overview" class="guide-block guide-intro">
+        <p class="guide-label">Baseline CLI Guide</p>
+        <h1>Detailed command instructions for the Baseline CLI.</h1>
+        <p class="guide-lead">
+          This page explains what each command does, when to use it, and how the CLI connects to reporting,
+          auth, API operations, and release workflows already implemented in this repository.
+        </p>
+        <div class="guide-inline-actions">
+          <a class="guide-link-button guide-link-button-primary" href="#core">Open Command Guide</a>
+          <a class="guide-link-button" href="https://github.com/baseline/baseline/blob/main/README.md">Read Full README</a>
+        </div>
+      </section>
+
+      <section class="guide-block">
+        <h2>Quick start notes</h2>
+        <dl class="guide-highlights">
+          <div>
+            <dt>Best starting point</dt>
+            <dd>Run <code>baseline check</code> to see if a repository meets Baseline's production-readiness policies.</dd>
+          </div>
+          <div>
+            <dt>Best CI gate</dt>
+            <dd>Use <code>baseline enforce</code> when you want blocking output that reads clearly inside pipeline logs.</dd>
+          </div>
+          <div>
+            <dt>Best operator entry</dt>
+            <dd>Use <code>baseline api serve</code> when you need auth, audit history, and API-backed operations.</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section id="core" class="guide-block">
+        <p class="guide-label">Core Commands</p>
+        <h2>Commands used most often during local development and release gating.</h2>
+
+        <article class="guide-entry">
+          <h3><code>baseline version</code></h3>
+          <p>Prints the current version and build information for the CLI binary.</p>
+          <p><strong>Use it when:</strong> you need to confirm which build is running locally, in CI, or on an operator machine.</p>
+          <pre><code>baseline version</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline check</code></h3>
+          <p>Runs the full policy set and exits non-zero if blocking violations are found.</p>
+          <p><strong>Use it when:</strong> you want a normal repository check before push, before merge, or in CI.</p>
+          <pre><code>baseline check</code></pre>
+          <p><strong>Typical result:</strong> a readable list of violations such as missing tests, secrets, deployment gaps, or rollback documentation.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline enforce</code></h3>
+          <p>Runs policy enforcement with output formatted for strict release gating.</p>
+          <p><strong>Use it when:</strong> the command is part of a required pipeline step and the output should focus on pass or block decisions.</p>
+          <pre><code>baseline enforce</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline scan</code></h3>
+          <p>Builds a broader scan summary across files, security findings, and policy results.</p>
+          <p><strong>Use it when:</strong> you want more context than a single pass/fail gate, especially during investigation or triage.</p>
+          <pre><code>baseline scan</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline init</code></h3>
+          <p>Creates a local Baseline configuration file under <code>.baseline/config.yaml</code>.</p>
+          <p><strong>Use it when:</strong> you are onboarding a new repository and want a standard Baseline config scaffold.</p>
+          <pre><code>baseline init</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline report</code></h3>
+          <p>Exports results in machine-friendly or human-friendly formats.</p>
+          <p><strong>Use it when:</strong> you need output for logs, automation, or security tooling.</p>
+          <pre><code>baseline report --text
+baseline report --json
+baseline report --sarif</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline explain &lt;policy_id&gt;</code></h3>
+          <p>Explains the status of one policy and gives focused remediation guidance.</p>
+          <p><strong>Use it when:</strong> a repository is blocked by one specific rule and you want the shortest path to understanding the failure.</p>
+          <pre><code>baseline explain D1
+baseline explain R1</code></pre>
+        </article>
+      </section>
+
+      <section id="ai" class="guide-block">
+        <p class="guide-label">AI Commands</p>
+        <h2>Commands that draft remediation work without deciding policy outcomes.</h2>
+
+        <article class="guide-entry">
+          <h3><code>baseline generate</code></h3>
+          <p>Generates scaffolded remediation drafts for some violations using the configured AI provider.</p>
+          <p><strong>Use it when:</strong> you want a starting point for CI, tests, Dockerfile, README, or env-template fixes.</p>
+          <pre><code>baseline generate</code></pre>
+          <p><strong>Important:</strong> Baseline does not use AI to decide whether a policy passes. Review generated content before merge.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline pr</code></h3>
+          <p>Generates remediation drafts, commits them, pushes a branch, and attempts to create a pull request through <code>gh</code>.</p>
+          <p><strong>Use it when:</strong> you want a fast remediation branch workflow around detected violations.</p>
+          <pre><code>baseline pr</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline security-advice</code></h3>
+          <p>Creates an AI-assisted security suggestions file for issues that may sit outside the deterministic policy set.</p>
+          <p><strong>Use it when:</strong> you want extra review prompts beyond the enforced policies.</p>
+          <pre><code>baseline security-advice --out SECURITY.AI.SUGGESTIONS.md</code></pre>
+          <p><strong>Important:</strong> the AI output may be wrong, incomplete, or overly broad. Treat it as advisory only.</p>
+        </article>
+      </section>
+
+      <section id="api" class="guide-block">
+        <p class="guide-label">API And Auth Commands</p>
+        <h2>Commands for running the HTTP layer, human auth, and machine access.</h2>
+
+        <article class="guide-entry">
+          <h3><code>baseline api serve</code></h3>
+          <p>Starts the Baseline HTTP API server.</p>
+          <p><strong>Use it when:</strong> you want the API, OIDC login flow, API key operations, audit persistence, or dashboard backend endpoints.</p>
+          <pre><code>baseline api serve --addr :8080</code></pre>
+          <p><strong>Common hosted pages:</strong> <code>/</code>, <code>/signin.html</code>, <code>/signup.html</code>, <code>/dashboard</code>, and this CLI guide page.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline api keygen</code></h3>
+          <p>Generates a random API key for machine-to-machine usage.</p>
+          <p><strong>Use it when:</strong> you need a new bearer credential for automation or operator access.</p>
+          <pre><code>baseline api keygen</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline api verify-prod</code></h3>
+          <p>Checks whether API-related production configuration is complete.</p>
+          <p><strong>Use it when:</strong> you are preparing an environment for production or preflight validation.</p>
+          <pre><code>baseline api verify-prod
+baseline api verify-prod --strict</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline dashboard</code></h3>
+          <p>Runs the separate local dashboard proxy service for selected read-only API paths.</p>
+          <p><strong>Use it when:</strong> you want the proxy dashboard workflow instead of the API-hosted dashboard route.</p>
+          <pre><code>baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080</code></pre>
+        </article>
+      </section>
+
+      <section id="ops" class="guide-block">
+        <p class="guide-label">Operational Workflows</p>
+        <h2>Common sequences teams run in practice.</h2>
+
+        <article class="guide-entry">
+          <h3>Build and test the project</h3>
+          <pre><code>go build -o baseline ./cmd/baseline
+go test ./...</code></pre>
+          <p>Use this when validating the repository itself before release or contribution.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Release gate workflow</h3>
+          <pre><code>baseline check
+baseline report --sarif
+bash ./scripts/release-gate.sh</code></pre>
+          <p>Use this when you want Baseline checks plus the repository's release gating scripts.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>API smoke workflow</h3>
+          <pre><code>baseline api serve --addr :8080
+bash ./scripts/api-smoke.sh</code></pre>
+          <p>Use this when validating a production-like API startup and smoke path.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Operator health checks</h3>
+          <pre><code>curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
+curl http://127.0.0.1:8080/metrics</code></pre>
+          <p>Use this after starting the API to confirm health, readiness, and metrics exposure.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Auth-protected API probe</h3>
+          <pre><code>curl -H "Authorization: Bearer &lt;admin_key&gt;" \
+  http://127.0.0.1:8080/v1/dashboard</code></pre>
+          <p>Use this to confirm that machine auth and dashboard summary APIs are functioning.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Managed key rotation</h3>
+          <pre><code>.\scripts\api-key-rotate.ps1 `
+  -ApiBaseUrl http://127.0.0.1:8080 `
+  -AdminApiKey "&lt;current_admin_key&gt;" `
+  -Role operator `
+  -Name "ops-rotation-01"</code></pre>
+          <p>Use this when rotating operator keys through the API instead of hand-managing key material.</p>
+        </article>
+      </section>
+
+      <section id="release" class="guide-block">
+        <p class="guide-label">Release And Platform Operations</p>
+        <h2>The remaining commands and scripts from the command reference.</h2>
+
+        <article class="guide-entry">
+          <h3>Auth page URLs</h3>
+          <p>These are the API-hosted pages for local use when the Baseline API server is running.</p>
+          <pre><code>http://127.0.0.1:8080/
+http://127.0.0.1:8080/signin.html
+http://127.0.0.1:8080/signup.html</code></pre>
+          <p><strong>Use them when:</strong> you want browser-based human access to the current public pages and auth flow.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Git and release basics</h3>
+          <p>These are standard repository commands often used around Baseline rollout and release preparation.</p>
+          <pre><code>git status
+git add -A
+git commit -m "your message"
+git push origin main
+
+git tag v1.0.1
+git push origin v1.0.1</code></pre>
+          <p><strong>Use them when:</strong> you are committing Baseline-related changes or publishing a tagged release.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Branch protection setup</h3>
+          <p>Baseline expects the primary branch to be protected. This example configures required status checks on GitHub.</p>
+          <pre><code>gh api \
+  -X PUT \
+  repos/&lt;owner&gt;/&lt;repo&gt;/branches/main/protection \
+  -H "Accept: application/vnd.github+json" \
+  -F required_status_checks.strict=true \
+  -F required_status_checks.contexts[]="Test" \
+  -F required_status_checks.contexts[]="Security Scan" \
+  -F required_status_checks.contexts[]="Release Gates" \
+  -F required_status_checks.contexts[]="API Smoke" \
+  -F enforce_admins=true \
+  -F required_pull_request_reviews.required_approving_review_count=1 \
+  -F required_pull_request_reviews.dismiss_stale_reviews=true \
+  -F restrictions=</code></pre>
+          <p><strong>Use it when:</strong> policy <code>A1</code> needs a real protected-branch configuration behind it.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Final release gate</h3>
+          <p>These scripts run the repository's release gate workflow outside the main CLI command surface.</p>
+          <pre><code>bash ./scripts/release-gate.sh
+
+.\scripts\release-gate.ps1</code></pre>
+          <p><strong>Use them when:</strong> you want the complete scripted release gate, especially in CI or pre-release validation.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Production-like API smoke gate</h3>
+          <p>These scripts test the API in a smoke-check workflow and write artifacts under <code>.artifacts/api-smoke/&lt;timestamp&gt;</code>.</p>
+          <pre><code>bash ./scripts/api-smoke.sh
+
+.\scripts\api-smoke.ps1</code></pre>
+          <p><strong>Use them when:</strong> you need a higher-confidence API smoke run than a single health check.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Dashboard capability and activity probes</h3>
+          <p>These API calls help operators inspect what the backend exposes and what has happened recently.</p>
+          <pre><code>curl -H "Authorization: Bearer &lt;admin_key&gt;" \
+  http://127.0.0.1:8080/v1/dashboard/capabilities
+
+curl -H "Authorization: Bearer &lt;admin_key&gt;" \
+  "http://127.0.0.1:8080/v1/dashboard/activity?limit=10"
+
+curl http://127.0.0.1:8080/v1/auth/me</code></pre>
+          <p><strong>Use them when:</strong> verifying auth identity, rollout stage, capability flags, or recent operator-visible activity.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Audit stream probe</h3>
+          <p>Reads recent audit events from the API.</p>
+          <pre><code>curl -H "Authorization: Bearer &lt;admin_key&gt;" \
+  "http://127.0.0.1:8080/v1/audit/events?limit=20"</code></pre>
+          <p><strong>Use it when:</strong> you want to confirm that important changes are being recorded in the audit stream.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Incident triage quick checks</h3>
+          <p>These examples are useful when a scan fails, readiness changes, or you need fast operational context.</p>
+          <pre><code>curl http://127.0.0.1:8080/readyz
+
+curl -H "Authorization: Bearer &lt;admin_key&gt;" \
+  "http://127.0.0.1:8080/v1/scans?project_id=&lt;project_id&gt;"
+
+curl -H "Authorization: Bearer &lt;admin_key&gt;" \
+  "http://127.0.0.1:8080/v1/scans/&lt;scan_id&gt;/report?format=sarif"</code></pre>
+          <p><strong>Use them when:</strong> you need to inspect readiness dependencies, recent scans, or a SARIF report for a specific scan.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Managed API key rotation</h3>
+          <p>PowerShell helper script for issuing a new operator key and optionally revoking an older one.</p>
+          <pre><code>.\scripts\api-key-rotate.ps1 `
+  -ApiBaseUrl http://127.0.0.1:8080 `
+  -AdminApiKey "&lt;current_admin_key&gt;" `
+  -Role operator `
+  -Name "ops-rotation-01"
+
+.\scripts\api-key-rotate.ps1 `
+  -ApiBaseUrl http://127.0.0.1:8080 `
+  -AdminApiKey "&lt;current_admin_key&gt;" `
+  -Role operator `
+  -Name "ops-rotation-02" `
+  -RevokeKeyId "&lt;old_key_id&gt;"</code></pre>
+          <p><strong>Use it when:</strong> you want a controlled operator key lifecycle instead of manually distributing long-lived keys.</p>
+        </article>
+      </section>
+
+      <section id="reference" class="guide-block">
+        <p class="guide-label">Reference</p>
+        <h2>Quick facts that help when reading CLI output.</h2>
+
+        <article class="guide-entry">
+          <h3>Exit codes</h3>
+          <ul class="guide-list">
+            <li><code>0</code> success</li>
+            <li><code>20</code> blocking violations found</li>
+            <li><code>50</code> system or runtime error</li>
+          </ul>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Policy IDs currently enforced</h3>
+          <p><code>A1</code>, <code>B1</code>, <code>C1</code>, <code>D1</code>, <code>E1</code>, <code>F1</code>, <code>G1</code>, <code>H1</code>, <code>I1</code>, <code>J1</code>, <code>K1</code>, <code>L1</code>, <code>R1</code></p>
+          <p>Use <code>baseline explain &lt;policy_id&gt;</code> to drill into one of these.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Policy meanings</h3>
+          <ul class="guide-list">
+            <li><code>A1</code> branch protection</li>
+            <li><code>B1</code> CI runs on pull requests</li>
+            <li><code>C1</code> tests exist</li>
+            <li><code>D1</code> no plaintext secrets</li>
+            <li><code>E1</code> dependency files exist</li>
+            <li><code>F1</code> README and license exist</li>
+            <li><code>G1</code> risky code patterns blocked</li>
+            <li><code>H1</code> deployment config exists</li>
+            <li><code>I1</code> infrastructure-as-code exists</li>
+            <li><code>J1</code> env template exists</li>
+            <li><code>K1</code> backup or recovery docs exist</li>
+            <li><code>L1</code> logging or monitoring exists</li>
+            <li><code>R1</code> rollback docs exist</li>
+          </ul>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Auth model</h3>
+          <ul class="guide-list">
+            <li>Human auth: OIDC login and callback flow</li>
+            <li>Machine auth: bearer API keys</li>
+            <li>Mutating session requests: CSRF header required</li>
+          </ul>
+        </article>
+
+        <article class="guide-entry">
+          <h3>Database requirement</h3>
+          <p>CLI-only use does not require a database. API persistence uses SQLite for keys, audit events, and integration jobs.</p>
+          <pre><code>BASELINE_API_DB_PATH=.baseline/baseline.db</code></pre>
+        </article>
+      </section>
+
+      <section class="guide-block guide-closing">
+        <h2>Use the CLI locally first, then add the API when your workflow needs it.</h2>
+        <p>
+          Baseline is easiest to adopt by starting with a repository check, then adding reporting, explain flows,
+          AI drafts, and API-backed operations as your workflow matures.
+        </p>
+        <div class="guide-inline-actions">
+          <a class="guide-link-button guide-link-button-primary" href="./signin.html">Get Started</a>
+          <a class="guide-link-button" href="https://github.com/baseline/baseline/blob/main/command.md">Open Command Reference</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="guide-footer">
+      <p>&copy; 2026 Baseline. CLI guide for the Production Policy and Enforcement Engine.</p>
+    </footer>
+  </div>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

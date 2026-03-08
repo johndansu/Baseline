@@ -348,8 +348,30 @@
     update();
   }
 
+  function initGuidePage() {
+    var body = document.body;
+    if (!body || !body.classList.contains("cli-guide-page")) return;
+
+    var button = document.getElementById("guideBackToTop");
+    if (!button) return;
+
+    var updateVisibility = function () {
+      var scrollTop = window.scrollY || window.pageYOffset || 0;
+      button.classList.toggle("is-visible", scrollTop > 320);
+    };
+
+    button.addEventListener("click", function () {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    updateVisibility();
+    window.addEventListener("scroll", updateVisibility, { passive: true });
+    window.addEventListener("resize", updateVisibility);
+  }
+
   initDashboardTabs();
   initLandingPage();
   initExperienceEnhancements();
   initRoiEstimator();
+  initGuidePage();
 })();

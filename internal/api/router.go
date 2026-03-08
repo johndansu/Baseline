@@ -82,6 +82,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthOIDCCallback(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/reauth"):
 		s.handleAuthReauth(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/auth/session/exchange"):
+		s.handleAuthSession(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/session"):
 		s.handleAuthSession(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/auth/register"):

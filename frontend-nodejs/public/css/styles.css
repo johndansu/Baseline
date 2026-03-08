@@ -202,6 +202,269 @@ a {
   justify-content: center;
 }
 
+.guide-summary-grid,
+.guide-grid,
+.guide-reference-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.guide-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 20px;
+}
+
+.guide-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin-top: 24px;
+}
+
+.guide-reference-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 24px;
+}
+
+.guide-summary-card,
+.guide-card,
+.guide-reference-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: 0 14px 30px rgba(45, 24, 16, 0.06);
+}
+
+.guide-summary-card h3,
+.guide-card h3,
+.guide-reference-card h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: var(--brand);
+}
+
+.guide-card p,
+.guide-summary-card p,
+.guide-reference-card p,
+.guide-reference-card li {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.guide-card pre,
+.guide-reference-card pre {
+  margin: 14px 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #201510;
+  color: #fff9f4;
+  overflow-x: auto;
+}
+
+.guide-card code,
+.guide-summary-card code,
+.guide-reference-card code {
+  font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+}
+
+.guide-card pre code,
+.guide-reference-card pre code {
+  font-family: "Courier New", monospace;
+}
+
+.guide-reference-card ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.cli-guide-page {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.75), transparent 28%),
+    linear-gradient(180deg, #d8c3a5 0%, #cbb69a 100%);
+}
+
+.cli-guide-page .landing-wrap {
+  width: min(1120px, 94vw);
+  padding: 28px 24px 56px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      #fffef8 0,
+      #fffef8 31px,
+      #d8ebff 32px
+    );
+  border: 1px solid #d9c9ae;
+  border-radius: 28px;
+  box-shadow:
+    0 18px 45px rgba(59, 39, 24, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  position: relative;
+  overflow: hidden;
+}
+
+.cli-guide-page .landing-wrap::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 72px;
+  width: 2px;
+  background: rgba(220, 38, 38, 0.3);
+}
+
+.cli-guide-page .landing-wrap::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 20px;
+  width: 28px;
+  background:
+    radial-gradient(circle, #efe2c8 0 5px, transparent 6px) center top / 28px 46px repeat-y;
+  opacity: 0.95;
+}
+
+.cli-guide-page .topbar {
+  margin-bottom: 18px;
+  position: relative;
+  z-index: 1;
+}
+
+.cli-guide-page .landing-nav {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding-left: 64px;
+}
+
+.cli-guide-page .landing-nav a {
+  background: #fff7e8;
+  border: 1px solid #eadcc2;
+  border-radius: 999px;
+}
+
+.cli-guide-page .hero,
+.cli-guide-page .section-shell {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0 0 0 96px;
+  margin-top: 0;
+  margin-bottom: 26px;
+}
+
+.cli-guide-page .feature-header {
+  text-align: left;
+  margin: 0 0 18px;
+}
+
+.cli-guide-page .feature-header h2,
+.cli-guide-page .hero h1 {
+  color: #3a2819;
+  background: none;
+  -webkit-text-fill-color: initial;
+}
+
+.cli-guide-page .kicker,
+.cli-guide-page .eyebrow {
+  background: #ffe3a8;
+  color: #6d4a0a;
+  border: 1px solid #f3ce79;
+  padding: 6px 12px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.cli-guide-page .hero-intro,
+.cli-guide-page .guide-card p,
+.cli-guide-page .guide-summary-card p,
+.cli-guide-page .guide-reference-card p,
+.cli-guide-page .guide-reference-card li {
+  color: #5b4a3d;
+}
+
+.cli-guide-page .guide-summary-card,
+.cli-guide-page .guide-card,
+.cli-guide-page .guide-reference-card {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 10px 0 18px;
+}
+
+.cli-guide-page .guide-card h3,
+.cli-guide-page .guide-summary-card h3,
+.cli-guide-page .guide-reference-card h3 {
+  color: #8b4a14;
+}
+
+.cli-guide-page .guide-summary-grid,
+.cli-guide-page .guide-grid,
+.cli-guide-page .guide-reference-grid {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.cli-guide-page .guide-summary-card,
+.cli-guide-page .guide-card,
+.cli-guide-page .guide-reference-card {
+  border-bottom: 1px dashed rgba(139, 74, 20, 0.22);
+}
+
+.cli-guide-page .guide-summary-card:last-child,
+.cli-guide-page .guide-card:last-child,
+.cli-guide-page .guide-reference-card:last-child {
+  border-bottom: none;
+}
+
+.cli-guide-page .guide-card pre,
+.cli-guide-page .guide-reference-card pre {
+  background: #21252b;
+  border: 1px solid #3a404a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.cli-guide-page .cta-section {
+  background: transparent;
+}
+
+.cli-guide-page .footer {
+  color: #4e3d30;
+  position: relative;
+  z-index: 1;
+  padding-left: 96px;
+}
+
+@media (max-width: 720px) {
+  .cli-guide-page .landing-wrap {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .cli-guide-page .landing-wrap::before {
+    left: 44px;
+  }
+
+  .cli-guide-page .landing-wrap::after {
+    left: 8px;
+    width: 18px;
+    background-size: 18px 42px;
+  }
+
+  .cli-guide-page .landing-nav,
+  .cli-guide-page .hero,
+  .cli-guide-page .section-shell,
+  .cli-guide-page .footer {
+    padding-left: 64px;
+  }
+}
+
 .brand-text {
   display: flex;
   flex-direction: column;
@@ -3014,24 +3277,26 @@ code {
 
 /* Auth pages center the form card without affecting the landing page layout. */
 .experience-page.auth-page.landing-body {
-  min-height: auto;
   min-height: 100vh;
 }
 
 .experience-page.auth-page.landing-body .landing-wrap {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  padding: 20px 0;
+  padding: 0;
+  gap: 0;
 }
 
 .signin-section,
 .signup-section {
-  max-width: 420px;
+  width: min(520px, 92vw);
+  max-width: 520px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 10px;
   text-align: center;
   background: var(--xp-surface);
   border-radius: 22px;
@@ -3040,26 +3305,26 @@ code {
 
 .signin-form,
 .signup-form {
-  max-width: 360px !important;
+  max-width: 468px !important;
   margin: 0 auto;
-  padding: 18px;
+  padding: 12px;
   text-align: center;
 }
 
 .signin-form h2,
 .signup-form h2 {
-  margin: 0 0 12px 0;
+  margin: 0 0 8px 0;
   color: #2a1810;
-  font-size: 1.6rem;
+  font-size: 1.45rem;
   font-weight: 800;
 }
 
 .signin-form p,
 .signup-form p {
-  margin: 0 0 20px 0;
+  margin: 0 0 14px 0;
   color: var(--xp-muted);
   line-height: 1.4;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
 .signin-form .auth-page-note,
@@ -3073,7 +3338,13 @@ code {
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .form-group {
@@ -3081,7 +3352,7 @@ code {
   flex-direction: column;
   text-align: left;
   gap: 4px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .form-group label {
@@ -3092,7 +3363,7 @@ code {
 }
 
 .form-group input {
-  padding: 8px 12px;
+  padding: 7px 11px;
   border: 1px solid var(--xp-border);
   border-radius: 6px;
   font-size: 0.9rem;
@@ -3108,14 +3379,14 @@ code {
 }
 
 .form-actions {
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 /* OAuth Styles */
 .oauth-divider {
   display: flex;
   align-items: center;
-  margin: 15px 0;
+  margin: 10px 0;
   color: var(--xp-muted);
   font-size: 13px;
 }
@@ -3134,9 +3405,9 @@ code {
 }
 
 .oauth-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .oauth-btn {
@@ -3144,16 +3415,17 @@ code {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 9px 12px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
   color: var(--ink);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
   text-decoration: none;
+  min-height: 42px;
 }
 
 .oauth-btn:hover {
@@ -3192,14 +3464,33 @@ code {
 }
 
 .auth-links {
-  margin-top: 24px;
-  padding-top: 20px;
+  margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--xp-border);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .auth-links p {
-  margin: 8px 0;
-  font-size: 0.9rem;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.experience-page.auth-page .topbar {
+  position: absolute;
+  top: 18px;
+  left: 24px;
+  transform: none;
+  width: auto;
+  max-width: 92vw;
+  margin: 0;
+  justify-content: flex-start;
+}
+
+.experience-page.auth-page .footer {
+  display: none;
 }
 
 .auth-links a {
@@ -3210,6 +3501,26 @@ code {
 
 .auth-links a:hover {
   text-decoration: underline;
+}
+
+@media (max-width: 560px) {
+  .form-row,
+  .oauth-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-links {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+@media (max-height: 760px) {
+  .experience-page.auth-page.landing-body .landing-wrap {
+    justify-content: center;
+    padding-top: 82px;
+    padding-bottom: 18px;
+  }
 }
 
 @media (max-width: 1120px) {
@@ -4370,5 +4681,384 @@ code {
     break-inside: avoid;
     box-shadow: none;
     border: 1px solid #ccc;
+  }
+}
+
+/* Final page-specific overrides for the CLI guide.
+   These sit at the end of the file so later landing/dashboard rules cannot
+   reintroduce boxed section styling. */
+.cli-guide-page .section-shell,
+.cli-guide-page .hero,
+.cli-guide-page .guide-summary-card,
+.cli-guide-page .guide-card,
+.cli-guide-page .guide-reference-card {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.cli-guide-page .landing-nav {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.cli-guide-page .landing-nav a {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding-left: 0 !important;
+  padding-right: 18px !important;
+  border-radius: 0 !important;
+  color: #6b4a2c !important;
+}
+
+.cli-guide-page .guide-summary-grid,
+.cli-guide-page .guide-grid,
+.cli-guide-page .guide-reference-grid {
+  gap: 0 !important;
+}
+
+.cli-guide-page .guide-summary-card,
+.cli-guide-page .guide-card,
+.cli-guide-page .guide-reference-card {
+  padding: 8px 0 16px !important;
+  transform: none !important;
+}
+
+/* Dedicated CLI guide layout */
+.cli-guide-page {
+  margin: 0;
+  color: #38261b;
+  font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(255, 248, 232, 0.9), transparent 18%),
+    linear-gradient(180deg, #d8c4a7 0%, #cdb595 100%);
+}
+
+.guide-sheet {
+  width: min(960px, calc(100vw - 32px));
+  margin: 28px auto;
+  padding: 26px 34px 44px 110px;
+  position: relative;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      #fffef9 0,
+      #fffef9 35px,
+      #d7e8fb 36px
+    );
+  border: 1px solid #d8c7a8;
+  border-radius: 28px;
+  box-shadow:
+    0 24px 70px rgba(67, 42, 20, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.guide-back-to-top {
+  position: fixed;
+  right: max(18px, calc((100vw - 960px) / 2 - 82px));
+  bottom: 28px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  height: 56px;
+  padding: 0 14px;
+  border: 1px solid rgba(126, 87, 51, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 249, 239, 0.94);
+  color: #6a472c;
+  font-family: "Sora", "IBM Plex Sans", sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 16px 30px rgba(55, 36, 20, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(14px);
+  transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.guide-back-to-top.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.guide-back-to-top:hover {
+  box-shadow: 0 20px 34px rgba(55, 36, 20, 0.18);
+}
+
+.guide-sheet::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 76px;
+  width: 2px;
+  background: rgba(203, 58, 58, 0.32);
+}
+
+.guide-sheet::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 22px;
+  width: 30px;
+  background:
+    radial-gradient(circle, #e8d6b7 0 5px, transparent 6px) center top / 30px 48px repeat-y;
+}
+
+.guide-topbar,
+.guide-nav,
+.guide-content,
+.guide-footer {
+  position: relative;
+  z-index: 1;
+}
+
+.guide-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.guide-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.guide-brand-logo {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+}
+
+.guide-brand strong {
+  display: block;
+  font-family: "Sora", "IBM Plex Sans", sans-serif;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.guide-brand span {
+  display: block;
+  color: #766454;
+  font-size: 0.82rem;
+}
+
+.guide-topbar-actions,
+.guide-inline-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.guide-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  border: 1px solid #d6c29d;
+  color: #65452d;
+  background: rgba(255, 250, 240, 0.8);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.guide-link-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(72, 50, 29, 0.08);
+}
+
+.guide-link-button-primary {
+  border-color: #c56f28;
+  background: #d97706;
+  color: #fffaf2;
+}
+
+.guide-nav {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 0 18px;
+  margin-bottom: 12px;
+  border-bottom: 1px dashed rgba(105, 77, 51, 0.28);
+}
+
+.guide-nav a {
+  color: #7b5739;
+  text-decoration: none;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.guide-nav a:hover {
+  color: #b45b15;
+}
+
+.guide-block {
+  padding: 12px 0 22px;
+  border-bottom: 1px dashed rgba(105, 77, 51, 0.22);
+}
+
+.guide-block:last-child {
+  border-bottom: none;
+}
+
+.guide-label {
+  display: inline-block;
+  margin: 0 0 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #efcf82;
+  background: #ffefba;
+  color: #7b5a11;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.guide-intro h1,
+.guide-block h2 {
+  margin: 0 0 10px;
+  font-family: "Sora", "IBM Plex Sans", sans-serif;
+  line-height: 1.2;
+  color: #2e2218;
+}
+
+.guide-intro h1 {
+  font-size: clamp(2rem, 4vw, 3.1rem);
+}
+
+.guide-block h2 {
+  font-size: clamp(1.35rem, 2.4vw, 1.9rem);
+}
+
+.guide-lead,
+.guide-entry p,
+.guide-highlights dd,
+.guide-footer p {
+  line-height: 1.75;
+  color: #5f4c3d;
+}
+
+.guide-highlights {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.guide-highlights div {
+  padding: 8px 0;
+}
+
+.guide-highlights dt {
+  font-weight: 700;
+  color: #8a4c1a;
+  margin-bottom: 4px;
+}
+
+.guide-highlights dd {
+  margin: 0;
+}
+
+.guide-entry {
+  padding: 14px 0 20px;
+  border-top: 1px dashed rgba(105, 77, 51, 0.18);
+}
+
+.guide-entry:first-of-type {
+  border-top: none;
+}
+
+.guide-entry h3 {
+  margin: 0 0 8px;
+  font-size: 1.08rem;
+  color: #8c4b13;
+}
+
+.guide-entry code,
+.guide-highlights code,
+.guide-list code {
+  font-family: "IBM Plex Mono", "Courier New", monospace;
+  font-size: 0.96em;
+}
+
+.guide-entry pre {
+  margin: 12px 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border-left: 3px solid #d97706;
+  border-radius: 12px;
+  background: rgba(109, 72, 31, 0.07);
+  color: #2d2118;
+}
+
+.guide-entry pre code {
+  font-family: "Courier New", monospace;
+  color: inherit;
+}
+
+.guide-list {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.75;
+  color: #5f4c3d;
+}
+
+.guide-closing {
+  padding-bottom: 10px;
+}
+
+.guide-footer {
+  padding-top: 18px;
+  color: #6c5847;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 720px) {
+  .guide-back-to-top {
+    right: 14px;
+    bottom: 18px;
+    min-width: 52px;
+    height: 52px;
+  }
+
+  .guide-sheet {
+    width: min(100vw - 16px, 960px);
+    margin: 8px auto;
+    padding: 20px 16px 28px 72px;
+    border-radius: 18px;
+  }
+
+  .guide-sheet::before {
+    left: 48px;
+  }
+
+  .guide-sheet::after {
+    left: 10px;
+    width: 20px;
+    background-size: 20px 44px;
+  }
+
+  .guide-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .guide-nav {
+    gap: 10px;
   }
 }

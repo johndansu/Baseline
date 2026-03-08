@@ -59,6 +59,156 @@
     return fallback;
   }
 
+  function hasAuthCallbackParams() {
+    var search = new URLSearchParams(window.location.search);
+    var hash = new URLSearchParams(String(window.location.hash || '').replace(/^#/, ''));
+    var callbackKeys = ['code', 'access_token', 'refresh_token', 'token_type', 'type', 'error', 'error_code'];
+
+    return callbackKeys.some(function(key) {
+      return search.has(key) || hash.has(key);
+    });
+  }
+
+  function shouldRedirectAfterAuth(event, currentPath) {
+    if (currentPath === '/dashboard' || currentPath === '/dashboard.html') {
+      return false;
+    }
+
+    if (event === 'SIGNED_IN') {
+      return true;
+    }
+
+    if (event === 'INITIAL_SESSION') {
+      return hasAuthCallbackParams();
+    }
+
+    return false;
+  }
+
+  function redirectAuthenticatedUser() {
+    if (isRedirecting) return;
+    isRedirecting = true;
+    var rawReturnUrl = new URLSearchParams(window.location.search).get('return_to');
+    var returnUrl = safeAuthReturnTo(rawReturnUrl);
+    ensureDashboardAccess(returnUrl)
+      .then(function(canRedirect) {
+        if (!canRedirect) {
+          isRedirecting = false;
+          return;
+        }
+        setTimeout(function() {
+          window.location.href = returnUrl;
+        }, 100);
+      })
+      .catch(function(error) {
+        console.error('Dashboard redirect blocked:', error);
+        isRedirecting = false;
+      });
+  }
+
+  function setGlobalAuthStatus(text, isError) {
+    var candidate = document.querySelector('.signin-form .auth-status, .signup-form .auth-status');
+    if (!candidate) {
+      var shell = document.querySelector('.signin-form, .signup-form');
+      if (!shell) return;
+      candidate = document.createElement('p');
+      candidate.className = 'auth-status';
+      candidate.style.marginTop = '12px';
+      candidate.style.fontSize = '0.9rem';
+      shell.appendChild(candidate);
+    }
+    candidate.textContent = text;
+    candidate.style.color = isError ? '#fecaca' : 'rgba(255,255,255,0.84)';
+  }
+
+  function exchangeBackendSession() {
+    if (!authState.session || !authState.session.access_token) {
+      return Promise.resolve(false);
+    }
+
+    return fetch('/v1/auth/session/exchange', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        access_token: authState.session.access_token
+      })
+    }).then(function(response) {
+      return response.ok;
+    }).catch(function(error) {
+      console.error('Backend session exchange failed:', error);
+      return false;
+    });
+  }
+
+  function ensureDashboardAccess(returnUrl) {
+    if (returnUrl !== '/dashboard' && returnUrl !== '/dashboard.html') {
+      return Promise.resolve(true);
+    }
+
+    return fetch('/v1/auth/me', {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'application/json'
+      }
+    })
+      .then(function(response) {
+        if (!response.ok) {
+          return false;
+        }
+        return response.json().then(function(payload) {
+          return !!(payload && payload.authenticated === true);
+        }).catch(function() {
+          return false;
+        });
+      })
+      .then(function(authenticated) {
+        if (authenticated) {
+          return true;
+        }
+        return exchangeBackendSession().then(function(exchanged) {
+          if (!exchanged) {
+            return false;
+          }
+          return fetch('/v1/auth/me', {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+              'Accept': 'application/json'
+            }
+          })
+            .then(function(response) {
+              if (!response.ok) {
+                return false;
+              }
+              return response.json().then(function(payload) {
+                return !!(payload && payload.authenticated === true);
+              }).catch(function() {
+                return false;
+              });
+            })
+            .catch(function() {
+              return false;
+            });
+        });
+      })
+      .then(function(authenticated) {
+        if (!authenticated) {
+          setGlobalAuthStatus('Sign-in succeeded, but dashboard access is not established yet. Complete backend session login before opening the dashboard.', true);
+        }
+        return authenticated;
+      })
+      .catch(function(error) {
+        console.error('Failed to verify dashboard access:', error);
+        setGlobalAuthStatus('Sign-in succeeded, but dashboard access could not be verified.', true);
+        return false;
+      });
+  }
+
   // Load Supabase client dynamically
   function loadSupabaseClient() {
     return new Promise(function(resolve, reject) {
@@ -129,7 +279,7 @@
 
   // Create Supabase client with given configuration
   function createSupabaseClient(supabaseClient, config) {
-    if (!config.url || !config.anonKey) {
+    if (!config.url || !config.anonKey || config.anonKey === '<SUPABASE_ANON_KEY>') {
       console.error('Supabase configuration missing. Please configure supabase-config.js');
       console.error('Config URL:', config.url);
       console.error('Config anonKey:', config.anonKey ? 'SET' : 'NOT SET');
@@ -181,19 +331,10 @@
     }
     
     // Handle redirect after authentication (only once)
-    if (event === 'SIGNED_IN' && session && !isRedirecting) {
+    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
       var currentPath = window.location.pathname;
-      var isCallbackPage = currentPath.includes('/auth/callback') || currentPath.includes('/signin.html');
-      
-      if (!isCallbackPage && currentPath !== '/dashboard') {
-        isRedirecting = true;
-        var rawReturnUrl = new URLSearchParams(window.location.search).get('return_to');
-        var returnUrl = safeAuthReturnTo(rawReturnUrl);
-        
-        // Small delay to ensure UI updates complete
-        setTimeout(function() {
-          window.location.href = returnUrl;
-        }, 100);
+      if (shouldRedirectAfterAuth(event, currentPath)) {
+        redirectAuthenticatedUser();
       }
     }
   }
@@ -263,7 +404,7 @@
     var authOptions = {
       provider: provider,
       options: {
-        redirectTo: (options && options.redirectTo) || window.location.origin + '/dashboard',
+        redirectTo: (options && options.redirectTo) || config.auth.redirectTo,
         scopes: options && options.scopes || config.providers[provider].scopes
       }
     };
@@ -428,7 +569,7 @@
           // For email/password auth, redirect to dashboard after successful login
           if (mode === "signin") {
             setTimeout(function() {
-              window.location.href = '/dashboard';
+              redirectAuthenticatedUser();
             }, 1500); // Brief delay to show success message
           }
         })

@@ -145,7 +145,7 @@
                             <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                             </svg>
-                            <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500"></span>
+                            <span id="notifications-indicator" class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 hidden"></span>
                         </button>
                         
                         <button id="api-docs-button" type="button" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 transition-colors hover:bg-gray-50 text-gray-700">
@@ -157,11 +157,11 @@
                         
                         <!-- User Profile Dropdown -->
                         <div class="relative">
-                            <button onclick="toggleDropdown('userDropdown')" class="flex items-center gap-2.5 pl-1 pr-3 py-1 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
-                                <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold">
+                            <button id="dashboard-user-button" onclick="toggleDropdown('userDropdown')" class="flex items-center gap-2.5 pl-1 pr-3 py-1 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
+                                <div id="dashboard-user-avatar" class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold">
                                     OP
                                 </div>
-                                <span class="text-sm font-medium">Operator</span>
+                                <span id="dashboard-user-name" class="text-sm font-medium">Operator</span>
                                 <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                                 </svg>
@@ -171,15 +171,15 @@
                             <div id="userDropdown" class="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 hidden z-50">
                                 <div class="p-4 border-b border-gray-100">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white text-sm font-bold">
-                                            OP
+                                        <div id="dashboard-profile-avatar" class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white text-sm font-bold">
+                                            --
                                         </div>
                                         <div>
-                                            <p class="text-sm font-semibold text-gray-900">Operator</p>
-                                            <p class="text-xs text-gray-500">operator@company.com</p>
+                                            <p id="dashboard-profile-name" class="text-sm font-semibold text-gray-900">Loading</p>
+                                            <p id="dashboard-profile-email" class="text-xs text-gray-500">Fetching session...</p>
                                             <div class="flex items-center gap-2 mt-1">
-                                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
-                                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">Admin</span>
+                                                <span id="dashboard-profile-status-badge" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Checking</span>
+                                                <span id="dashboard-profile-role-badge" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Role</span>
                                             </div>
                                         </div>
                                     </div>
@@ -203,56 +203,56 @@
                     <div id="overview-tab" class="tab-content">
                         <!-- Stats Cards -->
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                            <div id="overview-stat-scans" class="bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4">
                                     <div class="p-2 rounded-lg">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                         </svg>
                                     </div>
-                                    <span class="text-sm font-medium text-green-600">+18%</span>
+                                    <span id="overview-stat-scans-badge" class="text-xs font-medium text-gray-500 uppercase tracking-wide">Δ 0</span>
                                 </div>
-                                <h3 class="text-2xl font-bold text-gray-900">247</h3>
+                                <h3 class="text-2xl font-bold text-gray-900">0</h3>
                                 <p class="text-sm text-gray-700">Total Scans</p>
                             </div>
                             
-                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                            <div id="overview-stat-failing" class="bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4">
                                     <div class="p-2 rounded-lg">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                         </svg>
                                     </div>
-                                    <span class="text-sm font-medium text-green-600">+2</span>
+                                    <span id="overview-stat-failing-badge" class="text-xs font-medium text-gray-500 uppercase tracking-wide">Δ 0</span>
                                 </div>
-                                <h3 class="text-2xl font-bold text-gray-900">11/13</h3>
-                                <p class="text-sm text-gray-700">Policies Passing</p>
+                                <h3 class="text-2xl font-bold text-gray-900">0</h3>
+                                <p class="text-sm text-gray-700">Failing Scans</p>
                             </div>
                             
-                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                            <div id="overview-stat-blocking" class="bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4">
                                     <div class="p-2 rounded-lg">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                                         </svg>
                                     </div>
-                                    <span class="text-sm font-medium text-red-600">+1</span>
+                                    <span id="overview-stat-blocking-badge" class="text-xs font-medium text-gray-500 uppercase tracking-wide">Δ 0</span>
                                 </div>
-                                <h3 class="text-2xl font-bold text-gray-900">2</h3>
+                                <h3 class="text-2xl font-bold text-gray-900">0</h3>
                                 <p class="text-sm text-gray-700">Blocking Violations</p>
                             </div>
                             
-                            <div class="bg-white p-6 rounded-lg border border-gray-200">
+                            <div id="overview-stat-projects" class="bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4">
                                     <div class="p-2 rounded-lg">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                                         </svg>
                                     </div>
-                                    <span class="text-sm font-medium text-green-600">+1</span>
+                                    <span id="overview-stat-projects-badge" class="text-xs font-medium text-gray-500 uppercase tracking-wide">Δ 0</span>
                                 </div>
-                                <h3 class="text-2xl font-bold text-gray-900">4</h3>
-                                <p class="text-sm text-gray-700">Projects Tracked</p>
+                                <h3 class="text-2xl font-bold text-gray-900">0</h3>
+                                <p class="text-sm text-gray-700">Projects</p>
                             </div>
                         </div>
 
@@ -1124,69 +1124,13 @@
                         <div class="bg-white rounded-lg border border-gray-200">
                             <div class="p-6 border-b border-gray-200">
                                 <h3 class="text-lg font-semibold text-gray-900">Audit Log</h3>
-                                <p class="text-sm text-gray-700 mt-1">System activity and event history</p>
+                                <p class="text-sm text-gray-700 mt-1">Loading audit events from the Baseline API.</p>
                             </div>
-                            <div class="divide-y divide-gray-200">
-                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
-                                    <div class="flex items-center gap-4">
-                                        <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-                                            <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Scan completed</p>
-                                            <p class="text-xs text-gray-500">payments-service • 2 hours ago</p>
-                                        </div>
-                                    </div>
-                                    <span class="text-xs text-gray-500">system</span>
-                                </div>
-                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
-                                    <div class="flex items-center gap-4">
-                                        <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
-                                            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Policy violation detected</p>
-                                            <p class="text-xs text-gray-500">D1: Secret detected in user-service • 4 hours ago</p>
-                                        </div>
-                                    </div>
-                                    <span class="text-xs text-gray-500">system</span>
-                                </div>
-                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
-                                    <div class="flex items-center gap-4">
-                                        <div class="w-10 h-10 rounded-lg bg-yellow-100 flex items-center justify-center">
-                                            <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">API key created</p>
-                                            <p class="text-xs text-gray-500">Production API Key • 1 day ago</p>
-                                        </div>
-                                    </div>
-                                    <span class="text-xs text-gray-500">operator@baseline.local</span>
-                                </div>
-                                <div class="p-4 flex items-center justify-between hover:bg-gray-50">
-                                    <div class="flex items-center gap-4">
-                                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                                            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                                            </svg>
-                                        </div>
-                                        <div>
-                                            <p class="text-sm font-medium text-gray-900">Project added</p>
-                                            <p class="text-xs text-gray-500">analytics-service • 2 days ago</p>
-                                        </div>
-                                    </div>
-                                    <span class="text-xs text-gray-500">operator@baseline.local</span>
-                                </div>
+                            <div class="p-6 text-sm text-gray-500">
+                                Fetching the latest audit trail.
                             </div>
                         </div>
                     </div>
-
                     <!-- Settings Tab -->
                     <div id="settings-tab" class="tab-content hidden">
                         <div class="w-full p-6">
@@ -1794,11 +1738,19 @@
 
     <!-- Notifications Modal -->
     <div id="notificationsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
-        <div class="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[80vh] overflow-hidden">
-            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
-                <div>
-                    <h3 class="text-lg font-bold text-gray-900">Notifications</h3>
-                    <p class="text-sm text-gray-500">Recent activity and alerts</p>
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[72vh] overflow-hidden border border-gray-200">
+            <div class="px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-4 bg-white">
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-xl border border-gray-200 bg-gray-100 text-gray-700 flex items-center justify-center text-sm font-semibold">!</div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-900">Notifications</h3>
+                            <p class="text-sm text-gray-600">Important updates for your work</p>
+                        </div>
+                    </div>
+                    <div id="notifications-summary" class="mt-3 flex flex-wrap gap-2 text-xs">
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-600">Loading</span>
+                    </div>
                 </div>
                 <button onclick="closeModal('notificationsModal')" class="text-gray-400 hover:text-gray-700 transition-colors">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1806,55 +1758,15 @@
                     </svg>
                 </button>
             </div>
-            <div class="p-6 space-y-3 max-h-[60vh] overflow-y-auto">
-                <div class="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer">
-                    <div class="w-2 h-2 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-center justify-between mb-1">
-                            <p class="text-sm font-semibold text-gray-900">Scan completed</p>
-                            <span class="text-xs text-blue-600 font-medium">2m ago</span>
-                        </div>
-                        <p class="text-sm text-gray-700">payments-service scan completed successfully</p>
-                        <div class="flex items-center gap-2 mt-2">
-                            <button class="text-xs text-blue-600 hover:text-blue-700 font-medium">View Details</button>
-                            <button class="text-xs text-gray-500 hover:text-gray-700">Dismiss</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="flex items-start gap-3 p-4 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 transition-colors cursor-pointer">
-                    <div class="w-2 h-2 rounded-full bg-red-500 mt-2 flex-shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-center justify-between mb-1">
-                            <p class="text-sm font-semibold text-gray-900">Policy violation</p>
-                            <span class="text-xs text-red-600 font-medium">1h ago</span>
-                        </div>
-                        <p class="text-sm text-gray-700">Secret detected in user-service</p>
-                        <div class="flex items-center gap-2 mt-2">
-                            <button class="text-xs text-red-600 hover:text-red-700 font-medium">Investigate</button>
-                            <button class="text-xs text-gray-500 hover:text-gray-700">Dismiss</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="flex items-start gap-3 p-4 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition-colors cursor-pointer">
-                    <div class="w-2 h-2 rounded-full bg-green-500 mt-2 flex-shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-center justify-between mb-1">
-                            <p class="text-sm font-semibold text-gray-900">API Key created</p>
-                            <span class="text-xs text-green-600 font-medium">3h ago</span>
-                        </div>
-                        <p class="text-sm text-gray-700">New Development Key generated</p>
-                        <div class="flex items-center gap-2 mt-2">
-                            <button class="text-xs text-green-600 hover:text-green-700 font-medium">View Key</button>
-                            <button class="text-xs text-gray-500 hover:text-gray-700">Dismiss</button>
-                        </div>
-                    </div>
+            <div id="notifications-list" class="px-5 py-4 space-y-4 max-h-[46vh] overflow-y-auto bg-white">
+                <div class="p-4 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-500">
+                    Loading important updates.
                 </div>
             </div>
-            <div class="p-6 border-t border-gray-200 flex items-center justify-between">
+            <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-between bg-white">
                 <button onclick="closeModal('notificationsModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
                 <div class="flex items-center gap-2">
-                    <button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 text-sm font-medium rounded-lg bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>Mark All Read</button>
-                    <button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 text-sm font-medium rounded-lg bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>Settings</button>
+                    <button id="notifications-mark-read-button" type="button" class="px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:text-gray-400 disabled:bg-gray-100 disabled:cursor-not-allowed" disabled>Mark all as read</button>
                 </div>
             </div>
         </div>
@@ -2032,4 +1944,5 @@
     </script>
 </body>
 </html>
+
 

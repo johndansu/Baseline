@@ -2,6 +2,7 @@ package api
 
 import (
 	"embed"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -40,11 +41,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	case "/", "/index.html":
 		serveDashboardPublicFile(w, "index.html", "text/html; charset=utf-8")
 		return
+	case "/cli-guide", "/cli-guide.html":
+		serveDashboardPublicFile(w, "cli-guide.html", "text/html; charset=utf-8")
+		return
 	case "/dashboard", "/dashboard.html":
 		serveDashboardPublicFile(w, "dashboard.html", "text/html; charset=utf-8")
 		return
 	case "/styles.css":
 		serveDashboardPublicFile(w, filepath.Join("css", "styles.css"), "text/css; charset=utf-8")
+		return
+	case "/js/runtime-config.js":
+		serveDashboardRuntimeConfig(w)
 		return
 	case "/app.js":
 		fallthrough
@@ -108,8 +115,9 @@ func isDashboardPath(path string) bool {
 	case "/",
 		"/login", "/login.html", "/register", "/register.html",
 		"/signin", "/signin.html", "/signup", "/signup.html", "/index.html",
+		"/cli-guide", "/cli-guide.html",
 		"/dashboard", "/dashboard.html",
-		"/styles.css", "/app.js", "/auth.js",
+		"/styles.css", "/app.js", "/auth.js", "/js/runtime-config.js",
 		"/assets/baseline-logo.png",
 		"/img/baseline logo.png", "/img/baseline favicon.png":
 		return true
@@ -149,6 +157,24 @@ func serveDashboardPublicFile(w http.ResponseWriter, relPath, contentType string
 		return
 	}
 	writeError(w, http.StatusNotFound, "not_found", "dashboard asset unavailable")
+}
+
+func serveDashboardRuntimeConfig(w http.ResponseWriter) {
+	config := map[string]string{
+		"SUPABASE_URL":              strings.TrimSpace(os.Getenv("SUPABASE_URL")),
+		"SUPABASE_ANON_KEY":         strings.TrimSpace(os.Getenv("SUPABASE_ANON_KEY")),
+		"SUPABASE_AUTH_REDIRECT_TO": strings.TrimSpace(os.Getenv("SUPABASE_AUTH_REDIRECT_TO")),
+	}
+
+	payload, err := json.Marshal(config)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to render runtime config")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte("window.RUNTIME_CONFIG = " + string(payload) + ";\n"))
 }
 
 func readUnifiedDashboardFile(relPath string) ([]byte, bool) {

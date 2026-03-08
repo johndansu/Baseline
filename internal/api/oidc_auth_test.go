@@ -275,3 +275,68 @@ func TestOIDCUnavailableMessageDoesNotLeakInternalErrorDetails(t *testing.T) {
 		t.Fatalf("expected sanitized oidc unavailable message, got %q", raw)
 	}
 }
+
+func TestSupabaseSessionExchangeCreatesDashboardSession(t *testing.T) {
+	supabase := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/auth/v1/user" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := strings.TrimSpace(r.Header.Get("apikey")); got != "public-test-key" {
+			http.Error(w, "missing apikey", http.StatusUnauthorized)
+			return
+		}
+		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer valid-session-token" {
+			http.Error(w, "missing bearer", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"user_123","email":"person@example.com","email_confirmed_at":"2026-03-08T12:00:00Z","user_metadata":{"full_name":"Person Example"}}`)
+	}))
+	defer supabase.Close()
+
+	t.Setenv("SUPABASE_URL", supabase.URL)
+	t.Setenv("SUPABASE_ANON_KEY", "public-test-key")
+
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{"admin-key": RoleAdmin}
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	resp, body := mustRequest(t, http.DefaultClient, http.MethodPost, ts.URL+"/v1/auth/session/exchange", map[string]any{
+		"access_token": "valid-session-token",
+	}, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating exchanged session, got %d body=%s", resp.StatusCode, body)
+	}
+	if len(resp.Cookies()) == 0 {
+		t.Fatalf("expected dashboard session cookie, body=%s", body)
+	}
+
+	client := &http.Client{}
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/auth/me", nil)
+	if err != nil {
+		t.Fatalf("failed to build auth/me request: %v", err)
+	}
+	for _, cookie := range resp.Cookies() {
+		req.AddCookie(cookie)
+	}
+	meResp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("auth/me request failed: %v", err)
+	}
+	defer meResp.Body.Close()
+	meBodyBytes, _ := io.ReadAll(meResp.Body)
+	meBody := string(meBodyBytes)
+	if meResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from auth/me with exchanged session, got %d body=%s", meResp.StatusCode, meBody)
+	}
+	if !strings.Contains(meBody, `"auth_source":"session"`) || !strings.Contains(meBody, `"email":"person@example.com"`) {
+		t.Fatalf("unexpected auth/me response after exchange: %s", meBody)
+	}
+}
