@@ -43,7 +43,9 @@ func (s *Server) authenticateWithSource(r *http.Request) (Role, string, error) {
 
 func (s *Server) getDashboardSession(r *http.Request) (dashboardSession, error) {
 	if !s.config.DashboardSessionEnabled && !s.config.OIDCEnabled {
-		return dashboardSession{}, errors.New("dashboard sessions disabled")
+		if baseURL, publicKey := configuredSupabaseRuntime(); baseURL == "" || publicKey == "" {
+			return dashboardSession{}, errors.New("dashboard sessions disabled")
+		}
 	}
 	cookie, err := r.Cookie(dashboardSessionCookieName)
 	if err != nil || cookie == nil || strings.TrimSpace(cookie.Value) == "" {

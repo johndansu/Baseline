@@ -1,6 +1,6 @@
 # Baseline
 
-Baseline is a Go-based production-readiness gate for software delivery.
+Baseline is a production-readiness gate for software delivery.
 
 It provides:
 - a CLI for deterministic policy checks before shipping

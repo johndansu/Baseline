@@ -92,6 +92,20 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.get('/js/runtime-config.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(
+    'window.RUNTIME_CONFIG = ' +
+      JSON.stringify({
+        SUPABASE_URL: String(process.env.SUPABASE_URL || '').trim(),
+        SUPABASE_ANON_KEY: String(process.env.SUPABASE_ANON_KEY || '').trim(),
+        SUPABASE_AUTH_REDIRECT_TO: String(process.env.SUPABASE_AUTH_REDIRECT_TO || '').trim()
+      }) +
+      ';\n'
+  );
+});
+
 // API routes (placeholder for future implementation)
 app.get('/api/status', (req, res) => {
   res.json({

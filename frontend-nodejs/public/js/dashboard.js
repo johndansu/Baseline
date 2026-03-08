@@ -80,6 +80,14 @@ class BaselineDashboard {
         this.pendingKeyRevokeID = '';
         this.lastIssuedAPIKey = '';
         this.lastIssuedAPIKeyMeta = null;
+        this.dashboardSummary = {
+            metrics: {},
+            recentScans: []
+        };
+        this.notificationsState = {
+            items: [],
+            readIDs: new Set()
+        };
         this.init();
     }
 
@@ -113,7 +121,7 @@ class BaselineDashboard {
         this.bindRunScanForm();
         this.bindGenerateKeyForm();
         this.bindRevokeKeyForm();
-        this.updateUserUI({ email: 'operator' });
+        this.updateUserUI({});
         this.bootstrap();
     }
 
@@ -157,6 +165,7 @@ class BaselineDashboard {
                 email: String(payload.email || '').trim().toLowerCase(),
                 subject: String(payload.subject || '').trim()
             };
+            this.notificationsState.readIDs = this.loadReadNotificationIDs();
             this.updateUserUI({
                 email: String(payload.email || ''),
                 role: String(payload.role || '')
@@ -402,6 +411,10 @@ class BaselineDashboard {
             const metrics = data && typeof data.metrics === 'object' && data.metrics ? data.metrics : {};
             const recentScans = Array.isArray(data?.recent_scans) ? data.recent_scans : [];
             const topViolations = Array.isArray(data?.top_violations) ? data.top_violations : [];
+            this.dashboardSummary = {
+                metrics,
+                recentScans
+            };
             this.updateStatsCards(metrics);
             this.updateUsageChart(recentScans);
             this.updateQuickStatsPanel(metrics, topViolations);
@@ -411,13 +424,87 @@ class BaselineDashboard {
     }
 
     updateStatsCards(metrics) {
-        const cards = document.querySelectorAll('#overview-tab .grid .bg-white');
-        if (!cards || cards.length < 4) return;
+        const scansCard = document.getElementById('overview-stat-scans');
+        const failingCard = document.getElementById('overview-stat-failing');
+        const blockingCard = document.getElementById('overview-stat-blocking');
+        const projectsCard = document.getElementById('overview-stat-projects');
 
-        this.setCardMetric(cards[0], metrics.scans ?? 0, 'Total Scans');
-        this.setCardMetric(cards[1], metrics.failing_scans ?? 0, 'Failing Scans');
-        this.setCardMetric(cards[2], metrics.blocking_violations ?? 0, 'Blocking Violations');
-        this.setCardMetric(cards[3], metrics.projects ?? 0, 'Projects');
+        this.setCardMetric(scansCard, metrics.scans ?? 0, 'Total Scans');
+        this.setCardMetric(failingCard, metrics.failing_scans ?? 0, 'Failing Scans');
+        this.setCardMetric(blockingCard, metrics.blocking_violations ?? 0, 'Blocking Violations');
+        this.setCardMetric(projectsCard, metrics.projects ?? 0, 'Projects');
+
+        const deltas = this.computeOverviewDeltas(this.dashboardSummary.recentScans);
+        this.setMetricDeltaBadge('overview-stat-scans-badge', deltas.scans);
+        this.setMetricDeltaBadge('overview-stat-failing-badge', deltas.failingScans);
+        this.setMetricDeltaBadge('overview-stat-blocking-badge', deltas.blockingViolations);
+        this.setMetricDeltaBadge('overview-stat-projects-badge', deltas.activeProjects);
+    }
+
+    setMetricBadge(id, text, className) {
+        const node = document.getElementById(id);
+        if (!node) return;
+        node.textContent = text;
+        node.className = className;
+    }
+
+    setMetricDeltaBadge(id, delta) {
+        const numericDelta = Number(delta || 0);
+        let text = 'Δ 0';
+        let className = 'text-xs font-medium text-gray-500 uppercase tracking-wide';
+        if (numericDelta > 0) {
+            text = `+${numericDelta}`;
+            className = 'text-xs font-medium text-green-600 uppercase tracking-wide';
+        } else if (numericDelta < 0) {
+            text = `${numericDelta}`;
+            className = 'text-xs font-medium text-red-600 uppercase tracking-wide';
+        }
+        this.setMetricBadge(id, text, className);
+    }
+
+    computeOverviewDeltas(recentScans) {
+        const items = Array.isArray(recentScans) ? recentScans.slice(0, 12) : [];
+        const current = items.slice(0, 6);
+        const previous = items.slice(6, 12);
+
+        const summarize = (scans) => {
+            const activeProjects = new Set();
+            let failingScans = 0;
+            let blockingViolations = 0;
+
+            scans.forEach((scan) => {
+                if (scan?.project_id) {
+                    activeProjects.add(scan.project_id);
+                }
+                const status = String(scan?.status || '').toLowerCase();
+                if (status === 'fail' || status === 'failed') {
+                    failingScans += 1;
+                }
+                const violations = Array.isArray(scan?.violations) ? scan.violations : [];
+                violations.forEach((violation) => {
+                    if (String(violation?.severity || '').toLowerCase() === 'block') {
+                        blockingViolations += 1;
+                    }
+                });
+            });
+
+            return {
+                scans: scans.length,
+                failingScans,
+                blockingViolations,
+                activeProjects: activeProjects.size
+            };
+        };
+
+        const currentSummary = summarize(current);
+        const previousSummary = summarize(previous);
+
+        return {
+            scans: currentSummary.scans - previousSummary.scans,
+            failingScans: currentSummary.failingScans - previousSummary.failingScans,
+            blockingViolations: currentSummary.blockingViolations - previousSummary.blockingViolations,
+            activeProjects: currentSummary.activeProjects - previousSummary.activeProjects
+        };
     }
 
     updateUsageChart(recentScans) {
@@ -495,14 +582,21 @@ class BaselineDashboard {
 
     async loadRecentActivity() {
         if (!this.hasCapability('audit.read')) {
+            this.notificationsState.items = [];
+            this.updateNotificationsIndicator();
             this.updateActivityLog([]);
             return;
         }
         try {
             const data = await this.apiRequest('/v1/dashboard/activity?limit=10');
-            this.updateActivityLog(Array.isArray(data.items) ? data.items : []);
+            const items = Array.isArray(data.items) ? data.items : [];
+            this.notificationsState.items = items;
+            this.updateNotificationsIndicator();
+            this.updateActivityLog(items);
         } catch (error) {
             this.showError(error.message || 'Failed to load activity');
+            this.notificationsState.items = [];
+            this.updateNotificationsIndicator();
             this.updateActivityLog([]);
         }
     }
@@ -531,8 +625,8 @@ class BaselineDashboard {
         div.className = 'p-4 flex items-center justify-between';
         
         const itemType = String(event.type || '').toLowerCase();
-        const action = String(event.action || event.event_type || 'activity');
-        const projectText = event.project_id ? `Project ${event.project_id}` : 'System';
+        const action = this.describeEventLabel(event);
+        const projectText = this.describeActivitySummary(event);
         const statusColor = itemType === 'scan' ? 'green' : itemType === 'integration' ? 'yellow' : 'blue';
         
         div.innerHTML = `
@@ -547,6 +641,472 @@ class BaselineDashboard {
         `;
         
         return div;
+    }
+
+    updateNotificationsIndicator() {
+        const indicator = document.getElementById('notifications-indicator');
+        if (!indicator) return;
+        const unread = this.getUnreadNotifications();
+        if (unread.length > 0) {
+            indicator.classList.remove('hidden');
+        } else {
+            indicator.classList.add('hidden');
+        }
+    }
+
+    async openNotificationsModal() {
+        openModal('notificationsModal');
+        if (!this.hasCapability('audit.read')) {
+            this.renderNotifications([]);
+            return;
+        }
+        try {
+            const data = await this.apiRequest('/v1/dashboard/activity?limit=12');
+            const items = Array.isArray(data.items) ? data.items : [];
+            this.notificationsState.items = items;
+            this.updateNotificationsIndicator();
+            this.renderNotifications(this.selectNotifications(items));
+        } catch (error) {
+            this.showError(error.message || 'Failed to load notifications');
+            this.renderNotifications([]);
+        }
+    }
+
+    renderNotifications(items) {
+        const list = document.getElementById('notifications-list');
+        const summary = document.getElementById('notifications-summary');
+        const markReadButton = document.getElementById('notifications-mark-read-button');
+        if (!list) return;
+
+        if (markReadButton && markReadButton.dataset.bound !== '1') {
+            markReadButton.dataset.bound = '1';
+            markReadButton.addEventListener('click', () => {
+                this.markAllNotificationsRead();
+            });
+        }
+
+        if (summary) {
+            summary.innerHTML = '';
+        }
+
+        if (!Array.isArray(items) || items.length === 0) {
+            if (summary) {
+                summary.innerHTML = `<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-600">No important updates</span>`;
+            }
+            if (markReadButton) {
+                markReadButton.disabled = true;
+            }
+            list.innerHTML = `
+                <div class="p-4 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-500">
+                    No important updates right now.
+                </div>
+            `;
+            return;
+        }
+
+        const grouped = this.groupNotifications(items);
+
+        if (summary) {
+            const unreadCount = this.countUnreadNotifications(items);
+            const chips = [];
+            chips.push(`<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-700">${items.length} updates</span>`);
+            if (unreadCount > 0) {
+                chips.push(`<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-900 text-white">${unreadCount} unread</span>`);
+            }
+            summary.innerHTML = chips.join('');
+        }
+
+        if (markReadButton) {
+            markReadButton.disabled = this.countUnreadNotifications(items) === 0;
+        }
+
+        list.innerHTML = `
+            ${this.renderNotificationSection('Needs review', 'Items that may need your attention soon.', grouped.attention)}
+            ${this.renderNotificationSection('Latest updates', 'Recent changes across your projects and access.', grouped.changes)}
+        `;
+
+        list.querySelectorAll('[data-notification-tab]').forEach((button) => {
+            if (button.dataset.bound === '1') {
+                return;
+            }
+            button.dataset.bound = '1';
+            button.addEventListener('click', () => {
+                const targetTab = button.getAttribute('data-notification-tab') || 'overview';
+                closeModal('notificationsModal');
+                this.switchTab(targetTab);
+            });
+        });
+    }
+
+    renderNotificationSection(title, subtitle, items) {
+        const body = Array.isArray(items) && items.length > 0
+            ? items.map((item) => this.renderNotificationCard(item)).join('')
+            : `<div class="p-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">Nothing to show here.</div>`;
+
+        return `
+            <section class="space-y-2">
+                <div>
+                    <h4 class="text-sm font-semibold text-gray-900">${this.escapeHtml(title)}</h4>
+                    <p class="text-xs text-gray-500 mt-0.5">${this.escapeHtml(subtitle)}</p>
+                </div>
+                <div class="space-y-2">
+                    ${body}
+                </div>
+            </section>
+        `;
+    }
+
+    renderNotificationCard(item) {
+            const tone = this.notificationTone(item);
+            const targetTab = this.notificationTargetTab(item);
+            const actionLabel = this.notificationActionLabel(item, targetTab);
+            const unread = this.isNotificationUnread(item);
+        return `
+            <div class="rounded-xl border ${tone.border} bg-white overflow-hidden ${unread ? 'ring-1 ring-offset-0 ring-gray-200' : ''}">
+                <button
+                    type="button"
+                    data-notification-tab="${this.escapeHtml(targetTab)}"
+                    class="w-full text-left px-3.5 py-3 hover:bg-gray-50 transition-colors"
+                >
+                    <div class="flex items-start gap-3">
+                        <div class="w-8 h-8 rounded-xl border ${tone.iconBorder} bg-gray-50 flex items-center justify-center flex-shrink-0">
+                            <div class="w-2 h-2 rounded-full ${tone.dot}"></div>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start justify-between gap-3 mb-1">
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-2">
+                                        <p class="text-sm font-semibold text-gray-900">${this.escapeHtml(this.notificationTitle(item))}</p>
+                                        ${unread ? '<span class="inline-flex items-center justify-center w-2.5 h-2.5 rounded-full bg-amber-500" aria-label="Unread notification" title="Unread"></span>' : ''}
+                                    </div>
+                                    <p class="text-xs text-gray-600 mt-1">${this.escapeHtml(this.notificationSummary(item))}</p>
+                                </div>
+                                <span class="text-[11px] font-medium whitespace-nowrap text-gray-400">${this.formatDate(item.created_at || item.timestamp)}</span>
+                            </div>
+                            <div class="mt-2 flex items-center justify-between gap-3">
+                                <span class="text-[11px] text-gray-500">${this.escapeHtml(this.notificationTargetLabel(targetTab))}</span>
+                                <span class="inline-flex items-center text-[11px] font-medium text-gray-700">${this.escapeHtml(actionLabel)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </button>
+            </div>
+        `;
+    }
+
+    groupNotifications(items) {
+        const groups = { attention: [], changes: [] };
+        for (const item of items) {
+            if (this.isAttentionNotification(item)) {
+                if (groups.attention.length < 3) {
+                    groups.attention.push(item);
+                }
+                continue;
+            }
+            if (groups.changes.length < 3) {
+                groups.changes.push(item);
+            }
+        }
+        return groups;
+    }
+
+    selectNotifications(items) {
+        if (!Array.isArray(items)) {
+            return [];
+        }
+        const actionable = items.filter((item) => this.isImportantNotification(item));
+        return actionable.slice(0, 8);
+    }
+
+    isNotificationUnread(item) {
+        const id = String(item?.id || '').trim();
+        if (!id) {
+            return false;
+        }
+        return !this.notificationsState.readIDs.has(id);
+    }
+
+    countUnreadNotifications(items) {
+        return (Array.isArray(items) ? items : []).filter((item) => this.isNotificationUnread(item)).length;
+    }
+
+    getUnreadNotifications() {
+        const important = this.selectNotifications(this.notificationsState.items);
+        return important.filter((item) => this.isNotificationUnread(item));
+    }
+
+    markAllNotificationsRead() {
+        const important = this.selectNotifications(this.notificationsState.items);
+        if (!important.length) {
+            return;
+        }
+        important.forEach((item) => {
+            const id = String(item?.id || '').trim();
+            if (id) {
+                this.notificationsState.readIDs.add(id);
+            }
+        });
+        this.persistReadNotificationIDs();
+        this.updateNotificationsIndicator();
+        this.renderNotifications(important);
+    }
+
+    notificationStorageKey() {
+        const identityKey = String(this.identity?.userID || this.identity?.email || this.identity?.subject || this.authz?.role || 'anonymous')
+            .trim()
+            .toLowerCase();
+        return `baseline.notifications.read.${identityKey}`;
+    }
+
+    loadReadNotificationIDs() {
+        try {
+            const raw = window.localStorage.getItem(this.notificationStorageKey());
+            if (!raw) {
+                return new Set();
+            }
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+                return new Set();
+            }
+            return new Set(parsed.map((value) => String(value || '').trim()).filter(Boolean));
+        } catch (_) {
+            return new Set();
+        }
+    }
+
+    persistReadNotificationIDs() {
+        try {
+            const importantIDs = new Set(
+                this.selectNotifications(this.notificationsState.items)
+                    .map((item) => String(item?.id || '').trim())
+                    .filter(Boolean)
+            );
+            const retained = Array.from(this.notificationsState.readIDs).filter((id) => importantIDs.has(id));
+            window.localStorage.setItem(this.notificationStorageKey(), JSON.stringify(retained));
+            this.notificationsState.readIDs = new Set(retained);
+        } catch (_) {
+            // Ignore storage failures.
+        }
+    }
+
+    isImportantNotification(item) {
+        const action = String(item?.action || item?.event_type || '').toLowerCase();
+        const type = String(item?.type || '').toLowerCase();
+        if (!action || action === 'dashboard_initialized') {
+            return false;
+        }
+        if (action.includes('fail') || action.includes('blocked') || action.includes('warn') || action.includes('retry')) {
+            return true;
+        }
+        if (action.startsWith('api_key_') || action.startsWith('project_') || action.startsWith('user_')) {
+            return true;
+        }
+        if (action === 'policy_updated' || action === 'ruleset_updated') {
+            return true;
+        }
+        if (type === 'integration' || action.startsWith('integration_') || action.startsWith('github_') || action.startsWith('gitlab_')) {
+            return true;
+        }
+        return false;
+    }
+
+    isAttentionNotification(item) {
+        const action = String(item?.action || item?.event_type || '').toLowerCase();
+        return action.includes('fail') || action.includes('blocked') || action.includes('warn') || action.includes('retry');
+    }
+
+    countNotificationGroups(items) {
+        return items.reduce((acc, item) => {
+            const action = String(item?.action || item?.event_type || '').toLowerCase();
+            const type = String(item?.type || '').toLowerCase();
+            if (action.includes('fail') || action.includes('blocked') || action.includes('warn') || action.includes('retry')) {
+                acc.attention += 1;
+            }
+            if (type === 'integration' || action.startsWith('integration_') || action.startsWith('github_') || action.startsWith('gitlab_')) {
+                acc.integrations += 1;
+            }
+            if (action.startsWith('api_key_') || action.startsWith('user_')) {
+                acc.access += 1;
+            }
+            return acc;
+        }, { attention: 0, integrations: 0, access: 0 });
+    }
+
+    notificationTone(item) {
+        const action = String(item?.action || item?.event_type || '').toLowerCase();
+        if (action.includes('fail') || action.includes('blocked')) {
+            return {
+                border: 'border-gray-200',
+                iconBorder: 'border-red-200',
+                dot: 'bg-red-500'
+            };
+        }
+        if (action.includes('warn') || action.includes('retry')) {
+            return {
+                border: 'border-gray-200',
+                iconBorder: 'border-amber-200',
+                dot: 'bg-amber-500'
+            };
+        }
+        if (String(item?.type || '').toLowerCase() === 'integration') {
+            return {
+                border: 'border-gray-200',
+                iconBorder: 'border-gray-300',
+                dot: 'bg-gray-600'
+            };
+        }
+        return {
+            border: 'border-gray-200',
+            iconBorder: 'border-gray-300',
+            dot: 'bg-gray-500'
+        };
+    }
+
+    notificationTargetTab(item) {
+        const action = String(item?.action || item?.event_type || '').toLowerCase();
+        const itemType = String(item?.type || '').toLowerCase();
+        if (itemType === 'integration' || action.startsWith('integration_') || action.startsWith('github_') || action.startsWith('gitlab_')) {
+            return this.hasCapability('integrations.read') ? 'integrations' : 'audit';
+        }
+        if (action.startsWith('scan_') || action === 'scan_uploaded' || action === 'enforcement_failed') {
+            return this.hasCapability('scans.read') ? 'scans' : 'audit';
+        }
+        if (action.startsWith('project_')) {
+            return this.hasCapability('projects.read') ? 'projects' : 'audit';
+        }
+        if (action.startsWith('api_key_')) {
+            return this.hasCapability('api_keys.read') ? 'keys' : 'audit';
+        }
+        if (action === 'policy_updated' || action === 'ruleset_updated') {
+            return 'policies';
+        }
+        if (action === 'user_updated' && this.isAdmin()) {
+            return 'users';
+        }
+        return 'audit';
+    }
+
+    notificationTargetLabel(tab) {
+        const labels = {
+            overview: 'overview',
+            scans: 'scan history',
+            projects: 'projects',
+            policies: 'policies',
+            users: 'users',
+            keys: 'API keys',
+            integrations: 'integrations',
+            audit: 'audit log',
+            settings: 'settings'
+        };
+        return labels[tab] || 'details';
+    }
+
+    notificationActionLabel(item, targetTab) {
+        const action = String(item?.action || item?.event_type || '').toLowerCase();
+        if (action.includes('fail') || action.includes('blocked')) {
+            return 'Review issue';
+        }
+        if (action.includes('warn') || action.includes('retry')) {
+            return 'Check status';
+        }
+        if (action.startsWith('api_key_')) {
+            return 'Open keys';
+        }
+        if (action.startsWith('project_')) {
+            return 'Open project';
+        }
+        if (action.startsWith('user_')) {
+            return 'Review user';
+        }
+        if (action === 'policy_updated' || action === 'ruleset_updated') {
+            return 'Review policy';
+        }
+        if (String(item?.type || '').toLowerCase() === 'integration' || action.startsWith('integration_') || action.startsWith('github_') || action.startsWith('gitlab_')) {
+            return 'Open integration';
+        }
+        return `Open ${this.notificationTargetLabel(targetTab)}`;
+    }
+
+    notificationTitle(item) {
+        const action = String(item?.action || item?.event_type || '').toLowerCase();
+        const titles = {
+            project_registered: 'Project added',
+            project_updated: 'Project updated',
+            scan_uploaded: 'Scan uploaded',
+            scan_pass: 'Checks passed',
+            scan_fail: 'Checks failed',
+            scan_warn: 'Checks need review',
+            enforcement_failed: 'Release blocked',
+            api_key_issued: 'API key created',
+            api_key_revoked: 'API key removed',
+            user_updated: 'Access updated',
+            policy_updated: 'Policy changed',
+            ruleset_updated: 'Ruleset changed',
+            github_webhook_received: 'GitHub sync received',
+            gitlab_webhook_received: 'GitLab sync received',
+            github_check_published: 'GitHub status sent',
+            gitlab_status_published: 'GitLab status sent',
+            integration_job_enqueued: 'Integration queued',
+            integration_job_retry_scheduled: 'Integration retry queued',
+            integration_job_succeeded: 'Integration complete',
+            integration_job_failed: 'Integration needs attention',
+            integration_secrets_updated: 'Integration credentials updated'
+        };
+        return titles[action] || this.describeEventLabel(item);
+    }
+
+    notificationSummary(item) {
+        const action = String(item?.action || item?.event_type || '').toLowerCase();
+        const projectID = String(item?.project_id || '').trim();
+        const scanID = String(item?.scan_id || '').trim();
+        const actor = this.formatActorLabel(item?.actor);
+
+        const join = (...parts) => parts.filter(Boolean).join(' | ');
+
+        switch (action) {
+            case 'project_registered':
+                return join(projectID ? `${projectID} is now being tracked` : 'A project is now being tracked', actor ? `added by ${actor}` : '');
+            case 'project_updated':
+                return join(projectID ? `${projectID} settings were updated` : 'Project settings were updated', actor ? `by ${actor}` : '');
+            case 'scan_uploaded':
+                return join(projectID ? `${projectID} has a new scan` : 'A new scan is available', scanID ? `scan ${scanID}` : '');
+            case 'scan_pass':
+                return join(projectID ? `${projectID}` : 'This project', 'passed the latest checks');
+            case 'scan_fail':
+                return join(projectID ? `${projectID}` : 'This project', 'has failing checks to fix');
+            case 'scan_warn':
+                return join(projectID ? `${projectID}` : 'This project', 'has warnings worth reviewing');
+            case 'enforcement_failed':
+                return join(projectID ? `${projectID}` : 'A release', 'was stopped by a policy rule');
+            case 'api_key_issued':
+                return join('A new API key is ready to use', actor ? `created by ${actor}` : '');
+            case 'api_key_revoked':
+                return join('An API key is no longer active', actor ? `removed by ${actor}` : '');
+            case 'user_updated':
+                return join('Someone’s access or profile details changed', actor ? `updated by ${actor}` : '');
+            case 'policy_updated':
+                return 'One of your enforcement rules was updated.';
+            case 'ruleset_updated':
+                return 'The active release rules were updated.';
+            case 'integration_job_failed':
+                return join(projectID ? `${projectID} integration` : 'An integration', 'failed and may need attention');
+            case 'integration_job_retry_scheduled':
+                return join(projectID ? `${projectID} integration` : 'An integration', 'will retry automatically');
+            case 'integration_job_succeeded':
+                return join(projectID ? `${projectID} integration` : 'An integration', 'completed successfully');
+            case 'integration_job_enqueued':
+                return join(projectID ? `${projectID} integration` : 'An integration', 'is queued');
+            case 'github_check_published':
+            case 'gitlab_status_published':
+                return join(projectID ? `${projectID}` : 'A project', 'sent a status update to your integration');
+            case 'github_webhook_received':
+            case 'gitlab_webhook_received':
+                return join(projectID ? `${projectID}` : 'A project', 'received an update from your integration');
+            case 'integration_secrets_updated':
+                return 'Integration credentials were updated.';
+            default:
+                return this.describeActivitySummary(item);
+        }
     }
 
     async loadTabData(tabName) {
@@ -3357,38 +3917,182 @@ class BaselineDashboard {
     }
 
     describeAuditEvent(event) {
+        const summary = this.describeEventLabel({
+            action: event.event_type,
+            type: String(event.event_type || '').toLowerCase().startsWith('integration_') ? 'integration' : 'audit'
+        });
         const parts = [];
         if (event.project_id) {
-            parts.push(`project=${event.project_id}`);
+            parts.push(`project ${event.project_id}`);
         }
         if (event.scan_id) {
-            parts.push(`scan=${event.scan_id}`);
+            parts.push(`scan ${event.scan_id}`);
+        }
+        const actor = this.formatActorLabel(event.actor);
+        if (actor) {
+            parts.push(`actor ${actor}`);
+        }
+        if (event.request_id) {
+            parts.push(`request ${event.request_id}`);
         }
         if (parts.length === 0) {
-            return 'system event';
+            return summary;
         }
-        return parts.join(', ');
+        return `${summary}: ${parts.join(' | ')}`;
+    }
+
+    describeEventLabel(event) {
+        const action = String(event?.action || event?.event_type || 'activity').trim().toLowerCase();
+        const labels = {
+            dashboard_initialized: 'Dashboard initialized',
+            project_registered: 'Project registered',
+            project_updated: 'Project updated',
+            scan_uploaded: 'Scan uploaded',
+            scan_pass: 'Scan passed',
+            scan_fail: 'Scan failed',
+            scan_warn: 'Scan warned',
+            enforcement_failed: 'Release blocked',
+            api_key_issued: 'API key issued',
+            api_key_revoked: 'API key revoked',
+            user_updated: 'User updated',
+            policy_updated: 'Policy updated',
+            ruleset_updated: 'Ruleset updated',
+            github_webhook_received: 'GitHub webhook received',
+            gitlab_webhook_received: 'GitLab webhook received',
+            github_check_published: 'GitHub check published',
+            gitlab_status_published: 'GitLab status published',
+            integration_job_enqueued: 'Integration job queued',
+            integration_job_retry_scheduled: 'Integration retry scheduled',
+            integration_job_succeeded: 'Integration job succeeded',
+            integration_job_failed: 'Integration job failed',
+            integration_secrets_updated: 'Integration secrets updated'
+        };
+        if (labels[action]) {
+            return labels[action];
+        }
+        return action
+            .split('_')
+            .filter(Boolean)
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' ') || 'Activity';
+    }
+
+    describeActivitySummary(event) {
+        const parts = [];
+        if (event?.project_id) {
+            parts.push(`project ${event.project_id}`);
+        }
+        if (event?.scan_id) {
+            parts.push(`scan ${event.scan_id}`);
+        }
+        const actor = this.formatActorLabel(event?.actor);
+        if (actor) {
+            parts.push(`actor ${actor}`);
+        }
+        if (parts.length === 0) {
+            return 'System activity';
+        }
+        return parts.join(' | ');
+    }
+
+    formatActorLabel(rawActor) {
+        const actor = String(rawActor || '').trim();
+        if (!actor) {
+            return '';
+        }
+
+        const normalized = actor.toLowerCase();
+        const userID = String(this.identity?.userID || '').trim().toLowerCase();
+        const subject = String(this.identity?.subject || '').trim().toLowerCase();
+        const email = String(this.identity?.email || '').trim().toLowerCase();
+
+        if (normalized === 'anonymous') {
+            return 'Anonymous';
+        }
+        if (normalized === 'env') {
+            return 'Environment';
+        }
+        if (normalized === email || normalized === userID || normalized === subject) {
+            return 'You';
+        }
+        if (normalized.startsWith('session_user:')) {
+            const id = actor.slice('session_user:'.length).trim();
+            if (id && id.toLowerCase() === userID) {
+                return 'You';
+            }
+            return id ? `User ${id}` : 'Session user';
+        }
+        if (normalized.startsWith('api_key:')) {
+            const keyRef = actor.slice('api_key:'.length).trim();
+            return keyRef ? `API key ${keyRef}` : 'API key';
+        }
+        if (normalized.startsWith('oidc:')) {
+            const oidcSubject = actor.slice('oidc:'.length).trim();
+            if (oidcSubject && oidcSubject.toLowerCase() === subject) {
+                return 'You';
+            }
+            return oidcSubject ? `OIDC ${oidcSubject}` : 'OIDC user';
+        }
+        if (actor.includes('@')) {
+            if (normalized === email) {
+                return 'You';
+            }
+            return actor;
+        }
+        return actor;
     }
 
     updateUserUI(user = {}) {
-        const role = String(user.role || this.authz?.role || 'viewer').trim().toLowerCase() || 'viewer';
-        const fallbackEmail = `${role}@baseline.local`;
-        const email = String(user.email || fallbackEmail).trim() || fallbackEmail;
-        const displayName = email.includes('@') ? email.split('@')[0] : role;
+        const role = String(user.role || this.authz?.role || '').trim().toLowerCase();
+        const email = String(user.email || this.identity?.email || '').trim().toLowerCase();
+        const subject = String(this.identity?.subject || '').trim();
+        const displayName = email
+            ? email.split('@')[0]
+            : (String(user.name || '').trim() || (role ? role : 'User'));
+        const initials = displayName.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'OP';
 
-        const userElement = document.querySelector('.flex.items-center.gap-2.5.pl-1.pr-3.py-1 span.text-sm.font-medium');
+        const userElement = document.getElementById('dashboard-user-name');
         if (userElement) {
             userElement.textContent = displayName;
         }
 
-        const profileName = document.querySelector('#userDropdown p.text-sm.font-semibold.text-gray-900');
+        const headerAvatar = document.getElementById('dashboard-user-avatar');
+        if (headerAvatar) {
+            headerAvatar.textContent = initials;
+        }
+
+        const profileAvatar = document.getElementById('dashboard-profile-avatar');
+        if (profileAvatar) {
+            profileAvatar.textContent = initials;
+        }
+
+        const profileName = document.getElementById('dashboard-profile-name');
         if (profileName) {
             profileName.textContent = displayName;
         }
 
-        const profileEmail = document.querySelector('#userDropdown p.text-xs.text-gray-500');
+        const profileEmail = document.getElementById('dashboard-profile-email');
         if (profileEmail) {
-            profileEmail.textContent = email;
+            profileEmail.textContent = email || subject || 'No email available';
+        }
+
+        const statusBadge = document.getElementById('dashboard-profile-status-badge');
+        if (statusBadge) {
+            statusBadge.textContent = this.identity?.userID || email || subject ? 'Active' : 'Checking';
+            statusBadge.className = this.identity?.userID || email || subject
+                ? 'inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800'
+                : 'inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700';
+        }
+
+        const roleBadge = document.getElementById('dashboard-profile-role-badge');
+        if (roleBadge) {
+            const normalizedRole = role || 'viewer';
+            roleBadge.textContent = normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1);
+            roleBadge.className = normalizedRole === 'admin'
+                ? 'inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800'
+                : normalizedRole === 'operator'
+                    ? 'inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800'
+                    : 'inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700';
         }
     }
 
@@ -3409,8 +4113,8 @@ class BaselineDashboard {
 
         const notificationsButton = document.getElementById('notifications-button');
         if (notificationsButton) {
-            notificationsButton.addEventListener('click', () => {
-                this.switchTab('audit');
+            notificationsButton.addEventListener('click', async () => {
+                await this.openNotificationsModal();
             });
         }
     }
