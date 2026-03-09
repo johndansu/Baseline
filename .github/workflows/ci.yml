@@ -234,7 +234,7 @@ jobs:
             > dist/SHA256SUMS
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@v4.0.0
 
       - name: Sign release artifacts (keyless)
         run: |
