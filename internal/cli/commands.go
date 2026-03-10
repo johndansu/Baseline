@@ -104,10 +104,51 @@ func HandleEnforce() {
 }
 
 // HandleScan performs a comprehensive repository scan.
-func HandleScan() {
+func HandleScan(args []string) {
+	opts, err := parseScanArgs(args)
+	if err != nil {
+		fmt.Printf("SCAN FAILED: %v\n", err)
+		printScanUsage()
+		os.Exit(types.ExitSystemError)
+	}
+	if opts.Help {
+		printScanUsage()
+		os.Exit(types.ExitSuccess)
+	}
+	if err := loadAPIEnvFiles(); err != nil {
+		fmt.Printf("SCAN FAILED: unable to load API env file: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
 	if err := requireGitRepo(); err != nil {
 		fmt.Printf("SCAN FAILED: %v\n", err)
 		os.Exit(types.ExitSystemError)
+	}
+	connection, err := resolveDashboardUploadConfigForScan(opts)
+	if err != nil {
+		fmt.Printf("SCAN FAILED: unable to load dashboard upload config: %v\n", err)
+		os.Exit(types.ExitSystemError)
+	}
+	if !connection.Prompted && !connection.Enabled && !scanUploadConfiguredFromEnv() {
+		connection, err = maybePromptForDashboardUpload(os.Stdin, os.Stdout)
+		if err != nil && !errors.Is(err, errDashboardUploadPromptSkipped) {
+			fmt.Printf("SCAN FAILED: unable to configure dashboard upload: %v\n", err)
+			os.Exit(types.ExitSystemError)
+		}
+	}
+	if connection.Prompted && !connection.Enabled {
+		opts.APIBaseURL = ""
+		opts.ProjectID = ""
+		opts.APIKey = ""
+	} else if strings.TrimSpace(connection.APIBaseURL) != "" {
+		opts.APIBaseURL = strings.TrimSpace(connection.APIBaseURL)
+		if strings.TrimSpace(opts.ProjectID) == "" {
+			opts.ProjectID = strings.TrimSpace(connection.ProjectID)
+		}
+		if strings.TrimSpace(opts.APIKey) == "" {
+			opts.APIKey = strings.TrimSpace(connection.APIKey)
+		}
+	} else if opts.APIBaseURL == "" {
+		opts.APIBaseURL = defaultScanUploadBaseURL()
 	}
 
 	cwd, err := os.Getwd()
@@ -127,6 +168,15 @@ func HandleScan() {
 	fmt.Printf("Security issues found: %d\n", results.SecurityIssues)
 	fmt.Printf("Policy violations: %d\n", len(results.Violations))
 
+	if opts.APIBaseURL != "" {
+		uploaded, uploadErr := uploadScanResults(opts, results)
+		if uploadErr != nil {
+			fmt.Printf("\nAPI upload failed: %v\n", uploadErr)
+			os.Exit(types.ExitSystemError)
+		}
+		fmt.Printf("Dashboard upload: %s (scan=%s, project=%s)\n", uploaded.BaseURL, uploaded.ScanID, uploaded.ProjectID)
+	}
+
 	if len(results.Violations) > 0 {
 		fmt.Println("\nPolicy violations:")
 		for _, v := range results.Violations {
@@ -139,6 +189,20 @@ func HandleScan() {
 	fmt.Println("\nNo critical policy violations detected")
 	fmt.Printf("Exit code: %d (scan completed)\n", types.ExitSuccess)
 	os.Exit(types.ExitSuccess)
+}
+
+func printScanUsage() {
+	fmt.Println("Usage: baseline scan [--api <url>] [--project-id <id>] [--api-key <key>] [--scan-id <id>] [--commit-sha <sha>]")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  --api         Upload scan results to a Baseline API after the local scan completes")
+	fmt.Println("  --project-id  Explicit target project ID for dashboard upload")
+	fmt.Println("  --api-key     API key used for project lookup and scan upload (defaults to BASELINE_API_KEY)")
+	fmt.Println("  --scan-id     Optional explicit scan ID for the uploaded scan record")
+	fmt.Println("  --commit-sha  Optional commit SHA override for the uploaded scan record")
+	fmt.Println()
+	fmt.Println("If --project-id is omitted, Baseline tries to resolve the project from the current git remote or repository name.")
+	fmt.Println("If --api is omitted, Baseline auto-uploads when BASELINE_API_ADDR and BASELINE_API_KEY are configured.")
 }
 
 // HandleInit initializes Baseline configuration.

@@ -27,6 +27,22 @@ var errDashboardHelp = errors.New("dashboard help requested")
 
 // HandleDashboard serves a local web dashboard backed by the Baseline API.
 func HandleDashboard(args []string) {
+	if len(args) > 0 {
+		switch strings.TrimSpace(args[0]) {
+		case "connect":
+			handleDashboardConnect(args[1:])
+			return
+		case "status":
+			handleDashboardStatus(args[1:])
+			return
+		case "disconnect":
+			handleDashboardDisconnect(args[1:])
+			return
+		case "serve":
+			args = args[1:]
+		}
+	}
+
 	cfg, err := parseDashboardConfig(args, os.Getenv)
 	if err != nil {
 		if errors.Is(err, errDashboardHelp) {
@@ -314,11 +330,17 @@ func writeDashboardProxyError(w http.ResponseWriter, status int, message string)
 }
 
 func printDashboardUsage() {
-	fmt.Println("Usage: baseline dashboard [--addr <host:port>] [--api <url>]")
+	fmt.Println("Usage:")
+	fmt.Println("  baseline dashboard serve [--addr <host:port>] [--api <url>]")
+	fmt.Println("  baseline dashboard connect [--api <url>] [--api-key <key>] [--project-id <id>]")
+	fmt.Println("  baseline dashboard status")
+	fmt.Println("  baseline dashboard disconnect")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  --addr <host:port>  Dashboard bind address (default: 127.0.0.1:8091)")
 	fmt.Println("  --api <url>         Baseline API base URL (default: http://127.0.0.1:8080)")
+	fmt.Println("  --api-key <key>     User-owned API key for project dashboard upload")
+	fmt.Println("  --project-id <id>   Explicit dashboard project ID for connect flow")
 	fmt.Println("  --help, -h          Show this help message")
 	fmt.Println()
 	fmt.Println("Environment:")
@@ -327,7 +349,8 @@ func printDashboardUsage() {
 	fmt.Println()
 	fmt.Println("Example:")
 	fmt.Println("  baseline api serve --addr :8080")
-	fmt.Println("  baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080")
+	fmt.Println("  baseline dashboard serve --addr 127.0.0.1:8091 --api http://127.0.0.1:8080")
+	fmt.Println("  baseline dashboard connect --api http://127.0.0.1:8080")
 }
 
 func renderDashboardHTML(apiBaseURL string) string {

@@ -33,6 +33,7 @@ internal/api/*.go.*
 .gocache/
 .baseline/*.log
 .baseline/*.pid
+.baseline/secrets.json
 
 # AI and development artifacts
 baseline_ai_failure_assistance.txt

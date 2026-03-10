@@ -15,6 +15,7 @@ class BaselineDashboard {
             capabilities: this.defaultCapabilities()
         };
         this.identity = {
+            user: '',
             userID: '',
             email: '',
             subject: ''
@@ -77,6 +78,7 @@ class BaselineDashboard {
         this.userActivityEventTypeCatalog = [];
         this.userActivityEventTypesPromise = null;
         this.pendingProjectEditID = '';
+        this.pendingProjectOwnerID = '';
         this.pendingKeyRevokeID = '';
         this.lastIssuedAPIKey = '';
         this.lastIssuedAPIKeyMeta = null;
@@ -118,6 +120,7 @@ class BaselineDashboard {
         this.initializeChart();
         this.setupEventListeners();
         this.bindAddProjectForm();
+        this.bindProjectOwnerForm();
         this.bindRunScanForm();
         this.bindGenerateKeyForm();
         this.bindRevokeKeyForm();
@@ -161,6 +164,7 @@ class BaselineDashboard {
                 return null;
             }
             this.identity = {
+                user: String(payload.user || '').trim(),
                 userID: String(payload.user_id || '').trim(),
                 email: String(payload.email || '').trim().toLowerCase(),
                 subject: String(payload.subject || '').trim()
@@ -1032,6 +1036,8 @@ class BaselineDashboard {
         const titles = {
             project_registered: 'Project added',
             project_updated: 'Project updated',
+            project_owner_claimed: 'Project claimed',
+            project_owner_assigned: 'Project owner updated',
             scan_uploaded: 'Scan uploaded',
             scan_pass: 'Checks passed',
             scan_fail: 'Checks failed',
@@ -1068,6 +1074,10 @@ class BaselineDashboard {
                 return join(projectID ? `${projectID} is now being tracked` : 'A project is now being tracked', actor ? `added by ${actor}` : '');
             case 'project_updated':
                 return join(projectID ? `${projectID} settings were updated` : 'Project settings were updated', actor ? `by ${actor}` : '');
+            case 'project_owner_claimed':
+                return join(projectID ? `${projectID} was claimed` : 'A project was claimed', actor ? `by ${actor}` : '');
+            case 'project_owner_assigned':
+                return join(projectID ? `${projectID} owner was updated` : 'A project owner was updated', scanID ? `owner ${scanID}` : '');
             case 'scan_uploaded':
                 return join(projectID ? `${projectID} has a new scan` : 'A new scan is available', scanID ? `scan ${scanID}` : '');
             case 'scan_pass':
@@ -1348,6 +1358,204 @@ class BaselineDashboard {
         }
         this.pendingProjectEditID = normalizedID;
         openModal('addProjectModal');
+    }
+
+    bindProjectOwnerForm() {
+        const form = document.getElementById('project-owner-form');
+        if (!form || form.dataset.bound === '1') {
+            return;
+        }
+        form.dataset.bound = '1';
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            await this.submitProjectOwnerForm();
+        });
+    }
+
+    async prepareProjectOwnerModal() {
+        if (!this.isAdmin()) {
+            this.showError('Admin access is required.');
+            closeModal('projectOwnerModal');
+            return;
+        }
+        this.bindProjectOwnerForm();
+        const projectID = String(this.pendingProjectOwnerID || '').trim();
+        if (!projectID) {
+            this.showError('Project owner assignment is missing a project.');
+            closeModal('projectOwnerModal');
+            return;
+        }
+
+        await this.loadUsersData();
+        const project = this.projectState.byID.get(projectID);
+        if (!project) {
+            this.showError('Project details are not available.');
+            closeModal('projectOwnerModal');
+            return;
+        }
+
+        const title = document.getElementById('project-owner-modal-title');
+        const projectLabel = document.getElementById('project-owner-project-label');
+        const currentOwner = document.getElementById('project-owner-current-owner');
+        const select = document.getElementById('project-owner-user-select');
+        const submitButton = document.getElementById('project-owner-submit');
+
+        if (title) title.textContent = 'Assign Project Owner';
+        if (projectLabel) projectLabel.textContent = project.name || project.id || 'Project';
+        if (currentOwner) currentOwner.textContent = this.describeProjectOwner(project.owner_id);
+        if (select) {
+            const options = this.userState.all
+                .filter((user) => String(user?.id || '').trim())
+                .sort((a, b) => String(a.email || a.display_name || a.id || '').localeCompare(String(b.email || b.display_name || b.id || '')))
+                .map((user) => {
+                    const userID = String(user.id || '').trim();
+                    const selected = String(project.owner_id || '').toLowerCase() === `user:${userID.toLowerCase()}` ? ' selected' : '';
+                    const label = user.email || user.display_name || userID;
+                    return `<option value="${this.escapeHtml(userID)}"${selected}>${this.escapeHtml(label)}</option>`;
+                });
+            const currentOwnerID = this.currentPrincipalOwnerID();
+            if (currentOwnerID.startsWith('user:')) {
+                const currentUserID = currentOwnerID.slice('user:'.length);
+                const exists = this.userState.all.some((user) => String(user?.id || '').trim().toLowerCase() === currentUserID.toLowerCase());
+                if (!exists) {
+                    const selected = String(project.owner_id || '').toLowerCase() === currentOwnerID.toLowerCase() ? ' selected' : '';
+                    options.unshift(`<option value="${this.escapeHtml(currentUserID)}"${selected}>You (${this.escapeHtml(this.identity.email || this.identity.user || currentUserID)})</option>`);
+                }
+            }
+            select.innerHTML = `<option value="">Select a user</option>${options.join('')}`;
+        }
+        if (submitButton) submitButton.disabled = false;
+        this.setProjectOwnerFeedback('Choose the user who should own new scans for this project.', false);
+    }
+
+    setProjectOwnerFeedback(message, isError) {
+        const feedback = document.getElementById('project-owner-feedback');
+        if (!feedback) {
+            return;
+        }
+        feedback.textContent = message;
+        feedback.className = isError ? 'text-xs text-red-600' : 'text-xs text-gray-500';
+    }
+
+    async submitProjectOwnerForm() {
+        if (!this.isAdmin()) {
+            this.showError('Admin access is required.');
+            return;
+        }
+        const projectID = String(this.pendingProjectOwnerID || '').trim();
+        const select = document.getElementById('project-owner-user-select');
+        const submitButton = document.getElementById('project-owner-submit');
+        if (!projectID || !select) {
+            this.showError('Project owner form is not available.');
+            return;
+        }
+        const userID = String(select.value || '').trim();
+        if (!userID) {
+            this.setProjectOwnerFeedback('Select a user to continue.', true);
+            return;
+        }
+
+        if (submitButton) submitButton.disabled = true;
+        this.setProjectOwnerFeedback('Assigning project owner...', false);
+        try {
+            const updated = await this.apiRequest(`/v1/projects/${encodeURIComponent(projectID)}/owner`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ user_id: userID })
+            });
+            closeModal('projectOwnerModal');
+            this.pendingProjectOwnerID = '';
+            await Promise.allSettled([
+                this.loadDashboardData(),
+                this.loadProjectsData()
+            ]);
+            this.showSuccess(`Project owner updated to ${this.describeProjectOwner(updated?.owner_id || '')}.`);
+        } catch (error) {
+            this.setProjectOwnerFeedback(error.message || 'Failed to assign project owner.', true);
+            this.showError(error.message || 'Failed to assign project owner.');
+        } finally {
+            if (submitButton) submitButton.disabled = false;
+        }
+    }
+
+    async claimProject(projectID) {
+        const normalizedID = String(projectID || '').trim();
+        if (!normalizedID) {
+            this.showError('Invalid project selected.');
+            return;
+        }
+        try {
+            const updated = await this.apiRequest(`/v1/projects/${encodeURIComponent(normalizedID)}/claim`, {
+                method: 'POST'
+            });
+            await Promise.allSettled([
+                this.loadDashboardData(),
+                this.loadProjectsData()
+            ]);
+            this.showSuccess(`Project now belongs to ${this.describeProjectOwner(updated?.owner_id || this.currentPrincipalOwnerID())}.`);
+        } catch (error) {
+            this.showError(error.message || 'Failed to claim project.');
+        }
+    }
+
+    openProjectOwnerModal(projectID) {
+        if (!this.isAdmin()) {
+            this.showError('Admin access is required.');
+            return;
+        }
+        const normalizedID = String(projectID || '').trim();
+        if (!normalizedID) {
+            this.showError('Invalid project selected.');
+            return;
+        }
+        this.pendingProjectOwnerID = normalizedID;
+        openModal('projectOwnerModal');
+    }
+
+    currentPrincipalOwnerID() {
+        if (this.identity.userID) {
+            return `user:${String(this.identity.userID).trim().toLowerCase()}`;
+        }
+        if (this.identity.subject) {
+            return `sub:${String(this.identity.subject).trim().toLowerCase()}`;
+        }
+        if (this.identity.email) {
+            return `email:${String(this.identity.email).trim().toLowerCase()}`;
+        }
+        if (this.identity.user) {
+            return `user:${String(this.identity.user).trim().toLowerCase()}`;
+        }
+        return '';
+    }
+
+    describeProjectOwner(ownerID) {
+        const normalized = String(ownerID || '').trim();
+        if (!normalized) {
+            return 'Unassigned';
+        }
+        if (normalized.toLowerCase() === this.currentPrincipalOwnerID()) {
+            return 'You';
+        }
+        if (normalized.startsWith('user:')) {
+            const userID = normalized.slice('user:'.length);
+            const user = this.userState.byID.get(userID) || this.userState.byID.get(userID.toLowerCase()) || null;
+            if (user) {
+                return user.email || user.display_name || user.id || normalized;
+            }
+            return `User ${userID}`;
+        }
+        if (normalized.startsWith('email:')) {
+            return normalized.slice('email:'.length);
+        }
+        if (normalized.startsWith('sub:')) {
+            return 'Linked identity';
+        }
+        if (normalized.startsWith('api_key:')) {
+            return `API key ${normalized.slice('api_key:'.length)}`;
+        }
+        return normalized;
     }
 
     bindGenerateKeyForm() {
@@ -1920,6 +2128,7 @@ class BaselineDashboard {
                     repository_url: String(project.repository_url || ''),
                     default_branch: String(project.default_branch || 'main'),
                     policy_set: String(project.policy_set || 'baseline:prod'),
+                    owner_id: String(project.owner_id || ''),
                     scan_count: projectScans.length,
                     last_scan_at: latestScan?.created_at || '',
                     last_scan_status: latestStatus || 'unknown'
@@ -3619,12 +3828,14 @@ class BaselineDashboard {
         const projectsTab = document.getElementById('projects-tab');
         if (!projectsTab) return;
         const canWriteProjects = this.hasCapability('projects.write');
+        const isAdmin = this.isAdmin();
         const addProjectButton = canWriteProjects
             ? `<button onclick="openModal('addProjectModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">Add Project</button>`
             : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Add Project</button>`;
-        const editActionHeader = canWriteProjects
+        const editActionHeader = (canWriteProjects || isAdmin)
             ? `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>`
             : '';
+        const ownerHeader = `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>`;
 
         if (!Array.isArray(projects) || projects.length === 0) {
             projectsTab.innerHTML = `
@@ -3658,6 +3869,7 @@ class BaselineDashboard {
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repository</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Policy Set</th>
+                                ${ownerHeader}
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scans</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Scan</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -3671,19 +3883,40 @@ class BaselineDashboard {
                                     <td class="px-6 py-4 text-sm text-gray-700">${this.escapeHtml(project.repository_url || '-')}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(project.default_branch)}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(project.policy_set)}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(this.describeProjectOwner(project.owner_id))}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${project.scan_count}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${this.formatDate(project.last_scan_at)}</td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <span class="px-2 py-1 text-xs rounded-full ${this.statusBadgeClass(project.last_scan_status)}">${this.escapeHtml(project.last_scan_status.toUpperCase())}</span>
                                     </td>
-                                    ${canWriteProjects ? `
+                                    ${(canWriteProjects || isAdmin) ? `
                                         <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                            <button
-                                                onclick="window.baselineDashboard && window.baselineDashboard.openEditProjectModal(decodeURIComponent('${encodeURIComponent(project.id)}'))"
-                                                class="text-orange-600 hover:text-orange-700 font-medium"
-                                            >
-                                                Edit
-                                            </button>
+                                            <div class="flex items-center gap-3">
+                                                ${canWriteProjects ? `
+                                                    <button
+                                                        onclick="window.baselineDashboard && window.baselineDashboard.openEditProjectModal(decodeURIComponent('${encodeURIComponent(project.id)}'))"
+                                                        class="text-orange-600 hover:text-orange-700 font-medium"
+                                                    >
+                                                        Edit
+                                                    </button>
+                                                ` : ''}
+                                                ${canWriteProjects ? `
+                                                    <button
+                                                        onclick="window.baselineDashboard && window.baselineDashboard.claimProject(decodeURIComponent('${encodeURIComponent(project.id)}'))"
+                                                        class="text-gray-600 hover:text-gray-900 font-medium"
+                                                    >
+                                                        Claim
+                                                    </button>
+                                                ` : ''}
+                                                ${isAdmin ? `
+                                                    <button
+                                                        onclick="window.baselineDashboard && window.baselineDashboard.openProjectOwnerModal(decodeURIComponent('${encodeURIComponent(project.id)}'))"
+                                                        class="text-gray-600 hover:text-gray-900 font-medium"
+                                                    >
+                                                        Assign owner
+                                                    </button>
+                                                ` : ''}
+                                            </div>
                                         </td>
                                     ` : ''}
                                 </tr>

@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -23,7 +24,7 @@ type persistedAPIKey struct {
 
 const (
 	storeSchemaVersionKey     = "schema_version"
-	currentStoreSchemaVersion = 6
+	currentStoreSchemaVersion = 7
 )
 
 type storeMigration struct {
@@ -230,6 +231,12 @@ func migrateStore(db *sql.DB) error {
 			version: 6,
 			apply: func(tx *sql.Tx) error {
 				return migrateUserAndAPIKeyOwnershipTx(tx)
+			},
+		},
+		{
+			version: 7,
+			apply: func(tx *sql.Tx) error {
+				return migrateProjectAndScanOwnershipTx(tx)
 			},
 		},
 	}
@@ -534,6 +541,252 @@ func migrateUserAndAPIKeyOwnershipTx(tx *sql.Tx) error {
 		return err
 	}
 	return nil
+}
+
+func migrateProjectAndScanOwnershipTx(tx *sql.Tx) error {
+	if err := ensureColumnWithDefaultTx(tx, "projects", "owner_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefaultTx(tx, "scans", "owner_id", "TEXT"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_projects_owner_created_at ON projects(owner_id, created_at DESC);`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_scans_owner_created_at ON scans(owner_id, created_at DESC);`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) UpsertProject(project Project, now time.Time) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	id := strings.TrimSpace(project.ID)
+	if id == "" {
+		return errors.New("project id is required")
+	}
+	name := strings.TrimSpace(project.Name)
+	if name == "" {
+		return errors.New("project name is required")
+	}
+	defaultBranch := strings.TrimSpace(project.DefaultBranch)
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
+	policySet := strings.TrimSpace(project.PolicySet)
+	if policySet == "" {
+		policySet = "baseline:prod"
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO projects (id, name, repository_url, default_branch, policy_set, owner_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   name = excluded.name,
+		   repository_url = excluded.repository_url,
+		   default_branch = excluded.default_branch,
+		   policy_set = excluded.policy_set,
+		   owner_id = excluded.owner_id`,
+		id,
+		name,
+		strings.TrimSpace(project.RepositoryURL),
+		defaultBranch,
+		policySet,
+		strings.TrimSpace(project.OwnerID),
+		now.UTC().Format(time.RFC3339Nano),
+	)
+	return err
+}
+
+func (s *Store) LoadProjects() ([]Project, error) {
+	if s == nil || s.db == nil {
+		return []Project{}, nil
+	}
+	rows, err := s.db.Query(
+		`SELECT id, name, repository_url, default_branch, policy_set, owner_id
+		 FROM projects
+		 ORDER BY created_at DESC, id ASC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	projects := []Project{}
+	for rows.Next() {
+		var id, name, repositoryURL, defaultBranch, policySet sql.NullString
+		var ownerID sql.NullString
+		if err := rows.Scan(&id, &name, &repositoryURL, &defaultBranch, &policySet, &ownerID); err != nil {
+			return nil, err
+		}
+		projects = append(projects, Project{
+			ID:            strings.TrimSpace(id.String),
+			Name:          strings.TrimSpace(name.String),
+			RepositoryURL: strings.TrimSpace(repositoryURL.String),
+			DefaultBranch: strings.TrimSpace(defaultBranch.String),
+			PolicySet:     strings.TrimSpace(policySet.String),
+			OwnerID:       strings.TrimSpace(ownerID.String),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
+func (s *Store) UpdateProjectOwner(projectID, ownerID string) (Project, error) {
+	if s == nil || s.db == nil {
+		return Project{}, nil
+	}
+	id := strings.TrimSpace(projectID)
+	if id == "" {
+		return Project{}, errors.New("project id is required")
+	}
+	result, err := s.db.Exec(
+		`UPDATE projects
+		 SET owner_id = ?
+		 WHERE id = ?`,
+		strings.TrimSpace(ownerID),
+		id,
+	)
+	if err != nil {
+		return Project{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return Project{}, err
+	}
+	if affected == 0 {
+		return Project{}, fmt.Errorf("project %s not found", id)
+	}
+	return s.GetProjectByID(id)
+}
+
+func (s *Store) GetProjectByID(projectID string) (Project, error) {
+	if s == nil || s.db == nil {
+		return Project{}, nil
+	}
+	id := strings.TrimSpace(projectID)
+	if id == "" {
+		return Project{}, errors.New("project id is required")
+	}
+	var name, repositoryURL, defaultBranch, policySet sql.NullString
+	var ownerID sql.NullString
+	err := s.db.QueryRow(
+		`SELECT name, repository_url, default_branch, policy_set, owner_id
+		 FROM projects
+		 WHERE id = ?`,
+		id,
+	).Scan(&name, &repositoryURL, &defaultBranch, &policySet, &ownerID)
+	if err != nil {
+		return Project{}, err
+	}
+	return Project{
+		ID:            id,
+		Name:          strings.TrimSpace(name.String),
+		RepositoryURL: strings.TrimSpace(repositoryURL.String),
+		DefaultBranch: strings.TrimSpace(defaultBranch.String),
+		PolicySet:     strings.TrimSpace(policySet.String),
+		OwnerID:       strings.TrimSpace(ownerID.String),
+	}, nil
+}
+
+func (s *Store) UpsertScan(scan ScanSummary) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	id := strings.TrimSpace(scan.ID)
+	if id == "" {
+		return errors.New("scan id is required")
+	}
+	projectID := strings.TrimSpace(scan.ProjectID)
+	if projectID == "" {
+		return errors.New("scan project id is required")
+	}
+	violationsJSON, err := json.Marshal(scan.Violations)
+	if err != nil {
+		return err
+	}
+	createdAt := scan.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO scans (id, project_id, commit_sha, status, violations_json, created_at, owner_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   project_id = excluded.project_id,
+		   commit_sha = excluded.commit_sha,
+		   status = excluded.status,
+		   violations_json = excluded.violations_json,
+		   owner_id = excluded.owner_id`,
+		id,
+		projectID,
+		strings.TrimSpace(scan.CommitSHA),
+		strings.TrimSpace(scan.Status),
+		string(violationsJSON),
+		createdAt.UTC().Format(time.RFC3339Nano),
+		strings.TrimSpace(scan.OwnerID),
+	)
+	return err
+}
+
+func (s *Store) LoadScans(limit int) ([]ScanSummary, error) {
+	if s == nil || s.db == nil {
+		return []ScanSummary{}, nil
+	}
+	maxRows := limit
+	if maxRows <= 0 {
+		maxRows = 1000
+	}
+	rows, err := s.db.Query(
+		`SELECT id, project_id, commit_sha, status, violations_json, created_at, owner_id
+		 FROM scans
+		 ORDER BY created_at DESC, id ASC
+		 LIMIT ?`,
+		maxRows,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	scans := []ScanSummary{}
+	for rows.Next() {
+		var id, projectID, commitSHA, status, violationsRaw, createdRaw sql.NullString
+		var ownerID sql.NullString
+		if err := rows.Scan(&id, &projectID, &commitSHA, &status, &violationsRaw, &createdRaw, &ownerID); err != nil {
+			return nil, err
+		}
+		createdAt, err := parseStoredTime(createdRaw.String)
+		if err != nil {
+			return nil, err
+		}
+		violations := []ScanViolation{}
+		if strings.TrimSpace(violationsRaw.String) != "" {
+			if err := json.Unmarshal([]byte(violationsRaw.String), &violations); err != nil {
+				return nil, err
+			}
+		}
+		scans = append(scans, ScanSummary{
+			ID:         strings.TrimSpace(id.String),
+			ProjectID:  strings.TrimSpace(projectID.String),
+			CommitSHA:  strings.TrimSpace(commitSHA.String),
+			Status:     strings.TrimSpace(status.String),
+			Violations: violations,
+			CreatedAt:  createdAt,
+			OwnerID:    strings.TrimSpace(ownerID.String),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return scans, nil
 }
 
 func ensureColumnWithDefaultTx(tx *sql.Tx, tableName, columnName, columnDDL string) error {
