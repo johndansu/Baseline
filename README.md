@@ -6,6 +6,7 @@ It provides:
 - a CLI for deterministic policy checks before shipping
 - an optional HTTP API for automation and operations
 - dashboard backend endpoints for summary/capabilities/activity
+- project-owned dashboard scan upload from the CLI
 - auth frontend pages (`signin`, `signup`) for human login via OIDC (Supabase/Auth0 supported)
 
 ## Why Baseline
@@ -57,6 +58,7 @@ Use the API-hosted auth pages (`/signin.html`, `/signup.html`) to authenticate v
 
 Supported now:
 - CLI checks and reports
+- project-local dashboard upload connection for `baseline scan`
 - HTTP API (`baseline api serve`)
 - API key auth
 - OIDC login for humans (Supabase/Auth0)
@@ -103,6 +105,8 @@ baseline scan
 baseline report --text
 ```
 
+If you later connect the current project to the dashboard, plain `baseline scan` can also upload results automatically for that project.
+
 ### 2) API + auth pages (recommended current flow)
 
 Start the API:
@@ -119,7 +123,7 @@ Open:
 Optional dashboard proxy (read-only proxy for selected API endpoints):
 
 ```bash
-baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
+baseline dashboard serve --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
 ```
 
 Open:
@@ -144,7 +148,7 @@ curl http://127.0.0.1:8080/metrics
 - `baseline version` - print version/build information
 - `baseline check` - run all policy checks; exits non-zero on blocking violations
 - `baseline enforce` - enforcement-focused output for CI/CD
-- `baseline scan` - produce scan summary (files/security/violations)
+- `baseline scan` - produce scan summary (files/security/violations); can also upload to the dashboard using a saved project connection
 - `baseline init` - create `.baseline/config.yaml`
 - `baseline report` - output reports (`--text`, `--json`, `--sarif`)
 - `baseline explain <policy_id>` - explain policy status + remediation
@@ -159,9 +163,39 @@ curl http://127.0.0.1:8080/metrics
 - `baseline api serve` - run HTTP API server
 - `baseline api keygen` - generate random API key
 - `baseline api verify-prod [--strict]` - validate API production env config
-- `baseline dashboard` - local dashboard proxy service for selected read APIs
+- `baseline dashboard serve` - local dashboard proxy service for selected read APIs
+- `baseline dashboard connect` - connect the current repository to a dashboard project using a user-owned API key
+- `baseline dashboard status` - show the saved dashboard connection for the current repository
+- `baseline dashboard disconnect` - remove the saved dashboard connection for the current repository
 
 For a concise command list, see `command.md`.
+
+### CLI Dashboard Upload Flow
+
+Baseline supports a project-local dashboard upload flow for `baseline scan`.
+
+Recommended setup:
+
+1. Sign into the dashboard.
+2. Generate a personal API key from the dashboard.
+3. Run `baseline scan`.
+4. On first use, choose whether the current repository should upload scan results to the dashboard.
+5. If enabled, provide:
+   - dashboard API base URL
+   - personal API key
+
+Baseline then:
+
+- resolves or creates the dashboard project for the current repository
+- stores project-local connection metadata in `.baseline/config.yaml`
+- stores the local API key in `.baseline/secrets.json`
+- uses that saved connection for future `baseline scan` runs
+
+Notes:
+
+- `.baseline/secrets.json` is local-only and gitignored
+- explicit flags (`--api`, `--project-id`, `--api-key`) still work and override saved project connection settings
+- if a saved dashboard connection becomes invalid, `baseline scan` tells you to run `baseline dashboard connect` to repair it
 
 ## Exit Codes
 
@@ -267,6 +301,11 @@ Recommended local example:
 ```bash
 BASELINE_API_DB_PATH=.baseline/baseline.db
 ```
+
+CLI dashboard upload storage:
+
+- `.baseline/config.yaml` keeps non-secret project connection metadata
+- `.baseline/secrets.json` keeps the local dashboard API key and is not committed
 
 ### Implemented HTTP Routes (Current)
 

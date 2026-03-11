@@ -17,6 +17,23 @@ baseline report --sarif
 baseline explain A1
 ```
 
+## Project Dashboard Upload Flow
+```bash
+# first-time interactive project connection
+baseline scan
+
+# explicit project connection management
+baseline dashboard connect
+baseline dashboard status
+baseline dashboard disconnect
+```
+
+Notes:
+- on first interactive `baseline scan`, Baseline can ask whether the current repository should upload to your dashboard
+- the saved project connection is stored in `.baseline/config.yaml`
+- the local API key is stored in `.baseline/secrets.json` and is gitignored
+- if the saved connection breaks, rerun `baseline dashboard connect`
+
 ## AI Commands
 ```bash
 baseline generate
@@ -31,7 +48,21 @@ baseline api verify-prod
 baseline api verify-prod --strict
 baseline api serve --addr :8080
 # local dashboard proxy service (selected read-only API proxy paths)
-baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
+baseline dashboard serve --addr 127.0.0.1:8091 --api http://127.0.0.1:8080
+```
+
+## Dashboard Upload Examples
+```bash
+# use saved project-local dashboard connection
+baseline scan
+
+# explicit one-off upload override
+baseline scan --api http://127.0.0.1:8080 --project-id baseline_repo --api-key <user_api_key>
+
+# inspect or repair the current project connection
+baseline dashboard status
+baseline dashboard connect --api http://127.0.0.1:8080
+baseline dashboard disconnect
 ```
 
 ## Auth Pages (API-hosted)
