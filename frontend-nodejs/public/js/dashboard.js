@@ -138,7 +138,8 @@ class BaselineDashboard {
         }
         await this.loadCapabilities();
         if (this.isAdmin()) {
-            this.apiKeyState.mode = 'legacy';
+            this.apiKeyState.mode = 'me';
+            this.apiKeyState.targetUserID = '';
         } else {
             this.apiKeyState.mode = 'me';
             this.apiKeyState.targetUserID = '';
@@ -286,14 +287,14 @@ class BaselineDashboard {
 
         // Update sidebar navigation
         document.querySelectorAll('a[data-tab]').forEach(item => {
-            item.classList.remove('bg-blue-50', 'text-blue-700');
+            item.classList.remove('bg-blue-50', 'text-blue-700', 'bg-gray-100', 'text-gray-900', 'bg-orange-50', 'text-orange-700');
             item.classList.add('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
         });
 
         const activeItem = document.querySelector(`[data-tab="${tabName}"]`);
         if (activeItem) {
             activeItem.classList.remove('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
-            activeItem.classList.add('bg-blue-50', 'text-blue-700');
+            activeItem.classList.add('bg-orange-50', 'text-orange-700');
         }
 
         // Hide all tab contents
@@ -1603,7 +1604,7 @@ class BaselineDashboard {
             ? `selected user (${this.apiKeyScopeUserLabel()})`
             : scope.mode === 'me'
                 ? 'your account'
-                : 'global admin scope';
+                : 'admin inventory';
         this.setGenerateKeyFeedback(`Generated key value is shown once. Scope: ${scopeLabel}.`, false);
     }
 
@@ -2151,10 +2152,10 @@ class BaselineDashboard {
             if (this.isAdmin()) {
                 await this.loadUsersData();
                 if (!this.apiKeyState.mode) {
-                    this.apiKeyState.mode = 'legacy';
+                    this.apiKeyState.mode = 'me';
                 }
                 if (this.apiKeyState.mode === 'user' && !String(this.apiKeyState.targetUserID || '').trim()) {
-                    this.apiKeyState.mode = 'legacy';
+                    this.apiKeyState.mode = 'me';
                 }
             } else {
                 this.apiKeyState.mode = 'me';
@@ -2278,7 +2279,7 @@ class BaselineDashboard {
             };
         }
 
-        const mode = String(this.apiKeyState.mode || 'legacy').trim().toLowerCase();
+        const mode = String(this.apiKeyState.mode || 'me').trim().toLowerCase();
         if (mode === 'me') {
             return {
                 mode: 'me',
@@ -2337,7 +2338,7 @@ class BaselineDashboard {
         } else if (raw.startsWith('user:')) {
             this.setAPIKeyScope('user', raw.slice('user:'.length));
         } else {
-            this.setAPIKeyScope('legacy');
+            this.setAPIKeyScope('me');
         }
         await this.loadApiKeysData();
     }
@@ -3937,11 +3938,11 @@ class BaselineDashboard {
         const scopeLabel = scope.mode === 'user'
             ? `User scope: ${this.escapeHtml(this.apiKeyScopeUserLabel() || 'unknown')}`
             : scope.mode === 'me'
-                ? 'Self scope: your keys only'
-                : 'Admin legacy scope: global key inventory';
+                ? 'My keys: API keys linked to your dashboard user'
+                : 'Admin inventory: global key management';
         const canGenerateInScope = canWriteKeys && (scope.mode !== 'user' || String(this.apiKeyState.targetUserID || '').trim() !== '');
         const generateKeyButton = canGenerateInScope
-            ? `<button onclick="openModal('generateKeyModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">Generate Key</button>`
+            ? `<button onclick="openModal('generateKeyModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium" style="background-color:#ea580c;color:#ffffff;">Generate Key</button>`
             : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Generate Key</button>`;
         const actionsHeader = canWriteKeys
             ? `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>`
@@ -3952,16 +3953,16 @@ class BaselineDashboard {
 
         if (!Array.isArray(apiKeys) || apiKeys.length === 0) {
             keysTab.innerHTML = `
-                <div class="bg-white rounded-lg border border-gray-200 p-6">
+                <div class="bg-white rounded-lg border border-gray-200 p-6" style="color:#111827;">
                     <div class="flex items-center justify-between gap-4">
                         <div>
-                            <h3 class="text-lg font-semibold text-gray-900">API Keys</h3>
-                            <p class="text-sm text-gray-700 mt-1">No API keys found.</p>
+                            <h3 class="text-lg font-semibold text-gray-900" style="color:#111827;">API Keys</h3>
+                            <p class="text-sm text-gray-700 mt-1" style="color:#374151;">No API keys found.</p>
                         </div>
                         ${generateKeyButton}
                     </div>
                     ${adminScopeControls}
-                    <p class="mt-3 text-xs text-gray-500">${scopeLabel}</p>
+                    <p class="mt-3 text-xs text-gray-500" style="color:#6b7280;">${scopeLabel}</p>
                 </div>
             `;
             this.bindAPIKeyScopeControls();
@@ -3969,12 +3970,12 @@ class BaselineDashboard {
         }
 
         keysTab.innerHTML = `
-            <div class="bg-white rounded-lg border border-gray-200">
+            <div class="bg-white rounded-lg border border-gray-200" style="color:#111827;">
                 <div class="p-6 border-b border-gray-200 flex items-center justify-between gap-4">
                     <div>
-                        <h3 class="text-lg font-semibold text-gray-900">API Keys</h3>
-                        <p class="text-sm text-gray-700 mt-1">Metadata only. Secrets are never returned after issuance.</p>
-                        <p class="text-xs text-gray-500 mt-1">${scopeLabel}</p>
+                        <h3 class="text-lg font-semibold text-gray-900" style="color:#111827;">API Keys</h3>
+                        <p class="text-sm text-gray-700 mt-1" style="color:#374151;">Metadata only. Secrets are never returned after issuance.</p>
+                        <p class="text-xs text-gray-500 mt-1" style="color:#6b7280;">${scopeLabel}</p>
                     </div>
                     ${generateKeyButton}
                 </div>
@@ -4045,11 +4046,11 @@ class BaselineDashboard {
         if (!this.isAdmin()) {
             return '';
         }
-        const selectedMode = String(this.apiKeyState.mode || 'legacy').toLowerCase();
+        const selectedMode = String(this.apiKeyState.mode || 'me').toLowerCase();
         const selectedUserID = String(this.apiKeyState.targetUserID || '').trim();
         const optionRows = [];
-        optionRows.push(`<option value="legacy"${selectedMode === 'legacy' ? ' selected' : ''}>Admin Legacy (all keys)</option>`);
-        optionRows.push(`<option value="me"${selectedMode === 'me' ? ' selected' : ''}>My Keys</option>`);
+        optionRows.push(`<option value="me"${selectedMode === 'me' ? ' selected' : ''}>My Keys (recommended)</option>`);
+        optionRows.push(`<option value="legacy"${selectedMode === 'legacy' ? ' selected' : ''}>Admin Inventory (all keys)</option>`);
         for (const user of this.userState.all) {
             const userID = String(user?.id || '').trim();
             if (!userID) {
@@ -4063,7 +4064,7 @@ class BaselineDashboard {
         return `
             <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
                 <label for="api-key-scope-select" class="block text-xs font-medium text-gray-600 mb-1">Key Scope</label>
-                <select id="api-key-scope-select" class="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <select id="api-key-scope-select" class="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm" style="color:#111827;background:#ffffff;">
                     ${optionRows.join('')}
                 </select>
             </div>
