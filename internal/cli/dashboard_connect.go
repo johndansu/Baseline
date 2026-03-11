@@ -50,6 +50,7 @@ type dashboardConnectionConfig struct {
 	APIKey     string
 	Enabled    bool
 	Prompted   bool
+	Source     string
 }
 
 type dashboardConnectOptions struct {
@@ -334,6 +335,7 @@ func maybePromptForDashboardUpload(stdin *os.File, stdout *os.File) (dashboardCo
 		APIKey:     loadStoredDashboardAPIKey("default"),
 		Enabled:    true,
 		Prompted:   true,
+		Source:     "prompt",
 	}, nil
 }
 
@@ -349,6 +351,7 @@ func resolveDashboardUploadConfigForScan(opts scanCommandOptions) (dashboardConn
 			APIKey:     apiKey,
 			Enabled:    true,
 			Prompted:   true,
+			Source:     "flags",
 		}, nil
 	}
 
@@ -365,6 +368,7 @@ func resolveDashboardUploadConfigForScan(opts scanCommandOptions) (dashboardConn
 			APIKey:     apiKey,
 			Enabled:    upload.Enabled,
 			Prompted:   upload.Prompted,
+			Source:     "saved",
 		}, nil
 	}
 
@@ -375,10 +379,38 @@ func resolveDashboardUploadConfigForScan(opts scanCommandOptions) (dashboardConn
 			APIKey:     strings.TrimSpace(os.Getenv("BASELINE_API_KEY")),
 			Enabled:    true,
 			Prompted:   false,
+			Source:     "env",
 		}, nil
 	}
 
 	return dashboardConnectionConfig{}, nil
+}
+
+func shouldSuggestDashboardRepair(connection dashboardConnectionConfig, err error) bool {
+	if connection.Source != "saved" || err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "status 401") ||
+		strings.Contains(message, "status 403") ||
+		strings.Contains(message, "status 404") ||
+		strings.Contains(message, "rejected with status 401") ||
+		strings.Contains(message, "rejected with status 403") ||
+		strings.Contains(message, "rejected with status 404") ||
+		strings.Contains(message, "not found or not accessible") ||
+		strings.Contains(message, "could not resolve a dashboard project") ||
+		strings.Contains(message, "multiple projects matched") ||
+		strings.Contains(message, "no projects found in api")
+}
+
+func formatDashboardUploadFailure(connection dashboardConnectionConfig, err error) string {
+	if !shouldSuggestDashboardRepair(connection, err) {
+		return fmt.Sprintf("API upload failed: %v", err)
+	}
+	return fmt.Sprintf(
+		"Dashboard upload failed: %v\nRun `baseline dashboard connect` to repair this project connection.",
+		err,
+	)
 }
 
 func resolveOrCreateProjectForConnection(client *http.Client, baseURL, apiKey, explicitProjectID string) (string, error) {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -108,6 +109,9 @@ func TestMaybePromptForDashboardUploadConnectsAndPersistsConfig(t *testing.T) {
 	if connection.APIKey != "user-api-key" {
 		t.Fatalf("expected stored API key to be returned, got %q", connection.APIKey)
 	}
+	if connection.Source != "prompt" {
+		t.Fatalf("expected prompt connection source, got %q", connection.Source)
+	}
 	if len(authHeaders) != 2 || authHeaders[0] != "Bearer user-api-key" || authHeaders[1] != "Bearer user-api-key" {
 		t.Fatalf("expected project lookup/create to use provided key, got %#v", authHeaders)
 	}
@@ -135,6 +139,35 @@ func TestMaybePromptForDashboardUploadConnectsAndPersistsConfig(t *testing.T) {
 	}
 	if got := secrets.Dashboard.APIKeys["default"]; got != "user-api-key" {
 		t.Fatalf("expected stored API key, got %q", got)
+	}
+}
+
+func TestFormatDashboardUploadFailureSuggestsRepairForSavedConnection(t *testing.T) {
+	connection := dashboardConnectionConfig{
+		Enabled:  true,
+		Prompted: true,
+		Source:   "saved",
+	}
+
+	message := formatDashboardUploadFailure(connection, errors.New("project lookup rejected with status 403"))
+	if !strings.Contains(message, "Run `baseline dashboard connect` to repair this project connection.") {
+		t.Fatalf("expected repair guidance, got %q", message)
+	}
+}
+
+func TestFormatDashboardUploadFailureKeepsRawMessageForNonSavedConnection(t *testing.T) {
+	connection := dashboardConnectionConfig{
+		Enabled:  true,
+		Prompted: true,
+		Source:   "flags",
+	}
+
+	message := formatDashboardUploadFailure(connection, errors.New("project lookup rejected with status 403"))
+	if strings.Contains(message, "repair this project connection") {
+		t.Fatalf("did not expect repair guidance for non-saved connection, got %q", message)
+	}
+	if !strings.Contains(message, "API upload failed: project lookup rejected with status 403") {
+		t.Fatalf("expected raw failure message, got %q", message)
 	}
 }
 

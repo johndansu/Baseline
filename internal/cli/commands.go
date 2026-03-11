@@ -171,7 +171,7 @@ func HandleScan(args []string) {
 	if opts.APIBaseURL != "" {
 		uploaded, uploadErr := uploadScanResults(opts, results)
 		if uploadErr != nil {
-			fmt.Printf("\nAPI upload failed: %v\n", uploadErr)
+			fmt.Printf("\n%s\n", formatDashboardUploadFailure(connection, uploadErr))
 			os.Exit(types.ExitSystemError)
 		}
 		fmt.Printf("Dashboard upload: %s (scan=%s, project=%s)\n", uploaded.BaseURL, uploaded.ScanID, uploaded.ProjectID)
