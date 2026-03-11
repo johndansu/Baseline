@@ -232,6 +232,18 @@ func (s *Server) loadPersistentState() error {
 		s.keysByID[item.Metadata.ID] = item.Metadata
 	}
 
+	projects, err := s.store.LoadProjects()
+	if err != nil {
+		return err
+	}
+	s.projects = projects
+
+	scans, err := s.store.LoadScans(2000)
+	if err != nil {
+		return err
+	}
+	s.scans = scans
+
 	events, err := s.store.LoadAuditEvents(500)
 	if err != nil {
 		return err

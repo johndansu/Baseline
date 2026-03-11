@@ -1031,6 +1031,75 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         "404":
           $ref: "#/components/responses/ErrorResponse"
+  /v1/projects/{project_id}/claim:
+    post:
+      summary: Claim project for current signed-in user
+      security:
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: true
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: Project claimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
+  /v1/projects/{project_id}/owner:
+    patch:
+      summary: Assign project owner (admin)
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - in: path
+          name: project_id
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-Baseline-CSRF
+          required: false
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectOwnerAssignmentRequest"
+      responses:
+        "200":
+          description: Project owner updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ErrorResponse"
   /v1/scans:
     get:
       summary: List scans
@@ -1636,6 +1705,8 @@ components:
           type: string
         policy_set:
           type: string
+        owner_id:
+          type: string
     CreateProjectRequest:
       type: object
       required: [name]
@@ -1654,6 +1725,18 @@ components:
         policy_set:
           type: string
           description: Optional policy set label. Defaults to baseline:prod.
+    CreateProjectOwnerAssignmentRequest:
+      type: object
+      properties:
+        owner_id:
+          type: string
+          description: "Explicit owner identifier in user:, sub:, email:, or api_key: form."
+        user_id:
+          type: string
+        subject:
+          type: string
+        email:
+          type: string
     ScanViolation:
       type: object
       properties:
@@ -1681,6 +1764,8 @@ components:
         created_at:
           type: string
           format: date-time
+        owner_id:
+          type: string
     CreateScanRequest:
       type: object
       required: [project_id]

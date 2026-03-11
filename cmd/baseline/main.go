@@ -43,7 +43,7 @@ func main() {
 	case "enforce":
 		cli.HandleEnforce()
 	case "scan":
-		cli.HandleScan()
+		cli.HandleScan(os.Args[2:])
 	case "init":
 		cli.HandleInit()
 	case "report":
