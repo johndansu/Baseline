@@ -16,12 +16,16 @@ func (s *Server) appendEventLocked(event AuditEvent) {
 	event.ScanID = strings.TrimSpace(event.ScanID)
 	event.Actor = strings.TrimSpace(event.Actor)
 	event.RequestID = strings.TrimSpace(event.RequestID)
+	s.prependEventLocked(event)
+	if s.store != nil {
+		_ = s.store.AppendAuditEvent(event)
+	}
+}
+
+func (s *Server) prependEventLocked(event AuditEvent) {
 	s.events = append([]AuditEvent{event}, s.events...)
 	if len(s.events) > 500 {
 		s.events = s.events[:500]
-	}
-	if s.store != nil {
-		_ = s.store.AppendAuditEvent(event)
 	}
 }
 
@@ -106,40 +110,43 @@ func (s *Server) runIntegrationWorkerCycle(ctx context.Context) {
 	now := time.Now().UTC()
 	processErr := s.processIntegrationJob(ctx, *job)
 	if processErr == nil {
-		_ = s.store.MarkIntegrationJobSucceeded(job.ID, now)
-		s.dataMu.Lock()
-		s.appendEventLocked(AuditEvent{
+		event := AuditEvent{
 			EventType: "integration_job_succeeded",
 			ProjectID: job.ProjectRef,
 			ScanID:    job.ExternalRef,
 			CreatedAt: now,
-		})
+		}
+		_ = s.store.MarkIntegrationJobSucceededWithAuditEvent(job.ID, now, event)
+		s.dataMu.Lock()
+		s.prependEventLocked(event)
 		s.dataMu.Unlock()
 		return
 	}
 
 	if isRetryableIntegrationError(processErr) && job.AttemptCount < job.MaxAttempts {
 		nextAttempt := now.Add(s.integrationBackoff(job.AttemptCount))
-		_ = s.store.MarkIntegrationJobRetry(job.ID, processErr.Error(), nextAttempt, now)
-		s.dataMu.Lock()
-		s.appendEventLocked(AuditEvent{
+		event := AuditEvent{
 			EventType: "integration_job_retry_scheduled",
 			ProjectID: job.ProjectRef,
 			ScanID:    job.ExternalRef,
 			CreatedAt: now,
-		})
+		}
+		_ = s.store.MarkIntegrationJobRetryWithAuditEvent(job.ID, processErr.Error(), nextAttempt, now, event)
+		s.dataMu.Lock()
+		s.prependEventLocked(event)
 		s.dataMu.Unlock()
 		return
 	}
 
-	_ = s.store.MarkIntegrationJobFailed(job.ID, processErr.Error(), now)
-	s.dataMu.Lock()
-	s.appendEventLocked(AuditEvent{
+	event := AuditEvent{
 		EventType: "integration_job_failed",
 		ProjectID: job.ProjectRef,
 		ScanID:    job.ExternalRef,
 		CreatedAt: now,
-	})
+	}
+	_ = s.store.MarkIntegrationJobFailedWithAuditEvent(job.ID, processErr.Error(), now, event)
+	s.dataMu.Lock()
+	s.prependEventLocked(event)
 	s.dataMu.Unlock()
 }
 

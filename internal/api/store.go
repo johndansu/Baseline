@@ -1052,16 +1052,26 @@ func (s *Store) AppendAuditEvent(event AuditEvent) error {
 		return nil
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO audit_events (event_type, project_id, scan_id, actor, request_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		insertAuditEventSQL(),
+		auditEventInsertArgs(event)...,
+	)
+	return err
+}
+
+func insertAuditEventSQL() string {
+	return `INSERT INTO audit_events (event_type, project_id, scan_id, actor, request_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`
+}
+
+func auditEventInsertArgs(event AuditEvent) []any {
+	return []any{
 		strings.TrimSpace(event.EventType),
 		strings.TrimSpace(event.ProjectID),
 		strings.TrimSpace(event.ScanID),
 		strings.TrimSpace(event.Actor),
 		strings.TrimSpace(event.RequestID),
 		event.CreatedAt.UTC().Format(time.RFC3339Nano),
-	)
-	return err
+	}
 }
 
 func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
@@ -1978,6 +1988,24 @@ func (s *Store) MarkIntegrationJobSucceeded(id string, now time.Time) error {
 	return err
 }
 
+func (s *Store) MarkIntegrationJobSucceededWithAuditEvent(id string, now time.Time, event AuditEvent) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.updateIntegrationJobWithAuditEvent(
+		`UPDATE integration_jobs
+		 SET status = ?, last_error = '', next_attempt_at = ?, updated_at = ?
+		 WHERE id = ?`,
+		[]any{
+			IntegrationJobSucceeded,
+			now.UTC().Format(time.RFC3339Nano),
+			now.UTC().Format(time.RFC3339Nano),
+			strings.TrimSpace(id),
+		},
+		event,
+	)
+}
+
 func (s *Store) MarkIntegrationJobRetry(id, lastError string, nextAttemptAt, now time.Time) error {
 	if s == nil || s.db == nil {
 		return nil
@@ -1999,8 +2027,52 @@ func (s *Store) MarkIntegrationJobRetry(id, lastError string, nextAttemptAt, now
 	return err
 }
 
+func (s *Store) MarkIntegrationJobRetryWithAuditEvent(id, lastError string, nextAttemptAt, now time.Time, event AuditEvent) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.updateIntegrationJobWithAuditEvent(
+		`UPDATE integration_jobs
+		 SET status = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+		 WHERE id = ?`,
+		[]any{
+			IntegrationJobFailed,
+			strings.TrimSpace(lastError),
+			nextAttemptAt.UTC().Format(time.RFC3339Nano),
+			now.UTC().Format(time.RFC3339Nano),
+			strings.TrimSpace(id),
+		},
+		event,
+	)
+}
+
 func (s *Store) MarkIntegrationJobFailed(id, lastError string, now time.Time) error {
 	return s.MarkIntegrationJobRetry(id, lastError, now, now)
+}
+
+func (s *Store) MarkIntegrationJobFailedWithAuditEvent(id, lastError string, now time.Time, event AuditEvent) error {
+	return s.MarkIntegrationJobRetryWithAuditEvent(id, lastError, now, now, event)
+}
+
+func (s *Store) updateIntegrationJobWithAuditEvent(updateSQL string, updateArgs []any, event AuditEvent) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if _, err := tx.Exec(updateSQL, updateArgs...); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(insertAuditEventSQL(), auditEventInsertArgs(event)...); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListIntegrationJobs(limit int) ([]IntegrationJob, error) {

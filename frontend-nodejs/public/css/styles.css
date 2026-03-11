@@ -5062,3 +5062,97 @@ code {
     gap: 10px;
   }
 }
+
+/* API key management visibility overrides */
+#keys-tab,
+#keys-tab h3,
+#keys-tab p,
+#keys-tab th,
+#keys-tab td,
+#keys-tab label,
+#keys-tab select,
+#keys-tab option,
+#keys-tab button {
+  color: #111827;
+}
+
+#keys-tab .bg-orange-600,
+#generateKeyModal .bg-orange-600,
+#copyKeyModal .bg-orange-600 {
+  color: #ffffff;
+}
+
+#keys-tab select,
+#generate-key-role {
+  background: #ffffff;
+  color: #111827;
+}
+
+#keys-tab button[disabled] {
+  color: #9ca3af;
+}
+
+#generateKeyModal label,
+#generateKeyModal p,
+#generateKeyModal input,
+#generateKeyModal select {
+  color: #111827;
+}
+
+#generateKeyModal h3,
+#copyKeyModal h3,
+#revokeKeyModal h3,
+#copyKeyModal label,
+#copyKeyModal p,
+#copyKeyModal input,
+#revokeKeyModal label,
+#revokeKeyModal p,
+#revokeKeyModal input,
+#revokeKeyModal textarea,
+#revokeKeyModal select {
+  color: #111827;
+}
+
+#generateKeyModal,
+#copyKeyModal,
+#revokeKeyModal,
+#generateKeyModal *,
+#copyKeyModal *,
+#revokeKeyModal * {
+  color: #111827 !important;
+}
+
+#generateKeyModal .text-gray-500,
+#copyKeyModal .text-gray-500,
+#copyKeyModal .text-gray-600,
+#revokeKeyModal .text-gray-500,
+#revokeKeyModal .text-gray-600,
+#revokeKeyModal .text-gray-700 {
+  color: #4b5563;
+}
+
+#generateKeyModal .text-gray-900,
+#copyKeyModal .text-gray-900,
+#revokeKeyModal .text-gray-900 {
+  color: #111827 !important;
+}
+
+#generateKeyModal .bg-orange-600,
+#copyKeyModal .bg-orange-600,
+#revokeKeyModal .bg-red-600,
+#revokeKeyModal .bg-orange-600,
+#generateKeyModal .bg-orange-600 *,
+#copyKeyModal .bg-orange-600 *,
+#revokeKeyModal .bg-red-600 *,
+#revokeKeyModal .bg-orange-600 * {
+  color: #ffffff !important;
+}
+
+#generateKeyModal button:not(.bg-orange-600),
+#copyKeyModal button:not(.bg-orange-600),
+#revokeKeyModal button:not(.bg-red-600):not(.bg-orange-600),
+#generateKeyModal button:not(.bg-orange-600) *,
+#copyKeyModal button:not(.bg-orange-600) *,
+#revokeKeyModal button:not(.bg-red-600):not(.bg-orange-600) * {
+  color: #374151 !important;
+}

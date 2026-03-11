@@ -9,43 +9,53 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js" type="module"></script>
     <style>
         .tab-content.hidden { display: none; }
-        
-        /* FORCE ORANGE THEME - Override all conflicting styles */
-        .bg-blue-600 { background-color: #ea580c !important; }
-        .bg-blue-700 { background-color: #c2410c !important; }
-        .bg-blue-500 { background-color: #f97316 !important; }
-        .bg-blue-50 { background-color: #fff7ed !important; }
-        .hover\:bg-blue-600:hover { background-color: #ea580c !important; }
-        .hover\:bg-blue-700:hover { background-color: #c2410c !important; }
-        .hover\:bg-blue-500:hover { background-color: #f97316 !important; }
-        .text-blue-600 { color: #ea580c !important; }
-        .text-blue-700 { color: #c2410c !important; }
-        .text-blue-500 { color: #f97316 !important; }
-        .hover\:text-blue-600:hover { color: #ea580c !important; }
-        .hover\:text-blue-700:hover { color: #c2410c !important; }
-        .border-blue-500 { border-color: #f97316 !important; }
-        .focus\:ring-blue-500:focus { border-color: #f97316 !important; box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1) !important; }
-        
-        /* Progress bars */
-        .bg-green-600 { background-color: #ea580c !important; }
-        .bg-yellow-600 { background-color: #ea580c !important; }
-        
-        /* User avatar */
-        .from-blue-500 { background: linear-gradient(to bottom right, #f97316, #ea580c) !important; }
-        .to-blue-600 { background: linear-gradient(to bottom right, #f97316, #ea580c) !important; }
-        
-        /* Admin badge */
-        .bg-blue-100 { background-color: #fff7ed !important; }
-        .text-blue-800 { color: #9a3412 !important; }
-        
-        /* Debug indicator */
-        .debug-orange { 
-            background: #ea580c !important; 
-            color: white !important; 
-            padding: 10px !important; 
-            border-radius: 5px !important; 
-            margin-bottom: 10px !important;
-            font-weight: bold !important;
+
+        /* API key tab and modal text visibility */
+        #keys-tab,
+        #keys-tab h3,
+        #keys-tab p,
+        #keys-tab th,
+        #keys-tab td,
+        #keys-tab label,
+        #keys-tab select,
+        #keys-tab option,
+        #keys-tab button,
+        #generateKeyModal,
+        #generateKeyModal *,
+        #copyKeyModal,
+        #copyKeyModal *,
+        #revokeKeyModal,
+        #revokeKeyModal * {
+            color: #111827 !important;
+        }
+
+        #keys-tab .bg-orange-600,
+        #keys-tab .bg-orange-600 *,
+        #generateKeyModal .bg-orange-600,
+        #generateKeyModal .bg-orange-600 *,
+        #copyKeyModal .bg-orange-600,
+        #copyKeyModal .bg-orange-600 *,
+        #revokeKeyModal .bg-orange-600,
+        #revokeKeyModal .bg-orange-600 *,
+        #revokeKeyModal .bg-red-600,
+        #revokeKeyModal .bg-red-600 * {
+            color: #ffffff !important;
+        }
+
+        #keys-tab button[disabled],
+        #generateKeyModal button[disabled],
+        #copyKeyModal button[disabled],
+        #revokeKeyModal button[disabled] {
+            color: #9ca3af !important;
+        }
+
+        #keys-tab select,
+        #generateKeyModal select,
+        #copyKeyModal input,
+        #revokeKeyModal input,
+        #revokeKeyModal textarea {
+            background: #ffffff !important;
+            color: #111827 !important;
         }
     </style>
 </head>
@@ -64,7 +74,7 @@
                 </div>
                 
                 <nav class="space-y-1">
-                    <a href="#" data-tab="overview" onclick="switchTab('overview'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg bg-orange-50 text-orange-700">
+                    <a href="#" data-tab="overview" onclick="switchTab('overview'); return false;" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg bg-orange-50 text-orange-700" style="background-color:#fff7ed;color:#c2410c;">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
                         </svg>
@@ -129,8 +139,8 @@
                 <!-- Header -->
                 <header class="flex items-center justify-between mb-8">
                     <div>
-                        <h1 id="page-title" class="text-2xl font-bold text-orange-600">Dashboard</h1>
-                        <p id="page-subtitle" class="text-sm text-orange-700 mt-1">Monitor policy compliance and scan results</p>
+                        <h1 id="page-title" class="text-2xl font-bold text-gray-900">Dashboard</h1>
+                        <p id="page-subtitle" class="text-sm text-gray-600 mt-1">Monitor policy compliance and scan results</p>
                     </div>
                     
                     <div class="flex items-center gap-3">
@@ -171,7 +181,7 @@
                             <div id="userDropdown" class="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 hidden z-50">
                                 <div class="p-4 border-b border-gray-100">
                                     <div class="flex items-center gap-3">
-                                        <div id="dashboard-profile-avatar" class="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white text-sm font-bold">
+                                        <div id="dashboard-profile-avatar" class="w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-white text-sm font-bold">
                                             --
                                         </div>
                                         <div>
@@ -700,178 +710,10 @@
                         </div>
                     </div>
 
-                    <!-- API Keys Tab REDESIGNED -->
                     <div id="keys-tab" class="tab-content hidden">
-                        <div class="mb-4 flex justify-end">
-                            <button onclick="openModal('generateKeyModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium flex items-center gap-2 shadow-sm">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                                </svg>
-                                Generate Key
-                            </button>
-                        </div>
-
-                        <!-- API Keys Cards Compact -->
-                        <div class="space-y-3">
-                            <!-- Production Key -->
-                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
-                                <div class="p-4">
-                                    <div class="flex items-start justify-between mb-2">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
-                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center gap-2">
-                                                    <h3 class="text-base font-semibold text-gray-900">Production Key</h3>
-                                                    <span class="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Operator</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="flex items-center gap-1">
-                                            <button onclick="openModal('copyKeyModal')" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-                                                </svg>
-                                            </button>
-                                            <button onclick="openModal('revokeKeyModal')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="flex items-center gap-3 text-xs mb-3">
-                                        <code class="px-2 py-1 bg-gray-100 rounded font-mono text-gray-700">bl_prod_••••••</code>
-                                        <span class="text-gray-500">30d ago</span>
-                                        <span class="text-green-600">● 2h ago</span>
-                                    </div>
-
-                                    <div class="pt-3 border-t border-gray-100">
-                                        <div class="flex items-center justify-between mb-1">
-                                            <span class="text-xs text-gray-500">Usage: 2,847 req</span>
-                                            <span class="text-xs font-semibold text-gray-700">65%</span>
-                                        </div>
-                                        <div class="w-full bg-gray-200 rounded-full h-1">
-                                            <div class="bg-amber-500 h-1 rounded-full" style="width: 65%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- CI/CD Key -->
-                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
-                                <div class="p-4">
-                                    <div class="flex items-start justify-between mb-2">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-400 to-gray-600 flex items-center justify-center shadow-sm">
-                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center gap-2">
-                                                    <h3 class="text-base font-semibold text-gray-900">CI/CD Key</h3>
-                                                    <span class="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">Viewer</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="flex items-center gap-1">
-                                            <button onclick="openModal('copyKeyModal')" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-                                                </svg>
-                                            </button>
-                                            <button onclick="openModal('revokeKeyModal')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="flex items-center gap-3 text-xs mb-3">
-                                        <code class="px-2 py-1 bg-gray-100 rounded font-mono text-gray-700">bl_ci_••••••</code>
-                                        <span class="text-gray-500">15d ago</span>
-                                        <span class="text-green-600">● 5h ago</span>
-                                    </div>
-
-                                    <div class="pt-3 border-t border-gray-100">
-                                        <div class="flex items-center justify-between mb-1">
-                                            <span class="text-xs text-gray-500">Usage: 1,523 req</span>
-                                            <span class="text-xs font-semibold text-gray-700">35%</span>
-                                        </div>
-                                        <div class="w-full bg-gray-200 rounded-full h-1">
-                                            <div class="bg-slate-500 h-1 rounded-full" style="width: 35%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Development Key -->
-                            <div class="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
-                                <div class="p-4">
-                                    <div class="flex items-start justify-between mb-2">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
-                                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
-                                                </svg>
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center gap-2">
-                                                    <h3 class="text-base font-semibold text-gray-900">Development Key</h3>
-                                                    <span class="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">Admin</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="flex items-center gap-1">
-                                            <button onclick="openModal('copyKeyModal')" class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Copy">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-                                                </svg>
-                                            </button>
-                                            <button onclick="openModal('revokeKeyModal')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Revoke">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="flex items-center gap-3 text-xs mb-3">
-                                        <code class="px-2 py-1 bg-gray-100 rounded font-mono text-gray-700">bl_dev_••••••</code>
-                                        <span class="text-gray-500">7d ago</span>
-                                        <span class="text-gray-400">● 1d ago</span>
-                                    </div>
-
-                                    <div class="pt-3 border-t border-gray-100">
-                                        <div class="flex items-center justify-between mb-1">
-                                            <span class="text-xs text-gray-500">Usage: 892 req</span>
-                                            <span class="text-xs font-semibold text-gray-700">22%</span>
-                                        </div>
-                                        <div class="w-full bg-gray-200 rounded-full h-1">
-                                            <div class="bg-violet-500 h-1 rounded-full" style="width: 22%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Security Notice Compact -->
-                        <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-3">
-                            <div class="w-8 h-8 rounded bg-amber-100 flex items-center justify-center flex-shrink-0">
-                                <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                                </svg>
-                            </div>
-                            <div>
-                                <p class="text-xs font-semibold text-amber-900">Security Notice</p>
-                                <p class="text-xs text-amber-700 mt-0.5">Keep API keys secure. Never share them. Revoke immediately if compromised.</p>
-                            </div>
+                        <div class="bg-white rounded-lg border border-gray-200 p-6">
+                            <h3 class="text-lg font-semibold text-gray-900">API Keys</h3>
+                            <p class="text-sm text-gray-700 mt-1">Loading API key management...</p>
                         </div>
                     </div>
 
@@ -1450,7 +1292,7 @@
                 </div>
                 <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
                     <button type="button" onclick="closeModal('generateKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                    <button id="generate-key-submit" type="submit" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Generate Key</button>
+                    <button id="generate-key-submit" type="submit" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700" style="background-color:#ea580c;color:#ffffff;">Generate Key</button>
                 </div>
             </form>
         </div>
@@ -1579,7 +1421,7 @@
                     <label for="issued-key-value" class="block text-sm font-medium text-gray-700 mb-1">Key</label>
                     <div class="flex items-center gap-2">
                         <input id="issued-key-value" type="text" value="" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-sm">
-                        <button id="issued-key-copy-btn" type="button" class="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Copy</button>
+                        <button id="issued-key-copy-btn" type="button" class="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm" style="background-color:#ea580c;color:#ffffff;">Copy</button>
                     </div>
                 </div>
                 <p id="issued-key-meta" class="text-xs text-gray-600"></p>
@@ -1589,7 +1431,7 @@
                 </div>
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button type="button" onclick="closeModal('copyKeyModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Done</button>
+                <button type="button" onclick="closeModal('copyKeyModal')" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700" style="background-color:#ea580c;color:#ffffff;">Done</button>
             </div>
         </div>
     </div>
@@ -1640,7 +1482,7 @@
                 </div>
                 <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
                     <button type="button" onclick="closeModal('revokeKeyModal')" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                    <button id="revoke-key-submit" type="submit" class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700">Revoke Key</button>
+                    <button id="revoke-key-submit" type="submit" class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700" style="background-color:#dc2626;color:#ffffff;">Revoke Key</button>
                 </div>
             </form>
         </div>
@@ -1876,7 +1718,7 @@
     </div>
 
     
-    <script type="module" src="/js/dashboard.js?v=4"></script>
+    <script type="module" src="/js/dashboard.js?v=7"></script>
     <!-- auth-integration.js removed to prevent conflicts with auth.js -->
     <script>
         // Simple tab switching function for inline onclick handlers
@@ -1894,15 +1736,19 @@
             
             // Update sidebar styling
             document.querySelectorAll('a[data-tab]').forEach(link => {
-                link.classList.remove('bg-blue-50', 'text-blue-700');
+                link.classList.remove('bg-blue-50', 'text-blue-700', 'bg-orange-50', 'text-orange-700');
                 link.classList.add('text-gray-700', 'hover:bg-gray-50', 'hover:text-gray-900');
+                link.style.backgroundColor = '';
+                link.style.color = '';
             });
             
             // Highlight active link
             const activeLink = document.querySelector('[data-tab="' + tabName + '"]');
             if (activeLink) {
                 activeLink.classList.remove('text-gray-700', 'hover:bg-gray-50', 'hover:text-gray-900');
-                activeLink.classList.add('bg-blue-50', 'text-blue-700');
+                activeLink.classList.add('bg-orange-50', 'text-orange-700');
+                activeLink.style.backgroundColor = '#fff7ed';
+                activeLink.style.color = '#c2410c';
             }
         }
 
@@ -1984,5 +1830,7 @@
     </script>
 </body>
 </html>
+
+
 
 
