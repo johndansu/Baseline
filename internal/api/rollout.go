@@ -39,6 +39,8 @@ func rolloutMutationGroup(method, path string) string {
 		return "core"
 	case method == http.MethodDelete && strings.HasPrefix(path, "/v1/me/api-keys/"):
 		return "core"
+	case method == http.MethodPatch && path == "/v1/auth/me":
+		return "core"
 	case method == http.MethodPatch && strings.HasPrefix(path, "/v1/users/"):
 		return "core"
 	case method == http.MethodPost && strings.HasPrefix(path, "/v1/users/") && strings.Contains(path, "/api-keys"):

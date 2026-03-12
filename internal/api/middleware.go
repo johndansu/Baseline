@@ -80,6 +80,16 @@ func (w *statusCapturingResponseWriter) status() int {
 	return w.statusCode
 }
 
+func (w *statusCapturingResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *statusCapturingResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func requestIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""

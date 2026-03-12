@@ -1,8 +1,28 @@
 import { DashboardAPIClient } from './api-client.js';
 
+const BUILTIN_POLICY_CATALOG = [
+    { name: 'A1', description: 'Primary branch protection requires pull requests and direct push restrictions.' },
+    { name: 'B1', description: 'CI workflows must run on pull requests and execute tests.' },
+    { name: 'C1', description: 'Automated tests must exist.' },
+    { name: 'D1', description: 'Plaintext secrets and token patterns must not appear in scannable files.' },
+    { name: 'E1', description: 'Dependency management files must exist.' },
+    { name: 'F1', description: 'README and license requirements must be met.' },
+    { name: 'G1', description: 'Risky code patterns are blocked, including unsafe pointer and SQL string building.' },
+    { name: 'H1', description: 'Deployment config must exist and Dockerfiles must run as non-root.' },
+    { name: 'I1', description: 'Infrastructure-as-code artifacts must exist.' },
+    { name: 'J1', description: 'An environment template such as .env.example must exist.' },
+    { name: 'K1', description: 'Backup and recovery documentation or scripts must exist.' },
+    { name: 'L1', description: 'Logging and monitoring configuration or documentation must exist.' },
+    { name: 'R1', description: 'Rollback documentation must exist.' }
+];
+
 // Baseline Dashboard JavaScript
 class BaselineDashboard {
     constructor() {
+        this.autoRefreshIntervalMs = 60000;
+        this.autoRefreshTimer = null;
+        this.isRefreshing = false;
+        this.dashboardStream = null;
         this.currentTab = 'overview';
         this.apiClient = new DashboardAPIClient({
             baseURL: window.location.origin,
@@ -31,7 +51,8 @@ class BaselineDashboard {
         };
         this.projectState = {
             all: [],
-            byID: new Map()
+            byID: new Map(),
+            scansByProject: new Map()
         };
         this.apiKeyState = {
             all: [],
@@ -78,6 +99,7 @@ class BaselineDashboard {
         this.userActivityEventTypeCatalog = [];
         this.userActivityEventTypesPromise = null;
         this.pendingProjectEditID = '';
+        this.pendingProjectDetailsID = '';
         this.pendingProjectOwnerID = '';
         this.pendingKeyRevokeID = '';
         this.lastIssuedAPIKey = '';
@@ -90,10 +112,17 @@ class BaselineDashboard {
             items: [],
             readIDs: new Set()
         };
+        this.preferences = this.loadDashboardPreferences();
+        this.autoRefreshIntervalMs = this.preferences.refreshIntervalMs;
+        this.currentTab = this.preferences.defaultTab;
         this.init();
     }
 
     handleUnauthorized() {
+        if (this.dashboardStream) {
+            this.dashboardStream.close();
+            this.dashboardStream = null;
+        }
         const returnTarget = window.location.pathname || '/dashboard';
         const returnTo = encodeURIComponent(returnTarget);
         window.location.href = `/signin.html?return_to=${returnTo}`;
@@ -115,10 +144,54 @@ class BaselineDashboard {
         };
     }
 
+    settingsStorageKey() {
+        const subject = String(this.identity?.subject || this.identity?.userID || this.identity?.email || 'anonymous').trim().toLowerCase();
+        return `baseline.dashboard.settings.${subject || 'anonymous'}`;
+    }
+
+    loadDashboardPreferences() {
+        const defaults = {
+            defaultTab: 'overview',
+            refreshIntervalMs: 60000
+        };
+        try {
+            const raw = window.localStorage.getItem(this.settingsStorageKey());
+            if (!raw) {
+                return defaults;
+            }
+            const parsed = JSON.parse(raw);
+            const refreshIntervalMs = Number(parsed?.refreshIntervalMs);
+            const defaultTab = String(parsed?.defaultTab || defaults.defaultTab).trim().toLowerCase();
+            return {
+                defaultTab: defaultTab || defaults.defaultTab,
+                refreshIntervalMs: [30000, 60000, 120000].includes(refreshIntervalMs) ? refreshIntervalMs : defaults.refreshIntervalMs
+            };
+        } catch (_) {
+            return defaults;
+        }
+    }
+
+    persistDashboardPreferences(nextPreferences) {
+        this.preferences = {
+            defaultTab: String(nextPreferences?.defaultTab || 'overview').trim().toLowerCase() || 'overview',
+            refreshIntervalMs: [30000, 60000, 120000].includes(Number(nextPreferences?.refreshIntervalMs))
+                ? Number(nextPreferences.refreshIntervalMs)
+                : 60000
+        };
+        this.autoRefreshIntervalMs = this.preferences.refreshIntervalMs;
+        try {
+            window.localStorage.setItem(this.settingsStorageKey(), JSON.stringify(this.preferences));
+        } catch (_) {
+            // Ignore storage failures; the UI can still use in-memory settings.
+        }
+        this.setupAutoRefresh();
+    }
+
     init() {
         this.setupTabNavigation();
         this.initializeChart();
         this.setupEventListeners();
+        this.setupAutoRefresh();
         this.bindAddProjectForm();
         this.bindProjectOwnerForm();
         this.bindRunScanForm();
@@ -136,6 +209,7 @@ class BaselineDashboard {
         if (authSession.role) {
             this.authz.role = String(authSession.role).toLowerCase() || this.authz.role;
         }
+        this.setupDashboardStream();
         await this.loadCapabilities();
         if (this.isAdmin()) {
             this.apiKeyState.mode = 'me';
@@ -145,6 +219,10 @@ class BaselineDashboard {
             this.apiKeyState.targetUserID = '';
         }
         this.applyCapabilitiesToNavigation();
+        const preferredTab = String(this.preferences?.defaultTab || 'overview').trim().toLowerCase();
+        if (preferredTab && preferredTab !== this.currentTab && this.canAccessTab(preferredTab)) {
+            this.currentTab = preferredTab;
+        }
         if (!this.canAccessTab(this.currentTab)) {
             const fallback = this.firstAllowedTab();
             if (fallback) {
@@ -170,8 +248,12 @@ class BaselineDashboard {
                 email: String(payload.email || '').trim().toLowerCase(),
                 subject: String(payload.subject || '').trim()
             };
+            this.preferences = this.loadDashboardPreferences();
+            this.autoRefreshIntervalMs = this.preferences.refreshIntervalMs;
+            this.setupAutoRefresh();
             this.notificationsState.readIDs = this.loadReadNotificationIDs();
             this.updateUserUI({
+                name: String(payload.display_name || payload.user || ''),
                 email: String(payload.email || ''),
                 role: String(payload.role || '')
             });
@@ -237,7 +319,7 @@ class BaselineDashboard {
             case 'keys':
                 return this.hasCapability('api_keys.read');
             case 'integrations':
-                return this.hasCapability('integrations.read');
+                return this.isAdmin() && this.hasCapability('integrations.read');
             case 'audit':
                 return this.hasCapability('audit.read');
             default:
@@ -261,6 +343,17 @@ class BaselineDashboard {
                 item.removeAttribute('aria-hidden');
             }
         });
+
+        const profileIntegrationsLink = document.getElementById('profile-integrations-link');
+        if (profileIntegrationsLink) {
+            if (this.canAccessTab('integrations')) {
+                profileIntegrationsLink.classList.remove('hidden');
+                profileIntegrationsLink.removeAttribute('aria-hidden');
+            } else {
+                profileIntegrationsLink.classList.add('hidden');
+                profileIntegrationsLink.setAttribute('aria-hidden', 'true');
+            }
+        }
     }
 
     setupTabNavigation() {
@@ -327,7 +420,7 @@ class BaselineDashboard {
             keys: { title: 'API Keys', subtitle: 'Manage API authentication keys and tokens' },
             integrations: { title: 'Integrations', subtitle: 'GitHub, GitLab, and webhook connections' },
             audit: { title: 'Audit Log', subtitle: 'Enforcement activity and event trail' },
-            settings: { title: 'Settings', subtitle: 'Configure Baseline API and CLI behavior' }
+            settings: { title: 'Settings', subtitle: 'Profile, preferences, and dashboard tools' }
         };
 
         const meta = titles[tabName] || titles.overview;
@@ -338,66 +431,75 @@ class BaselineDashboard {
     initializeChart() {
         const ctx = document.getElementById('usageChart');
         if (!ctx) return;
+        if (typeof window.Chart !== 'function') {
+            console.warn('Chart.js failed to load; usage trends chart is unavailable.');
+            return;
+        }
 
-        this.chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Scans',
-                    data: [],
-                    borderColor: 'rgb(59, 130, 246)',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    tension: 0.4
-                }, {
-                    label: 'Failing Scans',
-                    data: [],
-                    borderColor: 'rgb(239, 68, 68)',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    tension: 0.4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: {
-                            usePointStyle: true,
-                            padding: 20,
-                            font: {
-                                size: 12,
-                                weight: '500'
-                            },
-                            generateLabels: function(chart) {
-                                const data = chart.data;
-                                if (data.labels.length && data.datasets.length) {
-                                    return data.datasets.map(function(dataset, i) {
-                                        const meta = chart.getDatasetMeta(i);
-                                        return {
-                                            text: dataset.label,
-                                            fillStyle: dataset.backgroundColor,
-                                            strokeStyle: dataset.borderColor,
-                                            lineWidth: 3,
-                                            pointStyle: 'line',
-                                            hidden: meta.hidden,
-                                            index: i
-                                        };
-                                    });
+        try {
+            this.chart = new window.Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Scans',
+                        data: [],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Failing Scans',
+                        data: [],
+                        borderColor: 'rgb(239, 68, 68)',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 20,
+                                font: {
+                                    size: 12,
+                                    weight: '500'
+                                },
+                                generateLabels: function(chart) {
+                                    const data = chart.data;
+                                    if (data.labels.length && data.datasets.length) {
+                                        return data.datasets.map(function(dataset, i) {
+                                            const meta = chart.getDatasetMeta(i);
+                                            return {
+                                                text: dataset.label,
+                                                fillStyle: dataset.backgroundColor,
+                                                strokeStyle: dataset.borderColor,
+                                                lineWidth: 3,
+                                                pointStyle: 'line',
+                                                hidden: meta.hidden,
+                                                index: i
+                                            };
+                                        });
+                                    }
+                                    return [];
                                 }
-                                return [];
                             }
                         }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
                     }
                 }
-            }
-        });
+            });
+        } catch (error) {
+            console.error('Unable to initialize usage trends chart.', error);
+            this.chart = null;
+        }
     }
 
     async loadDashboardData() {
@@ -410,25 +512,138 @@ class BaselineDashboard {
         ]);
     }
 
+    setupAutoRefresh() {
+        if (this.autoRefreshTimer) {
+            window.clearInterval(this.autoRefreshTimer);
+        }
+
+        this.autoRefreshTimer = window.setInterval(() => {
+            this.refreshVisibleData();
+        }, this.autoRefreshIntervalMs);
+
+        if (!this.autoRefreshEventsBound) {
+            this.autoRefreshEventsBound = true;
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    this.ensureDashboardStream();
+                    this.refreshVisibleData();
+                } else {
+                    this.teardownDashboardStream();
+                }
+            });
+
+            window.addEventListener('focus', () => {
+                this.ensureDashboardStream();
+                this.refreshVisibleData();
+            });
+        }
+    }
+
+    teardownDashboardStream() {
+        if (this.dashboardStream) {
+            this.dashboardStream.close();
+            this.dashboardStream = null;
+        }
+    }
+
+    ensureDashboardStream() {
+        if (document.visibilityState === 'hidden') {
+            return;
+        }
+        if (this.dashboardStream) {
+            return;
+        }
+        this.setupDashboardStream();
+    }
+
+    setupDashboardStream() {
+        if (typeof window.EventSource !== 'function') {
+            return;
+        }
+        if (document.visibilityState === 'hidden') {
+            return;
+        }
+        this.teardownDashboardStream();
+
+        this.dashboardStream = new window.EventSource('/v1/dashboard/stream');
+        this.dashboardStream.addEventListener('refresh', () => {
+            this.refreshVisibleData();
+        });
+        this.dashboardStream.addEventListener('ready', () => {
+            // stream connected
+        });
+        this.dashboardStream.onerror = () => {
+            this.teardownDashboardStream();
+            if (document.visibilityState !== 'hidden') {
+                window.setTimeout(() => {
+                    this.ensureDashboardStream();
+                }, 3000);
+            }
+        };
+    }
+
+    async refreshVisibleData() {
+        if (this.isRefreshing || document.visibilityState === 'hidden') {
+            return;
+        }
+
+        this.isRefreshing = true;
+        try {
+            await this.loadDashboardData();
+
+            switch (this.currentTab) {
+            case 'projects':
+                await this.loadProjectsData();
+                break;
+            case 'scans':
+                await this.loadScansData();
+                break;
+            case 'policies':
+                await this.loadPoliciesData();
+                break;
+            case 'keys':
+                await this.loadApiKeysData();
+                break;
+            case 'audit':
+                await this.loadAuditData();
+                break;
+            case 'integrations':
+                await this.loadIntegrationsData();
+                break;
+            default:
+                break;
+            }
+        } finally {
+            this.isRefreshing = false;
+        }
+    }
+
     async loadOverviewStats() {
         try {
             const data = await this.apiRequest('/v1/dashboard');
             const metrics = data && typeof data.metrics === 'object' && data.metrics ? data.metrics : {};
             const recentScans = Array.isArray(data?.recent_scans) ? data.recent_scans : [];
+            const scanActivity = Array.isArray(data?.scan_activity) ? data.scan_activity : [];
             const topViolations = Array.isArray(data?.top_violations) ? data.top_violations : [];
             this.dashboardSummary = {
                 metrics,
-                recentScans
+                recentScans,
+                scanActivity
             };
             this.updateStatsCards(metrics);
-            this.updateUsageChart(recentScans);
             this.updateQuickStatsPanel(metrics, topViolations);
+            try {
+                this.updateUsageChart(scanActivity, recentScans);
+            } catch (error) {
+                console.error('Unable to refresh usage trends chart.', error);
+            }
         } catch (error) {
             this.showError(error.message || 'Failed to load dashboard metrics');
         }
     }
 
     updateStatsCards(metrics) {
+        this.renderOverviewStatsCards(metrics);
         const scansCard = document.getElementById('overview-stat-scans');
         const failingCard = document.getElementById('overview-stat-failing');
         const blockingCard = document.getElementById('overview-stat-blocking');
@@ -512,48 +727,123 @@ class BaselineDashboard {
         };
     }
 
-    updateUsageChart(recentScans) {
-        if (!this.chart) {
+    updateUsageChart(scanActivity, recentScans) {
+        const ctx = document.getElementById('usageChart');
+        if (!ctx || typeof window.Chart !== 'function') {
             return;
         }
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const dayKeys = [];
-        const labels = [];
-        for (let i = 6; i >= 0; i -= 1) {
-            const day = new Date(today);
-            day.setDate(today.getDate() - i);
-            const key = day.toISOString().slice(0, 10);
-            dayKeys.push(key);
-            labels.push(day.toLocaleDateString(undefined, { weekday: 'short' }));
+        let activity = Array.isArray(scanActivity) ? scanActivity : [];
+        if (!activity.length) {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const dayKeys = [];
+            for (let i = 6; i >= 0; i -= 1) {
+                const day = new Date(today);
+                day.setDate(today.getDate() - i);
+                dayKeys.push(day.toISOString().slice(0, 10));
+            }
+            const fallbackCounts = new Map(dayKeys.map((key) => [key, { scans: 0, failing_scans: 0 }]));
+            for (const scan of recentScans) {
+                const createdAt = new Date(scan?.created_at || '');
+                if (Number.isNaN(createdAt.getTime())) {
+                    continue;
+                }
+                const key = createdAt.toISOString().slice(0, 10);
+                if (!fallbackCounts.has(key)) {
+                    continue;
+                }
+                const point = fallbackCounts.get(key);
+                point.scans += 1;
+                const status = String(scan?.status || '').toLowerCase();
+                if (status === 'fail' || status === 'failed') {
+                    point.failing_scans += 1;
+                }
+            }
+            activity = dayKeys.map((key) => ({
+                date: key,
+                label: new Date(`${key}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short' }),
+                scans: fallbackCounts.get(key)?.scans || 0,
+                failing_scans: fallbackCounts.get(key)?.failing_scans || 0
+            }));
         }
 
-        const scanCounts = new Map(dayKeys.map((key) => [key, 0]));
-        const failingCounts = new Map(dayKeys.map((key) => [key, 0]));
-        for (const scan of recentScans) {
-            const createdAt = new Date(scan?.created_at || '');
-            if (Number.isNaN(createdAt.getTime())) {
-                continue;
-            }
-            const key = createdAt.toISOString().slice(0, 10);
-            if (!scanCounts.has(key)) {
-                continue;
-            }
-            scanCounts.set(key, (scanCounts.get(key) || 0) + 1);
-            const status = String(scan?.status || '').toLowerCase();
-            if (status === 'fail' || status === 'failed') {
-                failingCounts.set(key, (failingCounts.get(key) || 0) + 1);
-            }
+        if (this.chart) {
+            this.chart.destroy();
+            this.chart = null;
         }
 
-        this.chart.data.labels = labels;
-        this.chart.data.datasets[0].data = dayKeys.map((key) => scanCounts.get(key) || 0);
-        this.chart.data.datasets[1].data = dayKeys.map((key) => failingCounts.get(key) || 0);
-        this.chart.update();
+        this.chart = new window.Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: activity.map((point) => point.label || point.date || ''),
+                datasets: [{
+                    label: 'Scans',
+                    data: activity.map((point) => Number(point?.scans || 0)),
+                    borderColor: 'rgb(59, 130, 246)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4
+                }, {
+                    label: 'Failing Scans',
+                    data: activity.map((point) => Number(point?.failing_scans || 0)),
+                    borderColor: 'rgb(239, 68, 68)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 20,
+                            font: {
+                                size: 12,
+                                weight: '500'
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+
+    builtInPolicyCatalog() {
+        return BUILTIN_POLICY_CATALOG.map((policy) => ({
+            ...policy,
+            latest_version: '',
+            updated_at: '',
+            version_count: 0,
+            content_keys: 0,
+            metadata_keys: 0,
+            source: 'builtin'
+        }));
+    }
+
+    mergePoliciesWithCatalog(policies) {
+        const merged = new Map(this.builtInPolicyCatalog().map((policy) => [policy.name, policy]));
+        for (const policy of policies) {
+            const name = String(policy?.name || '').trim();
+            if (!name) continue;
+            merged.set(name, {
+                ...merged.get(name),
+                ...policy,
+                name,
+                source: 'published'
+            });
+        }
+        return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
     }
 
     updateQuickStatsPanel(metrics, topViolations) {
+        this.renderQuickStatsPanel();
         const scans = Number(metrics?.scans || 0);
         const failing = Number(metrics?.failing_scans || 0);
         const blocking = Number(metrics?.blocking_violations || 0);
@@ -583,6 +873,106 @@ class BaselineDashboard {
         if (blockingValue) {
             blockingValue.textContent = `${blocking}`;
         }
+        const updatedAt = document.getElementById('quick-stats-updated-at');
+        if (updatedAt) {
+            updatedAt.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+        }
+    }
+
+    renderOverviewStatsCards(metrics) {
+        const container = document.getElementById('overview-stats-grid');
+        if (!container) return;
+        const values = {
+            scans: Number(metrics?.scans ?? 0),
+            failing: Number(metrics?.failing_scans ?? 0),
+            blocking: Number(metrics?.blocking_violations ?? 0),
+            projects: Number(metrics?.projects ?? 0)
+        };
+        container.innerHTML = `
+            <div id="overview-stat-scans" class="bg-white p-6 rounded-lg border border-gray-200">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="p-2 rounded-lg">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <span id="overview-stat-scans-badge" class="text-xs font-medium text-gray-500 uppercase tracking-wide">Δ 0</span>
+                </div>
+                <h3 class="text-2xl font-bold text-gray-900">${values.scans}</h3>
+                <p class="text-sm text-gray-700">Total Scans</p>
+            </div>
+            <div id="overview-stat-failing" class="bg-white p-6 rounded-lg border border-gray-200">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="p-2 rounded-lg">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <span id="overview-stat-failing-badge" class="text-xs font-medium text-gray-500 uppercase tracking-wide">Δ 0</span>
+                </div>
+                <h3 class="text-2xl font-bold text-gray-900">${values.failing}</h3>
+                <p class="text-sm text-gray-700">Failing Scans</p>
+            </div>
+            <div id="overview-stat-blocking" class="bg-white p-6 rounded-lg border border-gray-200">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="p-2 rounded-lg">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                        </svg>
+                    </div>
+                    <span id="overview-stat-blocking-badge" class="text-xs font-medium text-gray-500 uppercase tracking-wide">Δ 0</span>
+                </div>
+                <h3 class="text-2xl font-bold text-gray-900">${values.blocking}</h3>
+                <p class="text-sm text-gray-700">Blocking Violations</p>
+            </div>
+            <div id="overview-stat-projects" class="bg-white p-6 rounded-lg border border-gray-200">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="p-2 rounded-lg">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        </svg>
+                    </div>
+                    <span id="overview-stat-projects-badge" class="text-xs font-medium text-gray-500 uppercase tracking-wide">Δ 0</span>
+                </div>
+                <h3 class="text-2xl font-bold text-gray-900">${values.projects}</h3>
+                <p class="text-sm text-gray-700">Projects</p>
+            </div>
+        `;
+    }
+
+    renderQuickStatsPanel() {
+        const panel = document.getElementById('quick-stats-panel');
+        if (!panel) return;
+        panel.innerHTML = `
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Quick Stats</h3>
+            <div class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-gray-700">Scan Success Rate</span>
+                    <span id="quick-success-rate-value" class="text-sm font-medium text-gray-900">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div id="quick-success-rate-bar" class="h-2 rounded-full" style="width: 0%; background-color: #ea580c"></div>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-gray-700">Failing Scan Rate</span>
+                    <span id="quick-fail-rate-value" class="text-sm font-medium text-gray-900">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div id="quick-fail-rate-bar" class="bg-orange-500 h-2 rounded-full" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-gray-700">Top Violation</span>
+                    <span id="quick-top-violation-value" class="text-xs font-medium text-gray-900">None</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div id="quick-top-violation-bar" class="bg-yellow-600 h-2 rounded-full" style="width: 0%"></div>
+                </div>
+                <div class="text-xs text-gray-600">
+                    Blocking violations: <span id="quick-blocking-count" class="font-semibold text-gray-900">0</span>
+                </div>
+                <div class="text-[11px] text-gray-400" id="quick-stats-updated-at"></div>
+            </div>
+        `;
     }
 
     async loadRecentActivity() {
@@ -1501,6 +1891,146 @@ class BaselineDashboard {
         }
     }
 
+    async openProjectDetailsModal(projectID) {
+        const normalizedID = String(projectID || '').trim();
+        if (!normalizedID) {
+            this.showError('Invalid project selected.');
+            return;
+        }
+        const project = this.projectState.byID.get(normalizedID);
+        if (!project) {
+            this.showError('Project details not loaded yet.');
+            return;
+        }
+
+        this.pendingProjectDetailsID = normalizedID;
+        this.setProjectDetailsContent('<div class="text-sm text-gray-600">Loading project summary...</div>');
+        openModal('projectDetailsModal');
+
+        try {
+            const payload = await this.apiRequest(`/v1/scans?project_id=${encodeURIComponent(normalizedID)}`);
+            const scans = Array.isArray(payload?.scans) ? payload.scans : [];
+            scans.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            this.projectState.scansByProject.set(normalizedID, scans);
+            this.setProjectDetailsContent(this.renderProjectDetails(project, scans));
+        } catch (error) {
+            this.setProjectDetailsContent(`
+                <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                    ${this.escapeHtml(error.message || 'Failed to load project summary.')}
+                </div>
+            `);
+        }
+    }
+
+    setProjectDetailsContent(markup) {
+        const body = document.getElementById('projectDetailsBody');
+        if (body) {
+            body.innerHTML = markup;
+        }
+
+        const openScansButton = document.getElementById('projectDetailsOpenScansButton');
+        if (openScansButton) {
+            openScansButton.onclick = () => {
+                closeModal('projectDetailsModal');
+                this.switchTab('scans');
+            };
+        }
+    }
+
+    renderProjectDetails(project, scans) {
+        const totalScans = scans.length;
+        const failingScans = scans.filter((scan) => this.normalizeScanStatus(scan?.status || '') === 'fail').length;
+        const latestScan = scans[0] || null;
+        const latestStatus = this.normalizeScanStatus(latestScan?.status || '') || 'unknown';
+        const latestViolations = Array.isArray(latestScan?.violations) ? latestScan.violations : [];
+        const totalViolations = scans.reduce((sum, scan) => sum + (Array.isArray(scan?.violations) ? scan.violations.length : 0), 0);
+        const recentScans = scans.slice(0, 2);
+        const latestCommit = String(latestScan?.commit_sha || '').trim();
+        const latestCommitDisplay = latestCommit ? latestCommit.slice(0, 12) : 'Not provided';
+        const latestFilesScanned = Number(latestScan?.files_scanned || 0);
+        const latestScanTime = latestScan ? this.formatDate(latestScan.created_at) : 'No scans yet';
+        const scanSummary = totalScans === 0
+            ? 'No scans uploaded yet.'
+            : failingScans > 0
+                ? `${failingScans} of ${totalScans} scans failed.`
+                : `All ${totalScans} scans passed.`;
+        const latestSummary = latestScan
+            ? [
+                latestStatus.toUpperCase(),
+                latestScanTime,
+                latestCommit ? `Commit ${latestCommitDisplay}` : '',
+                latestFilesScanned > 0 ? `${latestFilesScanned} files` : '',
+                latestViolations.length > 0 ? `${latestViolations.length} violations` : 'No violations',
+            ].filter(Boolean).join(' • ')
+            : 'No scan details available.';
+
+        return `
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <h4 class="text-base font-bold text-gray-900">${this.escapeHtml(project.name)}</h4>
+                    <p class="mt-1 text-sm text-gray-600">${this.escapeHtml(project.repository_url || 'Repository URL not set')}</p>
+                    <p class="mt-1 text-sm text-gray-700">${this.escapeHtml(scanSummary)}</p>
+                    <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                        <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-1 text-gray-700">${this.escapeHtml(project.default_branch || 'main')}</span>
+                    </div>
+                </div>
+                <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${this.statusBadgeClass(latestStatus)}">${this.escapeHtml(latestStatus.toUpperCase())}</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div class="rounded-lg bg-gray-50 p-2.5">
+                    <p class="text-xs text-gray-600">Scans</p>
+                    <p class="mt-1 text-lg font-bold text-gray-900">${totalScans}</p>
+                </div>
+                <div class="rounded-lg bg-gray-50 p-2.5">
+                    <p class="text-xs text-gray-600">Files scanned</p>
+                    <p class="mt-1 text-lg font-bold text-gray-900">${latestScan ? latestFilesScanned : 'Not recorded'}</p>
+                </div>
+                <div class="rounded-lg bg-gray-50 p-2.5">
+                    <p class="text-xs text-gray-600">Failures</p>
+                    <p class="mt-1 text-lg font-bold text-gray-900">${failingScans}</p>
+                </div>
+                <div class="rounded-lg bg-gray-50 p-2.5">
+                    <p class="text-xs text-gray-600">Violations</p>
+                    <p class="mt-1 text-lg font-bold text-gray-900">${totalViolations}</p>
+                </div>
+            </div>
+
+            <div class="rounded-lg border border-gray-200 p-3">
+                <p class="text-sm text-gray-700">${this.escapeHtml(latestSummary)}</p>
+            </div>
+
+            <div class="rounded-lg border border-gray-200 p-3">
+                <h5 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Recent scans</h5>
+                ${recentScans.length ? `
+                    <div class="mt-2 space-y-1.5">
+                        ${recentScans.map((scan) => {
+                            const status = this.normalizeScanStatus(scan?.status || '') || 'unknown';
+                            const violations = Array.isArray(scan?.violations) ? scan.violations.length : 0;
+                            const commit = String(scan?.commit_sha || '').trim();
+                            const commitDisplay = commit ? commit.slice(0, 12) : 'No commit';
+                            const filesScanned = Number(scan?.files_scanned || 0);
+                            return `
+                                <div class="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-2.5 py-2 text-sm">
+                                    <div>
+                                        <p class="font-medium text-gray-900">${this.escapeHtml(commitDisplay)}</p>
+                                        <p class="text-xs text-gray-500">${this.escapeHtml(this.formatDate(scan.created_at))}${filesScanned > 0 ? ` • ${filesScanned} files` : ''}</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${this.statusBadgeClass(status)}">${this.escapeHtml(status.toUpperCase())}</span>
+                                        <p class="mt-1 text-xs text-gray-600">${violations === 0 ? 'Clean' : `${violations} issues`}</p>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                ` : `
+                    <p class="mt-2 text-sm text-gray-600">No recent scans available.</p>
+                `}
+            </div>
+        `;
+    }
+
     openProjectOwnerModal(projectID) {
         if (!this.isAdmin()) {
             this.showError('Admin access is required.');
@@ -2089,11 +2619,10 @@ class BaselineDashboard {
                 })
             );
 
-            enrichedPolicies.sort((a, b) => a.name.localeCompare(b.name));
-            this.renderPoliciesTable(enrichedPolicies);
+            this.renderPoliciesTable(this.mergePoliciesWithCatalog(enrichedPolicies));
         } catch (error) {
             this.showError(error.message || 'Failed to load policies');
-            this.renderPoliciesTable([]);
+            this.renderPoliciesTable(this.builtInPolicyCatalog());
         }
     }
 
@@ -2138,11 +2667,13 @@ class BaselineDashboard {
 
             this.projectState.all = normalizedProjects;
             this.projectState.byID = new Map(normalizedProjects.map(project => [project.id, project]));
+            this.projectState.scansByProject = scansByProject;
             this.renderProjectsTable(normalizedProjects);
         } catch (error) {
             this.showError(error.message || 'Failed to load projects');
             this.projectState.all = [];
             this.projectState.byID = new Map();
+            this.projectState.scansByProject = new Map();
             this.renderProjectsTable([]);
         }
     }
@@ -2716,31 +3247,294 @@ class BaselineDashboard {
         }
     }
 
+    renderSettingsStatCard(label, value, muted = '') {
+        return `
+            <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <p class="text-[11px] font-medium uppercase tracking-wide text-gray-500">${this.escapeHtml(label)}</p>
+                <p class="mt-1 text-sm font-medium text-gray-900 break-words">${this.escapeHtml(value || '-')}</p>
+                ${muted ? `<p class="mt-1 text-xs text-gray-500">${this.escapeHtml(muted)}</p>` : ''}
+            </div>
+        `;
+    }
+
+    renderSettingsActionButton(label, action, primary = false) {
+        const classes = primary
+            ? 'px-3 py-2 rounded-lg text-sm font-medium bg-orange-600 text-white hover:bg-orange-700'
+            : 'px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50';
+        return `<button type="button" onclick="${action}" class="${classes}">${this.escapeHtml(label)}</button>`;
+    }
+
+    renderSettingsPanel() {
+        const displayName = this.identity?.user || this.identity?.email || this.identity?.userID || 'Current user';
+        const role = String(this.authz?.role || 'viewer').toLowerCase();
+        const authSource = String(this.authz?.source || 'session');
+        const email = this.identity?.email || 'Not available';
+        const userID = this.identity?.userID || this.identity?.subject || 'Not available';
+        const stats = this.dashboardSummary?.metrics || {};
+        const scans = Number(stats.scans || 0);
+        const projects = Number(stats.projects || 0);
+        const violations = Number(stats.violations || 0);
+        const preferences = this.preferences || this.loadDashboardPreferences();
+        const profileEditable = Boolean(this.identity?.userID);
+
+        const accountCards = [
+            this.renderSettingsStatCard('Email', email),
+            this.renderSettingsStatCard('Role', role.toUpperCase(), 'Role controls what this dashboard session can change.'),
+            this.renderSettingsStatCard('Auth Source', authSource),
+            this.renderSettingsStatCard('User ID', userID),
+            this.renderSettingsStatCard('API Server', window.location.origin)
+        ].join('');
+
+        const profileEditor = `
+            <div class="rounded-lg border border-gray-200 bg-white p-5">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-900">Profile</h4>
+                        <p class="mt-1 text-sm text-gray-600">Update the display name shown in the dashboard and activity views.</p>
+                    </div>
+                    <span id="settings-profile-feedback" class="text-xs text-gray-500"></span>
+                </div>
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                    <div>
+                        <label for="settings-display-name" class="block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1">Display Name</label>
+                        <input
+                            id="settings-display-name"
+                            type="text"
+                            maxlength="120"
+                            value="${this.escapeHtml(displayName)}"
+                            placeholder="How your name should appear in the dashboard"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            ${profileEditable ? '' : 'disabled aria-disabled="true"'}
+                        >
+                    </div>
+                    <div class="flex items-end">
+                        <button
+                            id="settings-profile-save"
+                            type="button"
+                            class="px-3 py-2 rounded-lg text-sm font-medium ${profileEditable ? 'bg-orange-600 text-white hover:bg-orange-700' : 'border border-gray-300 text-gray-400 bg-gray-100 cursor-not-allowed'}"
+                            ${profileEditable ? '' : 'disabled aria-disabled="true"'}
+                        >
+                            Save Profile
+                        </button>
+                    </div>
+                </div>
+                ${profileEditable ? '' : '<p class="mt-3 text-xs text-gray-500">This session is not linked to a persisted dashboard user, so profile changes are unavailable.</p>'}
+            </div>
+        `;
+
+        const preferenceEditor = `
+            <div class="rounded-lg border border-gray-200 bg-white p-5">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-900">Dashboard Preferences</h4>
+                        <p class="mt-1 text-sm text-gray-600">These settings are saved in this browser for your dashboard account.</p>
+                    </div>
+                    <span id="settings-preferences-feedback" class="text-xs text-gray-500"></span>
+                </div>
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                        <label for="settings-default-tab" class="block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1">Default Tab</label>
+                        <select id="settings-default-tab" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <option value="overview"${preferences.defaultTab === 'overview' ? ' selected' : ''}>Dashboard</option>
+                            <option value="scans"${preferences.defaultTab === 'scans' ? ' selected' : ''}>Scan History</option>
+                            <option value="projects"${preferences.defaultTab === 'projects' ? ' selected' : ''}>Projects</option>
+                            <option value="policies"${preferences.defaultTab === 'policies' ? ' selected' : ''}>Policies</option>
+                            <option value="audit"${preferences.defaultTab === 'audit' ? ' selected' : ''}>Audit Log</option>
+                            <option value="keys"${preferences.defaultTab === 'keys' ? ' selected' : ''}>API Keys</option>
+                            ${this.isAdmin() ? '<option value="users"' + (preferences.defaultTab === 'users' ? ' selected' : '') + '>Users</option>' : ''}
+                            ${this.isAdmin() ? '<option value="integrations"' + (preferences.defaultTab === 'integrations' ? ' selected' : '') + '>Integrations</option>' : ''}
+                            <option value="settings"${preferences.defaultTab === 'settings' ? ' selected' : ''}>Settings</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="settings-refresh-interval" class="block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1">Refresh Fallback</label>
+                        <select id="settings-refresh-interval" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <option value="30000"${preferences.refreshIntervalMs === 30000 ? ' selected' : ''}>30 seconds</option>
+                            <option value="60000"${preferences.refreshIntervalMs === 60000 ? ' selected' : ''}>60 seconds</option>
+                            <option value="120000"${preferences.refreshIntervalMs === 120000 ? ' selected' : ''}>120 seconds</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end">
+                        <button id="settings-preferences-save" type="button" class="px-3 py-2 rounded-lg text-sm font-medium bg-orange-600 text-white hover:bg-orange-700">Save Preferences</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const commonActions = `
+            <div class="rounded-lg border border-gray-200 bg-white p-5">
+                <h4 class="text-sm font-semibold text-gray-900">Workspace Actions</h4>
+                <p class="mt-1 text-sm text-gray-600">Jump to the parts of the dashboard you can actively use.</p>
+                <div class="mt-4 flex flex-wrap gap-2">
+                    ${this.renderSettingsActionButton('API Keys', "if(window.baselineDashboard){window.baselineDashboard.switchTab('keys')}", true)}
+                    ${this.renderSettingsActionButton('Scan History', "if(window.baselineDashboard){window.baselineDashboard.switchTab('scans')}")}
+                    ${this.renderSettingsActionButton('Projects', "if(window.baselineDashboard){window.baselineDashboard.switchTab('projects')}")}
+                    ${this.renderSettingsActionButton('Audit Log', "if(window.baselineDashboard){window.baselineDashboard.switchTab('audit')}")}
+                    ${this.renderSettingsActionButton('Export Report', 'generateReport()')}
+                    ${this.renderSettingsActionButton('CLI Guide', "window.location.href='/cli-guide.html'")}
+                    ${this.renderSettingsActionButton('Sign Out', 'handleSignOut()')}
+                </div>
+            </div>
+        `;
+
+        const overviewCards = `
+            <div class="rounded-lg border border-gray-200 bg-white p-5">
+                <h4 class="text-sm font-semibold text-gray-900">Current Workspace</h4>
+                <p class="mt-1 text-sm text-gray-600">Live dashboard totals for your current access scope.</p>
+                <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    ${this.renderSettingsStatCard('Scans', String(scans))}
+                    ${this.renderSettingsStatCard('Projects', String(projects))}
+                    ${this.renderSettingsStatCard('Violations', String(violations))}
+                </div>
+            </div>
+        `;
+
+        if (!this.isAdmin()) {
+            return `
+                <div class="w-full p-6">
+                    <div class="space-y-6">
+                        <div class="bg-white rounded-lg border border-gray-200">
+                            <div class="p-6 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold text-gray-900">My Settings</h3>
+                                <p class="mt-1 text-sm text-gray-600">Profile, dashboard preferences, and the actions available to this user.</p>
+                            </div>
+                            <div class="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                ${accountCards}
+                            </div>
+                        </div>
+                        ${profileEditor}
+                        ${preferenceEditor}
+                        ${overviewCards}
+                        ${commonActions}
+                    </div>
+                </div>
+            `;
+        }
+
+        const adminActions = `
+            <div class="rounded-lg border border-gray-200 bg-white p-5">
+                <h4 class="text-sm font-semibold text-gray-900">Admin Tools</h4>
+                <p class="mt-1 text-sm text-gray-600">Operational paths exposed only to admin users.</p>
+                <div class="mt-4 flex flex-wrap gap-2">
+                    ${this.renderSettingsActionButton('Users', "if(window.baselineDashboard){window.baselineDashboard.switchTab('users')}", true)}
+                    ${this.renderSettingsActionButton('Projects', "if(window.baselineDashboard){window.baselineDashboard.switchTab('projects')}")}
+                    ${this.renderSettingsActionButton('API Keys', "if(window.baselineDashboard){window.baselineDashboard.switchTab('keys')}")}
+                    ${this.renderSettingsActionButton('Integrations', "if(window.baselineDashboard){window.baselineDashboard.switchTab('integrations')}")}
+                    ${this.renderSettingsActionButton('OpenAPI', "window.open('/openapi.yaml','_blank','noopener')")}
+                </div>
+            </div>
+        `;
+
+        return `
+            <div class="w-full p-6">
+                <div class="space-y-6">
+                    <div class="bg-white rounded-lg border border-gray-200">
+                        <div class="p-6 border-b border-gray-200">
+                            <h3 class="text-lg font-semibold text-gray-900">Settings</h3>
+                            <p class="mt-1 text-sm text-gray-600">Profile, dashboard preferences, and the operational tools available to this admin.</p>
+                        </div>
+                        <div class="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            ${accountCards}
+                        </div>
+                    </div>
+                    ${profileEditor}
+                    ${preferenceEditor}
+                    ${overviewCards}
+                    ${adminActions}
+                    ${commonActions}
+                </div>
+            </div>
+        `;
+    }
+
     async loadSettingsData() {
         const settingsTab = document.getElementById('settings-tab');
         if (!settingsTab) return;
+        settingsTab.innerHTML = this.renderSettingsPanel();
+        this.bindSettingsControls();
+    }
 
-        let banner = settingsTab.querySelector('[data-settings-readonly-banner]');
-        if (!banner) {
-            banner = document.createElement('div');
-            banner.setAttribute('data-settings-readonly-banner', '1');
-            banner.className = 'mb-4 px-4 py-3 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800';
-            banner.textContent = 'Settings are managed by server configuration and are read-only in dashboard mode.';
-            settingsTab.prepend(banner);
+    bindSettingsControls() {
+        const profileSaveButton = document.getElementById('settings-profile-save');
+        if (profileSaveButton && profileSaveButton.dataset.bound !== '1') {
+            profileSaveButton.dataset.bound = '1';
+            profileSaveButton.addEventListener('click', async () => {
+                await this.saveProfileSettings();
+            });
         }
 
-        settingsTab.querySelectorAll('input, select, textarea').forEach(control => {
-            control.disabled = true;
-            control.classList.add('opacity-70', 'cursor-not-allowed');
-            control.setAttribute('aria-disabled', 'true');
-        });
+        const preferenceSaveButton = document.getElementById('settings-preferences-save');
+        if (preferenceSaveButton && preferenceSaveButton.dataset.bound !== '1') {
+            preferenceSaveButton.dataset.bound = '1';
+            preferenceSaveButton.addEventListener('click', async () => {
+                this.saveDashboardPreferencesFromSettings();
+            });
+        }
+    }
 
-        settingsTab.querySelectorAll('[data-settings-disabled="1"]').forEach(button => {
-            button.disabled = true;
-            button.classList.add('opacity-70', 'cursor-not-allowed');
-            button.setAttribute('aria-disabled', 'true');
-            button.title = 'Disabled in dashboard runtime';
-        });
+    async saveProfileSettings() {
+        const displayNameField = document.getElementById('settings-display-name');
+        const feedback = document.getElementById('settings-profile-feedback');
+        const saveButton = document.getElementById('settings-profile-save');
+        if (!displayNameField || !saveButton) {
+            return;
+        }
+
+        const displayName = String(displayNameField.value || '').trim();
+        if (feedback) {
+            feedback.textContent = 'Saving...';
+            feedback.className = 'text-xs text-gray-500';
+        }
+        saveButton.disabled = true;
+
+        try {
+            const payload = await this.apiRequest('/v1/auth/me', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ display_name: displayName })
+            });
+            this.identity.user = String(payload?.display_name || payload?.user || displayName).trim();
+            if (payload?.email) {
+                this.identity.email = String(payload.email).trim().toLowerCase();
+            }
+            this.updateUserUI({
+                displayName: this.identity.user,
+                email: this.identity.email,
+                role: String(payload?.role || this.authz?.role || '')
+            });
+            if (feedback) {
+                feedback.textContent = 'Saved';
+                feedback.className = 'text-xs text-green-700';
+            }
+            this.showSuccess('Profile updated.');
+            if (this.currentTab === 'settings') {
+                await this.loadSettingsData();
+            }
+        } catch (error) {
+            if (feedback) {
+                feedback.textContent = error.message || 'Failed to save profile.';
+                feedback.className = 'text-xs text-red-600';
+            }
+            this.showError(error.message || 'Failed to save profile.');
+        } finally {
+            saveButton.disabled = false;
+        }
+    }
+
+    saveDashboardPreferencesFromSettings() {
+        const defaultTabField = document.getElementById('settings-default-tab');
+        const refreshField = document.getElementById('settings-refresh-interval');
+        const feedback = document.getElementById('settings-preferences-feedback');
+        const nextPreferences = {
+            defaultTab: String(defaultTabField?.value || 'overview').trim().toLowerCase(),
+            refreshIntervalMs: Number(refreshField?.value || 60000)
+        };
+        this.persistDashboardPreferences(nextPreferences);
+        if (feedback) {
+            feedback.textContent = 'Saved';
+            feedback.className = 'text-xs text-green-700';
+        }
+        this.showSuccess('Dashboard preferences updated.');
     }
 
     async loadUsersTabData() {
@@ -2842,17 +3636,55 @@ class BaselineDashboard {
         const detailPanel = selected
             ? `
                 <div class="mx-6 mt-4 mb-2 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                    <div class="flex items-center justify-between gap-3">
-                        <h4 class="text-sm font-semibold text-blue-900">Selected User Detail</h4>
+                    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                        <div>
+                            <h4 class="text-sm font-semibold text-blue-900">Selected User</h4>
+                            <p class="mt-1 text-xs text-blue-800">Basic edits are limited to role and status. Identity data stays read-only.</p>
+                        </div>
                         <button type="button" id="users-detail-clear" class="text-xs text-blue-700 hover:text-blue-900 font-medium">Clear</button>
                     </div>
-                    <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                    <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                         <p><span class="text-gray-600">ID:</span> <span class="font-mono text-gray-900">${this.escapeHtml(selected.id || '-')}</span></p>
                         <p><span class="text-gray-600">Email:</span> <span class="text-gray-900">${this.escapeHtml(selected.email || '-')}</span></p>
                         <p><span class="text-gray-600">Role:</span> <span class="text-gray-900">${this.escapeHtml(selected.role || '-')}</span></p>
                         <p><span class="text-gray-600">Status:</span> <span class="text-gray-900">${this.escapeHtml(selected.status || '-')}</span></p>
                         <p><span class="text-gray-600">Provider:</span> <span class="text-gray-900">${this.escapeHtml(selected.provider || '-')}</span></p>
                         <p><span class="text-gray-600">Last login:</span> <span class="text-gray-900">${this.escapeHtml(this.formatDate(selected.last_login_at))}</span></p>
+                    </div>
+                    <div class="mt-3 rounded-lg border border-blue-200 bg-white p-3">
+                        <div class="flex flex-col md:flex-row md:items-end gap-3">
+                            <div>
+                                <label for="admin-user-detail-role" class="block text-[11px] font-medium uppercase tracking-wide text-gray-500 mb-1">Role</label>
+                                <select id="admin-user-detail-role" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                                    <option value="viewer"${String(selected.role || '').toLowerCase() === 'viewer' ? ' selected' : ''}>viewer</option>
+                                    <option value="operator"${String(selected.role || '').toLowerCase() === 'operator' ? ' selected' : ''}>operator</option>
+                                    <option value="admin"${String(selected.role || '').toLowerCase() === 'admin' ? ' selected' : ''}>admin</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="admin-user-detail-status" class="block text-[11px] font-medium uppercase tracking-wide text-gray-500 mb-1">Status</label>
+                                <select id="admin-user-detail-status" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                                    <option value="active"${String(selected.status || '').toLowerCase() === 'active' ? ' selected' : ''}>active</option>
+                                    <option value="suspended"${String(selected.status || '').toLowerCase() === 'suspended' ? ' selected' : ''}>suspended</option>
+                                </select>
+                            </div>
+                            <div class="flex items-center gap-2 md:ml-auto">
+                                <button
+                                    type="button"
+                                    class="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-xs font-medium"
+                                    onclick="window.baselineDashboard && window.baselineDashboard.submitAdminUserUpdate(decodeURIComponent('${encodeURIComponent(String(selected.id || ''))}'),'detail')"
+                                >
+                                    Save Access
+                                </button>
+                                <button
+                                    type="button"
+                                    class="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-xs font-medium"
+                                    onclick="window.baselineDashboard && window.baselineDashboard.setSelectedUserStatus(decodeURIComponent('${encodeURIComponent(String(selected.id || ''))}'),'${String(selected.status || '').toLowerCase() === 'suspended' ? 'active' : 'suspended'}')"
+                                >
+                                    ${String(selected.status || '').toLowerCase() === 'suspended' ? 'Activate' : 'Suspend'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <div class="mt-3 rounded-lg border border-blue-200 bg-white">
                         <div class="px-3 py-2 border-b border-blue-100 flex items-center justify-between">
@@ -2933,9 +3765,9 @@ class BaselineDashboard {
                             <button
                                 type="button"
                                 class="px-3 py-1 bg-orange-600 text-white rounded hover:bg-orange-700 text-xs font-medium"
-                                onclick="window.baselineDashboard && window.baselineDashboard.submitAdminUserUpdate(decodeURIComponent('${encodeURIComponent(userID)}'))"
+                                onclick="window.baselineDashboard && window.baselineDashboard.submitAdminUserUpdate(decodeURIComponent('${encodeURIComponent(userID)}'),'row')"
                             >
-                                Save
+                                Save Access
                             </button>
                         </td>
                     </tr>
@@ -2951,7 +3783,7 @@ class BaselineDashboard {
             <div class="bg-white rounded-lg border border-gray-200">
                 <div class="p-6 border-b border-gray-200">
                     <h3 class="text-lg font-semibold text-gray-900">Users</h3>
-                    <p class="text-sm text-gray-700 mt-1">Admin controls for role and status management.</p>
+                    <p class="text-sm text-gray-700 mt-1">Basic user administration for role and access status.</p>
                     <p class="text-xs text-gray-500 mt-1">Backed by <code>/v1/users</code> and <code>/v1/users/{id}</code>.</p>
                     <div class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
                         <input id="users-filter-q" type="text" value="${this.escapeHtml(filters.q || '')}" placeholder="Search user/email..." class="md:col-span-2 px-3 py-2 border border-gray-300 rounded-lg text-sm">
@@ -2978,7 +3810,7 @@ class BaselineDashboard {
                         <button id="users-filter-reset" type="button" class="px-3 py-1.5 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-xs font-medium">Reset</button>
                         <span class="text-xs text-gray-500">Showing ${totalCount === 0 ? 0 : start + 1}-${Math.min(start + pageRows.length, totalCount)} of ${totalCount} | Sort: ${this.userSortDescriptor(sortBy, sortDir)}</span>
                     </div>
-                    <p id="admin-users-feedback" class="mt-2 text-xs ${errorMessage ? 'text-red-600' : 'text-gray-500'}">${this.escapeHtml(errorMessage || 'Review user role/status and click Save per row.')}</p>
+                    <p id="admin-users-feedback" class="mt-2 text-xs ${errorMessage ? 'text-red-600' : 'text-gray-500'}">${this.escapeHtml(errorMessage || 'Edit role or status, then save from the row or the selected user panel.')}</p>
                 </div>
                 ${detailPanel}
                 <div class="overflow-x-auto">
@@ -3424,15 +4256,29 @@ class BaselineDashboard {
         return String(userID || '').replace(/[^a-zA-Z0-9_-]/g, '_');
     }
 
-    async submitAdminUserUpdate(userID) {
+    async setSelectedUserStatus(userID, status) {
+        const id = String(userID || '').trim();
+        const nextStatus = String(status || '').trim().toLowerCase();
+        const detailStatusField = document.getElementById('admin-user-detail-status');
+        if (detailStatusField && (nextStatus === 'active' || nextStatus === 'suspended')) {
+            detailStatusField.value = nextStatus;
+        }
+        await this.submitAdminUserUpdate(id, 'detail');
+    }
+
+    async submitAdminUserUpdate(userID, source = 'row') {
         const id = String(userID || '').trim();
         if (!id) {
             this.showError('Invalid user id.');
             return;
         }
         const rowKey = this.adminUserRowKey(id);
-        const roleField = document.getElementById(`admin-user-role-${rowKey}`);
-        const statusField = document.getElementById(`admin-user-status-${rowKey}`);
+        const roleField = source === 'detail'
+            ? document.getElementById('admin-user-detail-role')
+            : document.getElementById(`admin-user-role-${rowKey}`);
+        const statusField = source === 'detail'
+            ? document.getElementById('admin-user-detail-status')
+            : document.getElementById(`admin-user-status-${rowKey}`);
         const feedback = document.getElementById('admin-users-feedback');
         if (!roleField || !statusField) {
             this.showError('User controls are not available.');
@@ -3768,12 +4614,13 @@ class BaselineDashboard {
     renderPoliciesTable(policies) {
         const policiesTab = document.getElementById('policies-tab');
         if (!policiesTab) return;
+        const isAdmin = this.isAdmin();
 
         if (!Array.isArray(policies) || policies.length === 0) {
             policiesTab.innerHTML = `
                 <div class="bg-white rounded-lg border border-gray-200 p-6">
                     <h3 class="text-lg font-semibold text-gray-900">Policy Management</h3>
-                    <p class="text-sm text-gray-700 mt-1">No policies found.</p>
+                    <p class="text-sm text-gray-700 mt-1">No policy catalog is available.</p>
                 </div>
             `;
             return;
@@ -3783,39 +4630,61 @@ class BaselineDashboard {
             <div class="bg-white rounded-lg border border-gray-200">
                 <div class="p-6 border-b border-gray-200">
                     <h3 class="text-lg font-semibold text-gray-900">Policy Management</h3>
-                    <p class="text-sm text-gray-700 mt-1">Live policy versions from backend endpoints</p>
+                    <p class="text-sm text-gray-700 mt-1">${isAdmin
+                        ? 'Built-in Baseline checks with live version data when policies have been published through the API.'
+                        : 'Baseline checks that are evaluated during scans.'}</p>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full">
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Policy</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Latest Version</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Updated</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Versions</th>
+                                ${isAdmin ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>' : ''}
+                                ${isAdmin ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Latest Version</th>' : ''}
+                                ${isAdmin ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Updated</th>' : ''}
+                                ${isAdmin ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Versions</th>' : ''}
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Links</th>
+                                ${isAdmin ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Links</th>' : ''}
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             ${policies.map(policy => `
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${this.escapeHtml(policy.name)}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${this.escapeHtml(policy.latest_version || 'N/A')}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${this.formatDate(policy.updated_at)}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
-                                            ${policy.version_count} total
-                                        </span>
-                                    </td>
+                                    ${isAdmin ? `
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            <span class="px-2 py-1 text-xs rounded-full ${policy.source === 'published' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-700'}">
+                                                ${policy.source === 'published' ? 'Configured' : 'Default'}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${this.escapeHtml(policy.latest_version || 'Not configured')}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${policy.updated_at ? this.formatDate(policy.updated_at) : 'Not configured'}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="px-2 py-1 text-xs rounded-full ${policy.version_count > 0 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'}">
+                                                ${policy.version_count > 0 ? `${policy.version_count} total` : 'Default only'}
+                                            </span>
+                                        </td>
+                                    ` : ''}
                                     <td class="px-6 py-4 text-sm text-gray-700">
                                         ${this.escapeHtml(policy.description || 'No description')}
-                                        <div class="text-xs text-gray-500 mt-1">content keys: ${policy.content_keys}, metadata keys: ${policy.metadata_keys}</div>
+                                        ${isAdmin ? `
+                                            <div class="text-xs text-gray-500 mt-1">
+                                                ${policy.source === 'published'
+                                                    ? `content keys: ${policy.content_keys}, metadata keys: ${policy.metadata_keys}`
+                                                    : 'API-published policy versions will appear here after configuration.'}
+                                            </div>
+                                        ` : ''}
                                     </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                        <a class="text-orange-600 hover:text-orange-700 mr-2" href="/v1/policies/${encodeURIComponent(policy.name)}/latest" target="_blank" rel="noopener noreferrer">Latest</a>
-                                        <a class="text-orange-600 hover:text-orange-700" href="/v1/policies/${encodeURIComponent(policy.name)}/versions" target="_blank" rel="noopener noreferrer">Versions</a>
-                                    </td>
+                                    ${isAdmin ? `
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            ${policy.source === 'published'
+                                                ? `
+                                                    <a class="text-orange-600 hover:text-orange-700 mr-2" href="/v1/policies/${encodeURIComponent(policy.name)}/latest" target="_blank" rel="noopener noreferrer">Latest</a>
+                                                    <a class="text-orange-600 hover:text-orange-700" href="/v1/policies/${encodeURIComponent(policy.name)}/versions" target="_blank" rel="noopener noreferrer">Versions</a>
+                                                `
+                                                : '<span class="text-gray-400">No configured version</span>'}
+                                        </td>
+                                    ` : ''}
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -3830,10 +4699,11 @@ class BaselineDashboard {
         if (!projectsTab) return;
         const canWriteProjects = this.hasCapability('projects.write');
         const isAdmin = this.isAdmin();
+        const showActions = true;
         const addProjectButton = canWriteProjects
             ? `<button onclick="openModal('addProjectModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">Add Project</button>`
             : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Add Project</button>`;
-        const editActionHeader = (canWriteProjects || isAdmin)
+        const editActionHeader = showActions
             ? `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>`
             : '';
         const ownerHeader = `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>`;
@@ -3890,7 +4760,7 @@ class BaselineDashboard {
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <span class="px-2 py-1 text-xs rounded-full ${this.statusBadgeClass(project.last_scan_status)}">${this.escapeHtml(project.last_scan_status.toUpperCase())}</span>
                                     </td>
-                                    ${(canWriteProjects || isAdmin) ? `
+                                    ${showActions ? `
                                         <td class="px-6 py-4 whitespace-nowrap text-sm">
                                             <div class="flex items-center gap-3">
                                                 ${canWriteProjects ? `
@@ -3901,14 +4771,12 @@ class BaselineDashboard {
                                                         Edit
                                                     </button>
                                                 ` : ''}
-                                                ${canWriteProjects ? `
-                                                    <button
-                                                        onclick="window.baselineDashboard && window.baselineDashboard.claimProject(decodeURIComponent('${encodeURIComponent(project.id)}'))"
-                                                        class="text-gray-600 hover:text-gray-900 font-medium"
-                                                    >
-                                                        Claim
-                                                    </button>
-                                                ` : ''}
+                                                <button
+                                                    onclick="window.baselineDashboard && window.baselineDashboard.openProjectDetailsModal(decodeURIComponent('${encodeURIComponent(project.id)}'))"
+                                                    class="text-gray-700 hover:text-gray-900 font-medium"
+                                                >
+                                                    View
+                                                </button>
                                                 ${isAdmin ? `
                                                     <button
                                                         onclick="window.baselineDashboard && window.baselineDashboard.openProjectOwnerModal(decodeURIComponent('${encodeURIComponent(project.id)}'))"
@@ -4280,9 +5148,10 @@ class BaselineDashboard {
         const role = String(user.role || this.authz?.role || '').trim().toLowerCase();
         const email = String(user.email || this.identity?.email || '').trim().toLowerCase();
         const subject = String(this.identity?.subject || '').trim();
-        const displayName = email
+        const configuredName = String(user.displayName || user.display_name || user.name || this.identity?.user || '').trim();
+        const displayName = configuredName || (email
             ? email.split('@')[0]
-            : (String(user.name || '').trim() || (role ? role : 'User'));
+            : (role ? role : 'User'));
         const initials = displayName.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'OP';
 
         const userElement = document.getElementById('dashboard-user-name');

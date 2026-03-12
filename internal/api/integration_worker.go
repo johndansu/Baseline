@@ -20,12 +20,39 @@ func (s *Server) appendEventLocked(event AuditEvent) {
 	if s.store != nil {
 		_ = s.store.AppendAuditEvent(event)
 	}
+	s.notifyDashboardSubscribers()
 }
 
 func (s *Server) prependEventLocked(event AuditEvent) {
 	s.events = append([]AuditEvent{event}, s.events...)
 	if len(s.events) > 500 {
 		s.events = s.events[:500]
+	}
+}
+
+func (s *Server) subscribeDashboardStream() chan struct{} {
+	ch := make(chan struct{}, 1)
+	s.streamMu.Lock()
+	s.streamSubscribers[ch] = struct{}{}
+	s.streamMu.Unlock()
+	return ch
+}
+
+func (s *Server) unsubscribeDashboardStream(ch chan struct{}) {
+	s.streamMu.Lock()
+	delete(s.streamSubscribers, ch)
+	s.streamMu.Unlock()
+	close(ch)
+}
+
+func (s *Server) notifyDashboardSubscribers() {
+	s.streamMu.Lock()
+	defer s.streamMu.Unlock()
+	for ch := range s.streamSubscribers {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
 	}
 }
 

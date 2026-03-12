@@ -53,10 +53,11 @@ func TestProjectsAndScansPersistAcrossRestart(t *testing.T) {
 	}
 
 	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/scans", map[string]any{
-		"id":         "scan_persist",
-		"project_id": "proj_persist",
-		"status":     "pass",
-		"violations": []map[string]any{},
+		"id":            "scan_persist",
+		"project_id":    "proj_persist",
+		"files_scanned": 169,
+		"status":        "pass",
+		"violations":    []map[string]any{},
 	}, map[string]string{
 		"X-Baseline-CSRF": "1",
 	})
@@ -65,6 +66,9 @@ func TestProjectsAndScansPersistAcrossRestart(t *testing.T) {
 	}
 	if !strings.Contains(body, `"owner_id":"user:local_dashboard"`) {
 		t.Fatalf("expected created scan owner_id in response body=%s", body)
+	}
+	if !strings.Contains(body, `"files_scanned":169`) {
+		t.Fatalf("expected created scan files_scanned in response body=%s", body)
 	}
 
 	ts.Close()
@@ -104,6 +108,9 @@ func TestProjectsAndScansPersistAcrossRestart(t *testing.T) {
 	}
 	if !strings.Contains(body, `"owner_id":"user:local_dashboard"`) {
 		t.Fatalf("expected persisted scan owner_id in response body=%s", body)
+	}
+	if !strings.Contains(body, `"files_scanned":169`) {
+		t.Fatalf("expected persisted scan files_scanned in response body=%s", body)
 	}
 }
 

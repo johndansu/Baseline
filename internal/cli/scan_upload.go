@@ -2,8 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -25,6 +23,7 @@ type scanCommandOptions struct {
 	APIKey     string
 	ScanID     string
 	CommitSHA  string
+	UploadRunKey string
 }
 
 type uploadedScanDetails struct {
@@ -133,11 +132,12 @@ func uploadScanResults(opts scanCommandOptions, results types.ScanResults) (uplo
 	}
 
 	payload := api.CreateScanRequest{
-		ID:         strings.TrimSpace(opts.ScanID),
-		ProjectID:  projectID,
-		CommitSHA:  commitSHA,
-		Status:     deriveScanUploadStatus(results),
-		Violations: make([]api.ScanViolation, 0, len(results.Violations)),
+		ID:           strings.TrimSpace(opts.ScanID),
+		ProjectID:    projectID,
+		CommitSHA:    commitSHA,
+		FilesScanned: results.FilesScanned,
+		Status:       deriveScanUploadStatus(results),
+		Violations:   make([]api.ScanViolation, 0, len(results.Violations)),
 	}
 	for _, violation := range results.Violations {
 		severity := strings.ToLower(strings.TrimSpace(violation.Severity))
@@ -162,7 +162,7 @@ func uploadScanResults(opts scanCommandOptions, results types.ScanResults) (uplo
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", scanUploadIdempotencyKey(payload))
+	req.Header.Set("Idempotency-Key", scanUploadIdempotencyKey(payload, strings.TrimSpace(opts.UploadRunKey)))
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -207,10 +207,16 @@ func deriveScanUploadStatus(results types.ScanResults) string {
 	return "pass"
 }
 
-func scanUploadIdempotencyKey(payload api.CreateScanRequest) string {
-	raw, _ := json.Marshal(payload)
-	sum := sha256.Sum256(raw)
-	return "scan-upload:" + hex.EncodeToString(sum[:16])
+func scanUploadIdempotencyKey(payload api.CreateScanRequest, runKey string) string {
+	normalizedRunKey := strings.TrimSpace(runKey)
+	if normalizedRunKey == "" {
+		normalizedRunKey = "manual"
+	}
+	scanID := strings.TrimSpace(payload.ID)
+	if scanID == "" {
+		scanID = "auto"
+	}
+	return fmt.Sprintf("scan-upload:%s:%s", normalizedRunKey, scanID)
 }
 
 func resolveProjectIDForUpload(client *http.Client, baseURL, apiKey string) (string, error) {
