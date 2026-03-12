@@ -39,17 +39,125 @@ type oidcIDTokenClaims struct {
 }
 
 func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleAuthMeLookup(w, r)
+	case http.MethodPatch:
+		s.handleAuthMeUpdate(w, r)
+	default:
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
 	}
+}
 
+func (s *Server) handleAuthMeLookup(w http.ResponseWriter, r *http.Request) {
 	role, authSource, err := s.authenticateWithSource(r)
 	if err != nil {
 		writeUnauthorized(w, err.Error())
 		return
 	}
+	s.writeAuthMeResponse(w, r, role, authSource)
+}
 
+func (s *Server) handleAuthMeUpdate(w http.ResponseWriter, r *http.Request) {
+	if !s.requestBodyAllowed(w, r) {
+		return
+	}
+	principal, err := s.requestPrincipal(r)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+	if principal.AuthSource != "session" {
+		writeError(w, http.StatusForbidden, "forbidden", "account settings can only be updated from a dashboard session")
+		return
+	}
+	if !s.enforceSessionCSRF(w, r, principal.AuthSource) {
+		return
+	}
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "persistence_required", "settings require persistent store")
+		return
+	}
+	userID := strings.TrimSpace(principal.UserID)
+	if userID == "" {
+		writeError(w, http.StatusForbidden, "forbidden", "dashboard session is not linked to a persisted user")
+		return
+	}
+
+	var req struct {
+		DisplayName string `json:"display_name"`
+	}
+	if !s.decodeJSONBody(w, r, &req) {
+		return
+	}
+	displayName := strings.TrimSpace(req.DisplayName)
+	if len(displayName) > 120 {
+		writeError(w, http.StatusBadRequest, "bad_request", "display_name must be 120 characters or fewer")
+		return
+	}
+
+	updated, err := s.store.UpdateUserProfile(userID, displayName, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "unable to update account settings")
+		return
+	}
+	if err := s.refreshCurrentDashboardSession(r, updated); err != nil {
+		writeError(w, http.StatusInternalServerError, "system_error", "unable to refresh dashboard session")
+		return
+	}
+
+	s.dataMu.Lock()
+	s.appendEventLocked(s.newRequestAuditEvent(r, principal.AuthSource, "user_profile_updated", "", updated.ID))
+	s.dataMu.Unlock()
+	s.writeAuthMeResponse(w, r, roleFromPrincipal(principal), principal.AuthSource)
+}
+
+func roleFromPrincipal(principal authPrincipal) Role {
+	if !isValidRole(principal.Role) {
+		return RoleViewer
+	}
+	return principal.Role
+}
+
+func (s *Server) refreshCurrentDashboardSession(r *http.Request, user UserRecord) error {
+	cookie, err := r.Cookie(dashboardSessionCookieName)
+	if err != nil || cookie == nil {
+		return nil
+	}
+	token := strings.TrimSpace(cookie.Value)
+	if token == "" {
+		return nil
+	}
+	session, err := s.getDashboardSession(r)
+	if err != nil {
+		return err
+	}
+	userLabel := strings.TrimSpace(user.DisplayName)
+	if userLabel == "" {
+		userLabel = strings.TrimSpace(user.Email)
+	}
+	if userLabel == "" {
+		userLabel = session.User
+	}
+	session.User = userLabel
+	if strings.TrimSpace(user.Email) != "" {
+		session.Email = strings.ToLower(strings.TrimSpace(user.Email))
+	}
+	if strings.TrimSpace(user.ID) != "" {
+		session.UserID = strings.TrimSpace(user.ID)
+	}
+	if s.store != nil {
+		if err := s.store.UpsertAuthSession(token, session, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	s.sessionMu.Lock()
+	s.sessions[token] = session
+	s.sessionMu.Unlock()
+	return nil
+}
+
+func (s *Server) writeAuthMeResponse(w http.ResponseWriter, r *http.Request, role Role, authSource string) {
 	resp := map[string]any{
 		"authenticated": true,
 		"role":          role,
@@ -59,6 +167,7 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	if authSource == "session" {
 		if session, err := s.getDashboardSession(r); err == nil {
 			resp["user"] = session.User
+			resp["display_name"] = session.User
 			if session.UserID != "" {
 				resp["user_id"] = session.UserID
 			}

@@ -477,13 +477,14 @@ func (s *Server) handleScans(w http.ResponseWriter, r *http.Request) {
 		}
 
 		scan := ScanSummary{
-			ID:         normalized.ID,
-			ProjectID:  normalized.ProjectID,
-			CommitSHA:  normalized.CommitSHA,
-			Status:     normalized.Status,
-			Violations: normalized.Violations,
-			CreatedAt:  time.Now().UTC(),
-			OwnerID:    projectOwnerID,
+			ID:           normalized.ID,
+			ProjectID:    normalized.ProjectID,
+			CommitSHA:    normalized.CommitSHA,
+			FilesScanned: normalized.FilesScanned,
+			Status:       normalized.Status,
+			Violations:   normalized.Violations,
+			CreatedAt:    time.Now().UTC(),
+			OwnerID:      projectOwnerID,
 		}
 		if scan.ID == "" {
 			scan.ID = randomToken(8)
@@ -544,11 +545,12 @@ type scanIdempotencyEntry struct {
 
 func validateCreateScanRequest(req CreateScanRequest) (CreateScanRequest, bool) {
 	normalized := CreateScanRequest{
-		ID:         strings.TrimSpace(req.ID),
-		ProjectID:  strings.TrimSpace(req.ProjectID),
-		CommitSHA:  strings.TrimSpace(req.CommitSHA),
-		Status:     strings.ToLower(strings.TrimSpace(req.Status)),
-		Violations: make([]ScanViolation, 0, len(req.Violations)),
+		ID:           strings.TrimSpace(req.ID),
+		ProjectID:    strings.TrimSpace(req.ProjectID),
+		CommitSHA:    strings.TrimSpace(req.CommitSHA),
+		FilesScanned: req.FilesScanned,
+		Status:       strings.ToLower(strings.TrimSpace(req.Status)),
+		Violations:   make([]ScanViolation, 0, len(req.Violations)),
 	}
 	if normalized.ProjectID == "" || len(normalized.ProjectID) > 128 {
 		return CreateScanRequest{}, false
@@ -563,6 +565,9 @@ func validateCreateScanRequest(req CreateScanRequest) (CreateScanRequest, bool) 
 		normalized.Status = "pass"
 	}
 	if normalized.Status != "pass" && normalized.Status != "fail" && normalized.Status != "warn" {
+		return CreateScanRequest{}, false
+	}
+	if normalized.FilesScanned < 0 || normalized.FilesScanned > 10000000 {
 		return CreateScanRequest{}, false
 	}
 	if len(req.Violations) > 500 {

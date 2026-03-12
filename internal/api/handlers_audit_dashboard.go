@@ -10,6 +10,52 @@ import (
 	"time"
 )
 
+func (s *Server) handleDashboardStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	if _, err := s.requestPrincipal(r); err != nil {
+		writeUnauthorized(w, err.Error())
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "system_error", "streaming not supported")
+		return
+	}
+	if controller := http.NewResponseController(w); controller != nil {
+		_ = controller.SetWriteDeadline(time.Time{})
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	stream := s.subscribeDashboardStream()
+	defer s.unsubscribeDashboardStream(stream)
+
+	fmt.Fprint(w, "event: ready\ndata: connected\n\n")
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		case <-stream:
+			fmt.Fprint(w, "event: refresh\ndata: update\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
 func (s *Server) handleDashboardCapabilities(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -30,17 +76,17 @@ func (s *Server) handleDashboardCapabilities(w http.ResponseWriter, r *http.Requ
 
 func dashboardCapabilitiesForRole(role Role) map[string]bool {
 	capabilities := map[string]bool{
-		"dashboard.view":     true,
-		"projects.read":      true,
-		"projects.write":     false,
-		"scans.read":         true,
-		"scans.run":          false,
-		"api_keys.read":      true,
+		"dashboard.view": true,
+		"projects.read":  true,
+		"projects.write": false,
+		"scans.read":     true,
+		"scans.run":      false,
+		"api_keys.read":  true,
 		// Self-service API key lifecycle is available for authenticated users.
-		"api_keys.write":     true,
-		"audit.read":         true,
-		"integrations.read":  false,
-		"integrations.write": false,
+		"api_keys.write":             true,
+		"audit.read":                 true,
+		"integrations.read":          false,
+		"integrations.write":         false,
 		"integrations.secrets.write": false,
 	}
 
@@ -117,10 +163,31 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 		Scans:    len(scans),
 	}
 
+	today := time.Now().UTC()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+	activityWindow := make([]DashboardScanActivityPoint, 0, 7)
+	activityIndex := make(map[string]int, 7)
+	for i := 6; i >= 0; i-- {
+		day := today.AddDate(0, 0, -i)
+		key := day.Format("2006-01-02")
+		activityIndex[key] = len(activityWindow)
+		activityWindow = append(activityWindow, DashboardScanActivityPoint{
+			Date:  key,
+			Label: day.Format("Mon"),
+		})
+	}
+
 	violationCounts := map[string]int{}
 	for _, scan := range scans {
 		if strings.EqualFold(strings.TrimSpace(scan.Status), "fail") {
 			metrics.FailingScans++
+		}
+		dayKey := scan.CreatedAt.UTC().Format("2006-01-02")
+		if idx, ok := activityIndex[dayKey]; ok {
+			activityWindow[idx].Scans++
+			if strings.EqualFold(strings.TrimSpace(scan.Status), "fail") {
+				activityWindow[idx].FailingScans++
+			}
 		}
 		for _, violation := range scan.Violations {
 			if strings.EqualFold(strings.TrimSpace(violation.Severity), "block") {
@@ -169,6 +236,7 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metrics":        metrics,
+		"scan_activity":  activityWindow,
 		"recent_scans":   scans,
 		"top_violations": topViolations,
 		"recent_events":  events,

@@ -69,43 +69,43 @@ func TestDashboardCapabilitiesRoleMatrixForAPIKeys(t *testing.T) {
 	client := &http.Client{}
 
 	testCases := []struct {
-		name             string
-		token            string
-		role             Role
-		projectWrite     bool
-		scansRun         bool
-		apiKeysWrite     bool
-		integrationWrite bool
+		name                    string
+		token                   string
+		role                    Role
+		projectWrite            bool
+		scansRun                bool
+		apiKeysWrite            bool
+		integrationWrite        bool
 		integrationSecretsWrite bool
 	}{
 		{
-			name:             "viewer",
-			token:            "viewer-key",
-			role:             RoleViewer,
-			projectWrite:     false,
-			scansRun:         false,
-			apiKeysWrite:     true,
-			integrationWrite: false,
+			name:                    "viewer",
+			token:                   "viewer-key",
+			role:                    RoleViewer,
+			projectWrite:            false,
+			scansRun:                false,
+			apiKeysWrite:            true,
+			integrationWrite:        false,
 			integrationSecretsWrite: false,
 		},
 		{
-			name:             "operator",
-			token:            "operator-key",
-			role:             RoleOperator,
-			projectWrite:     true,
-			scansRun:         true,
-			apiKeysWrite:     true,
-			integrationWrite: true,
+			name:                    "operator",
+			token:                   "operator-key",
+			role:                    RoleOperator,
+			projectWrite:            true,
+			scansRun:                true,
+			apiKeysWrite:            true,
+			integrationWrite:        true,
 			integrationSecretsWrite: false,
 		},
 		{
-			name:             "admin",
-			token:            "admin-key",
-			role:             RoleAdmin,
-			projectWrite:     true,
-			scansRun:         true,
-			apiKeysWrite:     true,
-			integrationWrite: true,
+			name:                    "admin",
+			token:                   "admin-key",
+			role:                    RoleAdmin,
+			projectWrite:            true,
+			scansRun:                true,
+			apiKeysWrite:            true,
+			integrationWrite:        true,
 			integrationSecretsWrite: true,
 		},
 	}
@@ -450,10 +450,11 @@ func TestDashboardSummaryReturnsAggregates(t *testing.T) {
 	}
 
 	var summary struct {
-		Metrics       DashboardMetrics          `json:"metrics"`
-		RecentScans   []ScanSummary             `json:"recent_scans"`
-		TopViolations []DashboardViolationCount `json:"top_violations"`
-		RecentEvents  []AuditEvent              `json:"recent_events"`
+		Metrics       DashboardMetrics             `json:"metrics"`
+		ScanActivity  []DashboardScanActivityPoint `json:"scan_activity"`
+		RecentScans   []ScanSummary                `json:"recent_scans"`
+		TopViolations []DashboardViolationCount    `json:"top_violations"`
+		RecentEvents  []AuditEvent                 `json:"recent_events"`
 	}
 	if err := json.Unmarshal([]byte(body), &summary); err != nil {
 		t.Fatalf("failed to decode dashboard summary: %v body=%s", err, body)
@@ -482,6 +483,16 @@ func TestDashboardSummaryReturnsAggregates(t *testing.T) {
 	}
 	if len(summary.RecentEvents) == 0 {
 		t.Fatal("expected recent_events to include at least one entry")
+	}
+	if len(summary.ScanActivity) != 7 {
+		t.Fatalf("expected scan_activity length 7, got %d", len(summary.ScanActivity))
+	}
+	last := summary.ScanActivity[len(summary.ScanActivity)-1]
+	if last.Scans != 2 {
+		t.Fatalf("expected latest scan activity point scans=2, got %+v", last)
+	}
+	if last.FailingScans != 1 {
+		t.Fatalf("expected latest scan activity point failing_scans=1, got %+v", last)
 	}
 }
 

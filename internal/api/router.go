@@ -131,6 +131,8 @@ func (s *Server) handleDashboardRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleDashboardCapabilities(w, r)
 	case "/v1/dashboard/activity":
 		s.handleDashboardActivity(w, r)
+	case "/v1/dashboard/stream":
+		s.handleDashboardStream(w, r)
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
 	}

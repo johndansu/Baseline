@@ -123,6 +123,14 @@ func HandleScan(args []string) {
 		fmt.Printf("SCAN FAILED: %v\n", err)
 		os.Exit(types.ExitSystemError)
 	}
+	if strings.TrimSpace(opts.UploadRunKey) == "" {
+		runKey, err := generateAPIKey()
+		if err != nil {
+			fmt.Printf("SCAN FAILED: unable to create upload run key: %v\n", err)
+			os.Exit(types.ExitSystemError)
+		}
+		opts.UploadRunKey = runKey
+	}
 	connection, err := resolveDashboardUploadConfigForScan(opts)
 	if err != nil {
 		fmt.Printf("SCAN FAILED: unable to load dashboard upload config: %v\n", err)

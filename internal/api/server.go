@@ -51,6 +51,8 @@ type Server struct {
 
 	dashboardMetricsMu sync.Mutex
 	dashboardMetrics   map[string]*dashboardEndpointMetrics
+	streamMu          sync.Mutex
+	streamSubscribers map[chan struct{}]struct{}
 
 	sensitiveMu          sync.Mutex
 	sensitiveReauth      map[string]sensitiveActionGrant
@@ -158,6 +160,7 @@ func NewServer(config Config, store *Store) (*Server, error) {
 		oidcState:          map[string]pendingOIDCLogin{},
 		rateState:          map[string]rateWindowCounter{},
 		dashboardMetrics:   map[string]*dashboardEndpointMetrics{},
+		streamSubscribers:  map[chan struct{}]struct{}{},
 		sensitiveReauth:    map[string]sensitiveActionGrant{},
 		projects:           []Project{},
 		scans:              []ScanSummary{},

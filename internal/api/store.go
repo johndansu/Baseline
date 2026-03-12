@@ -24,7 +24,7 @@ type persistedAPIKey struct {
 
 const (
 	storeSchemaVersionKey     = "schema_version"
-	currentStoreSchemaVersion = 7
+	currentStoreSchemaVersion = 8
 )
 
 type storeMigration struct {
@@ -237,6 +237,12 @@ func migrateStore(db *sql.DB) error {
 			version: 7,
 			apply: func(tx *sql.Tx) error {
 				return migrateProjectAndScanOwnershipTx(tx)
+			},
+		},
+		{
+			version: 8,
+			apply: func(tx *sql.Tx) error {
+				return migrateScanFilesScannedTx(tx)
 			},
 		},
 	}
@@ -717,17 +723,19 @@ func (s *Store) UpsertScan(scan ScanSummary) error {
 		createdAt = time.Now().UTC()
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO scans (id, project_id, commit_sha, status, violations_json, created_at, owner_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO scans (id, project_id, commit_sha, files_scanned, status, violations_json, created_at, owner_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   project_id = excluded.project_id,
 		   commit_sha = excluded.commit_sha,
+		   files_scanned = excluded.files_scanned,
 		   status = excluded.status,
 		   violations_json = excluded.violations_json,
 		   owner_id = excluded.owner_id`,
 		id,
 		projectID,
 		strings.TrimSpace(scan.CommitSHA),
+		scan.FilesScanned,
 		strings.TrimSpace(scan.Status),
 		string(violationsJSON),
 		createdAt.UTC().Format(time.RFC3339Nano),
@@ -745,7 +753,7 @@ func (s *Store) LoadScans(limit int) ([]ScanSummary, error) {
 		maxRows = 1000
 	}
 	rows, err := s.db.Query(
-		`SELECT id, project_id, commit_sha, status, violations_json, created_at, owner_id
+		`SELECT id, project_id, commit_sha, files_scanned, status, violations_json, created_at, owner_id
 		 FROM scans
 		 ORDER BY created_at DESC, id ASC
 		 LIMIT ?`,
@@ -759,8 +767,9 @@ func (s *Store) LoadScans(limit int) ([]ScanSummary, error) {
 	scans := []ScanSummary{}
 	for rows.Next() {
 		var id, projectID, commitSHA, status, violationsRaw, createdRaw sql.NullString
+		var filesScanned sql.NullInt64
 		var ownerID sql.NullString
-		if err := rows.Scan(&id, &projectID, &commitSHA, &status, &violationsRaw, &createdRaw, &ownerID); err != nil {
+		if err := rows.Scan(&id, &projectID, &commitSHA, &filesScanned, &status, &violationsRaw, &createdRaw, &ownerID); err != nil {
 			return nil, err
 		}
 		createdAt, err := parseStoredTime(createdRaw.String)
@@ -774,13 +783,14 @@ func (s *Store) LoadScans(limit int) ([]ScanSummary, error) {
 			}
 		}
 		scans = append(scans, ScanSummary{
-			ID:         strings.TrimSpace(id.String),
-			ProjectID:  strings.TrimSpace(projectID.String),
-			CommitSHA:  strings.TrimSpace(commitSHA.String),
-			Status:     strings.TrimSpace(status.String),
-			Violations: violations,
-			CreatedAt:  createdAt,
-			OwnerID:    strings.TrimSpace(ownerID.String),
+			ID:           strings.TrimSpace(id.String),
+			ProjectID:    strings.TrimSpace(projectID.String),
+			CommitSHA:    strings.TrimSpace(commitSHA.String),
+			FilesScanned: int(filesScanned.Int64),
+			Status:       strings.TrimSpace(status.String),
+			Violations:   violations,
+			CreatedAt:    createdAt,
+			OwnerID:      strings.TrimSpace(ownerID.String),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -798,6 +808,14 @@ func ensureColumnWithDefaultTx(tx *sql.Tx, tableName, columnName, columnDDL stri
 		return nil
 	}
 	_, err = tx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, columnDDL))
+	return err
+}
+
+func migrateScanFilesScannedTx(tx *sql.Tx) error {
+	if err := ensureColumnWithDefaultTx(tx, "scans", "files_scanned", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`UPDATE scans SET files_scanned = 0 WHERE files_scanned IS NULL`)
 	return err
 }
 
@@ -1543,6 +1561,49 @@ func (s *Store) UpdateUserRoleAndStatus(userID string, role Role, status UserSta
 		 WHERE id = ?`,
 		string(role),
 		string(status),
+		updatedAtRaw,
+		id,
+	)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return UserRecord{}, err
+	}
+	if affected == 0 {
+		return UserRecord{}, fmt.Errorf("user %s not found", id)
+	}
+
+	user, found, err := s.GetUserByID(id)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	if !found {
+		return UserRecord{}, fmt.Errorf("user %s not found", id)
+	}
+	return user, nil
+}
+
+func (s *Store) UpdateUserProfile(userID, displayName string, updatedAt time.Time) (UserRecord, error) {
+	if s == nil || s.db == nil {
+		return UserRecord{}, nil
+	}
+	id := strings.TrimSpace(userID)
+	if id == "" {
+		return UserRecord{}, errors.New("user id is required")
+	}
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	updatedAtRaw := updatedAt.UTC().Format(time.RFC3339Nano)
+	nameValue := strings.TrimSpace(displayName)
+
+	result, err := s.db.Exec(
+		`UPDATE users
+		 SET display_name = ?, updated_at = ?
+		 WHERE id = ?`,
+		nameValue,
 		updatedAtRaw,
 		id,
 	)

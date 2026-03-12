@@ -86,6 +86,7 @@ func TestUploadScanResultsPostsScan(t *testing.T) {
 	uploaded, err := uploadScanResults(scanCommandOptions{
 		APIBaseURL: server.URL,
 		CommitSHA:  "abc123",
+		UploadRunKey: "run-001",
 	}, results)
 	if err != nil {
 		t.Fatalf("uploadScanResults returned error: %v", err)
@@ -103,8 +104,32 @@ func TestUploadScanResultsPostsScan(t *testing.T) {
 	if postedPayload["project_id"] != "proj_baseline" {
 		t.Fatalf("expected project_id proj_baseline, got %#v", postedPayload["project_id"])
 	}
+	if postedPayload["files_scanned"] != float64(10) {
+		t.Fatalf("expected files_scanned 10, got %#v", postedPayload["files_scanned"])
+	}
 	if postedPayload["status"] != "fail" {
 		t.Fatalf("expected status fail, got %#v", postedPayload["status"])
+	}
+}
+
+func TestScanUploadIdempotencyKeyUsesRunKey(t *testing.T) {
+	payload := api.CreateScanRequest{
+		ID:        "scan_123",
+		ProjectID: "proj_123",
+		Status:    "pass",
+	}
+
+	first := scanUploadIdempotencyKey(payload, "run-001")
+	second := scanUploadIdempotencyKey(payload, "run-002")
+
+	if first == second {
+		t.Fatalf("expected different idempotency keys for different runs, got %q", first)
+	}
+	if !strings.HasPrefix(first, "scan-upload:run-001:") {
+		t.Fatalf("unexpected first idempotency key %q", first)
+	}
+	if !strings.HasPrefix(second, "scan-upload:run-002:") {
+		t.Fatalf("unexpected second idempotency key %q", second)
 	}
 }
 

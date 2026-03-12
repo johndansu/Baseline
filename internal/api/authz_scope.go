@@ -71,7 +71,11 @@ func (p authPrincipal) canAccessOwner(ownerID string) bool {
 	if !p.enforceOwnership() {
 		return true
 	}
-	return strings.TrimSpace(ownerID) != "" && strings.TrimSpace(ownerID) == strings.TrimSpace(p.OwnerID)
+	return normalizeOwnerID(ownerID) != "" && normalizeOwnerID(ownerID) == normalizeOwnerID(p.OwnerID)
+}
+
+func normalizeOwnerID(ownerID string) string {
+	return strings.ToLower(strings.TrimSpace(ownerID))
 }
 
 func sessionOwnerID(session dashboardSession) string {

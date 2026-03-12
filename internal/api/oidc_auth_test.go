@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAuthMeWithAPIKey(t *testing.T) {
@@ -38,6 +40,93 @@ func TestAuthMeWithAPIKey(t *testing.T) {
 	}
 	if !payload.Authenticated || payload.Role != RoleAdmin || payload.AuthSource != "api_key" {
 		t.Fatalf("unexpected auth/me payload: %+v", payload)
+	}
+}
+
+func TestAuthMePatchUpdatesDisplayNameForSessionUser(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "auth_me_patch.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	userID, err := store.UpsertOIDCUser("https://issuer.example", "sub-settings-1", "settings@example.com", "Old Name", now)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser returned error: %v", err)
+	}
+	if _, err := store.UpdateUserRoleAndStatus(userID, RoleOperator, UserStatusActive, now); err != nil {
+		t.Fatalf("UpdateUserRoleAndStatus returned error: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.DashboardSessionEnabled = true
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+
+	token := "session-token-settings"
+	session := dashboardSession{
+		UserID:     userID,
+		Role:       RoleOperator,
+		User:       "Old Name",
+		Subject:    "sub-settings-1",
+		Email:      "settings@example.com",
+		AuthSource: "supabase",
+		ExpiresAt:  now.Add(1 * time.Hour),
+	}
+	if err := store.UpsertAuthSession(token, session, now); err != nil {
+		t.Fatalf("UpsertAuthSession returned error: %v", err)
+	}
+	server.sessionMu.Lock()
+	server.sessions[token] = session
+	server.sessionMu.Unlock()
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+"/v1/auth/me", strings.NewReader(`{"display_name":"Updated Name"}`))
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Baseline-CSRF", "1")
+	req.AddCookie(&http.Cookie{Name: dashboardSessionCookieName, Value: token})
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	body := string(bodyBytes)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var payload struct {
+		DisplayName string `json:"display_name"`
+		User        string `json:"user"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		t.Fatalf("unable to parse response: %v body=%s", err, body)
+	}
+	if payload.DisplayName != "Updated Name" || payload.User != "Updated Name" {
+		t.Fatalf("unexpected patched auth/me payload: %+v body=%s", payload, body)
+	}
+
+	user, found, err := store.GetUserByID(userID)
+	if err != nil {
+		t.Fatalf("GetUserByID returned error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected updated user to exist")
+	}
+	if user.DisplayName != "Updated Name" {
+		t.Fatalf("expected updated display name, got %+v", user)
 	}
 }
 

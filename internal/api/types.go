@@ -57,22 +57,24 @@ type ScanViolation struct {
 
 // ScanSummary is the API scan model.
 type ScanSummary struct {
-	ID         string          `json:"id"`
-	ProjectID  string          `json:"project_id,omitempty"`
-	CommitSHA  string          `json:"commit_sha,omitempty"`
-	Status     string          `json:"status"`
-	Violations []ScanViolation `json:"violations"`
-	CreatedAt  time.Time       `json:"created_at"`
-	OwnerID    string          `json:"owner_id,omitempty"`
+	ID           string          `json:"id"`
+	ProjectID    string          `json:"project_id,omitempty"`
+	CommitSHA    string          `json:"commit_sha,omitempty"`
+	FilesScanned int             `json:"files_scanned"`
+	Status       string          `json:"status"`
+	Violations   []ScanViolation `json:"violations"`
+	CreatedAt    time.Time       `json:"created_at"`
+	OwnerID      string          `json:"owner_id,omitempty"`
 }
 
 // CreateScanRequest is the accepted payload for POST /v1/scans.
 type CreateScanRequest struct {
-	ID         string          `json:"id"`
-	ProjectID  string          `json:"project_id"`
-	CommitSHA  string          `json:"commit_sha"`
-	Status     string          `json:"status"`
-	Violations []ScanViolation `json:"violations"`
+	ID           string          `json:"id"`
+	ProjectID    string          `json:"project_id"`
+	CommitSHA    string          `json:"commit_sha"`
+	FilesScanned int             `json:"files_scanned"`
+	Status       string          `json:"status"`
+	Violations   []ScanViolation `json:"violations"`
 }
 
 // CreatePolicyVersionRequest is the accepted payload for POST /v1/policies/{name}/versions.
@@ -102,6 +104,14 @@ type DashboardMetrics struct {
 type DashboardViolationCount struct {
 	PolicyID string `json:"policy_id"`
 	Count    int    `json:"count"`
+}
+
+// DashboardScanActivityPoint contains one day of scan activity for trend charts.
+type DashboardScanActivityPoint struct {
+	Date         string `json:"date"`
+	Label        string `json:"label"`
+	Scans        int    `json:"scans"`
+	FailingScans int    `json:"failing_scans"`
 }
 
 // DashboardCapabilitiesResponse provides frontend-safe feature flags
