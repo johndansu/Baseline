@@ -130,6 +130,85 @@ func TestAuthMePatchUpdatesDisplayNameForSessionUser(t *testing.T) {
 	}
 }
 
+func TestAuthMeLookupBackfillsPersistedUserForLegacySupabaseSession(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "auth_me_lookup_backfill.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.DashboardSessionEnabled = true
+	t.Setenv("SUPABASE_URL", "https://example.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "public-test-key")
+
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+
+	token := "session-token-legacy-supabase"
+	session := dashboardSession{
+		Role:       RoleOperator,
+		User:       "Legacy User",
+		Subject:    "sub-legacy-1",
+		Email:      "legacy@example.com",
+		AuthSource: "supabase",
+		ExpiresAt:  now.Add(1 * time.Hour),
+	}
+	if err := store.UpsertAuthSession(token, session, now); err != nil {
+		t.Fatalf("UpsertAuthSession returned error: %v", err)
+	}
+	server.sessionMu.Lock()
+	server.sessions[token] = session
+	server.sessionMu.Unlock()
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/auth/me", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: dashboardSessionCookieName, Value: token})
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	body := string(bodyBytes)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var payload struct {
+		UserID string `json:"user_id"`
+		Email  string `json:"email"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		t.Fatalf("unable to parse response: %v body=%s", err, body)
+	}
+	if strings.TrimSpace(payload.UserID) == "" {
+		t.Fatalf("expected user_id to be backfilled, got payload=%+v body=%s", payload, body)
+	}
+
+	persisted, found, err := store.GetUserByID(payload.UserID)
+	if err != nil {
+		t.Fatalf("GetUserByID returned error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected persisted user to exist after lookup")
+	}
+	if persisted.Email != "legacy@example.com" {
+		t.Fatalf("unexpected persisted user after backfill: %+v", persisted)
+	}
+}
+
 func TestOIDCLoginDisabledReturnsForbidden(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.APIKeys = map[string]Role{"admin-key": RoleAdmin}

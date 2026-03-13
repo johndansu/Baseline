@@ -55,6 +55,12 @@ func (s *Server) handleAuthMeLookup(w http.ResponseWriter, r *http.Request) {
 		writeUnauthorized(w, err.Error())
 		return
 	}
+	if authSource == "session" {
+		if _, err := s.ensureDashboardSessionUserLink(r); err != nil {
+			writeError(w, http.StatusInternalServerError, "system_error", "unable to load account settings")
+			return
+		}
+	}
 	s.writeAuthMeResponse(w, r, role, authSource)
 }
 
@@ -79,6 +85,11 @@ func (s *Server) handleAuthMeUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := strings.TrimSpace(principal.UserID)
+	if userID == "" {
+		if session, hydrateErr := s.ensureDashboardSessionUserLink(r); hydrateErr == nil {
+			userID = strings.TrimSpace(session.UserID)
+		}
+	}
 	if userID == "" {
 		writeError(w, http.StatusForbidden, "forbidden", "dashboard session is not linked to a persisted user")
 		return
@@ -110,6 +121,51 @@ func (s *Server) handleAuthMeUpdate(w http.ResponseWriter, r *http.Request) {
 	s.appendEventLocked(s.newRequestAuditEvent(r, principal.AuthSource, "user_profile_updated", "", updated.ID))
 	s.dataMu.Unlock()
 	s.writeAuthMeResponse(w, r, roleFromPrincipal(principal), principal.AuthSource)
+}
+
+func (s *Server) ensureDashboardSessionUserLink(r *http.Request) (dashboardSession, error) {
+	session, err := s.getDashboardSession(r)
+	if err != nil {
+		return dashboardSession{}, err
+	}
+	if s.store == nil || strings.TrimSpace(session.UserID) != "" {
+		return session, nil
+	}
+
+	authSource := strings.ToLower(strings.TrimSpace(session.AuthSource))
+	var provider string
+	switch authSource {
+	case "supabase":
+		baseURL, _ := configuredSupabaseRuntime()
+		provider = strings.TrimSpace(baseURL)
+	case "oidc":
+		provider = strings.TrimSpace(s.config.OIDCIssuerURL)
+	default:
+		return session, nil
+	}
+	if provider == "" || strings.TrimSpace(session.Subject) == "" {
+		return session, nil
+	}
+
+	userID, err := s.store.UpsertOIDCUser(
+		provider,
+		strings.TrimSpace(session.Subject),
+		strings.TrimSpace(strings.ToLower(session.Email)),
+		strings.TrimSpace(session.User),
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return dashboardSession{}, err
+	}
+	session.UserID = strings.TrimSpace(userID)
+	if err := s.refreshCurrentDashboardSession(r, UserRecord{
+		ID:          session.UserID,
+		DisplayName: session.User,
+		Email:       session.Email,
+	}); err != nil {
+		return dashboardSession{}, err
+	}
+	return session, nil
 }
 
 func roleFromPrincipal(principal authPrincipal) Role {
