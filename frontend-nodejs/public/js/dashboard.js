@@ -240,7 +240,7 @@ class BaselineDashboard {
             }
         }
         await this.loadDashboardData();
-        await this.loadTabData(this.currentTab);
+        this.switchTab(this.currentTab);
     }
 
     async loadAuthSession() {
@@ -391,12 +391,16 @@ class BaselineDashboard {
         document.querySelectorAll('a[data-tab]').forEach(item => {
             item.classList.remove('bg-blue-50', 'text-blue-700', 'bg-gray-100', 'text-gray-900', 'bg-orange-50', 'text-orange-700');
             item.classList.add('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
+            item.style.backgroundColor = '';
+            item.style.color = '';
         });
 
         const activeItem = document.querySelector(`[data-tab="${tabName}"]`);
         if (activeItem) {
             activeItem.classList.remove('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
             activeItem.classList.add('bg-orange-50', 'text-orange-700');
+            activeItem.style.backgroundColor = '#fff7ed';
+            activeItem.style.color = '#c2410c';
         }
 
         // Hide all tab contents
@@ -413,10 +417,10 @@ class BaselineDashboard {
         // Update page title and subtitle
         this.updatePageHeader(tabName);
         
+        this.currentTab = tabName;
+
         // Load tab-specific data
         this.loadTabData(tabName);
-        
-        this.currentTab = tabName;
     }
 
     updatePageHeader(tabName) {
