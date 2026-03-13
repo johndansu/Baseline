@@ -38,8 +38,10 @@ class BaselineDashboard {
             user: '',
             userID: '',
             email: '',
-            subject: ''
+            subject: '',
+            identitySource: ''
         };
+        this.supabaseClient = null;
         this.chart = null;
         this.scanState = {
             all: [],
@@ -187,6 +189,12 @@ class BaselineDashboard {
         this.setupAutoRefresh();
     }
 
+    applyRefreshIntervalPreference() {
+        const nextInterval = Number(this.preferences?.refreshIntervalMs || 60000);
+        this.autoRefreshIntervalMs = [30000, 60000, 120000].includes(nextInterval) ? nextInterval : 60000;
+        this.setupAutoRefresh();
+    }
+
     init() {
         this.setupTabNavigation();
         this.initializeChart();
@@ -232,7 +240,7 @@ class BaselineDashboard {
             }
         }
         await this.loadDashboardData();
-        await this.loadTabData(this.currentTab);
+        this.switchTab(this.currentTab);
     }
 
     async loadAuthSession() {
@@ -246,7 +254,8 @@ class BaselineDashboard {
                 user: String(payload.user || '').trim(),
                 userID: String(payload.user_id || '').trim(),
                 email: String(payload.email || '').trim().toLowerCase(),
-                subject: String(payload.subject || '').trim()
+                subject: String(payload.subject || '').trim(),
+                identitySource: String(payload.identity_source || '').trim().toLowerCase()
             };
             this.preferences = this.loadDashboardPreferences();
             this.autoRefreshIntervalMs = this.preferences.refreshIntervalMs;
@@ -382,12 +391,16 @@ class BaselineDashboard {
         document.querySelectorAll('a[data-tab]').forEach(item => {
             item.classList.remove('bg-blue-50', 'text-blue-700', 'bg-gray-100', 'text-gray-900', 'bg-orange-50', 'text-orange-700');
             item.classList.add('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
+            item.style.backgroundColor = '';
+            item.style.color = '';
         });
 
         const activeItem = document.querySelector(`[data-tab="${tabName}"]`);
         if (activeItem) {
             activeItem.classList.remove('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
             activeItem.classList.add('bg-orange-50', 'text-orange-700');
+            activeItem.style.backgroundColor = '#fff7ed';
+            activeItem.style.color = '#c2410c';
         }
 
         // Hide all tab contents
@@ -404,10 +417,10 @@ class BaselineDashboard {
         // Update page title and subtitle
         this.updatePageHeader(tabName);
         
+        this.currentTab = tabName;
+
         // Load tab-specific data
         this.loadTabData(tabName);
-        
-        this.currentTab = tabName;
     }
 
     updatePageHeader(tabName) {
@@ -3264,76 +3277,98 @@ class BaselineDashboard {
         return `<button type="button" onclick="${action}" class="${classes}">${this.escapeHtml(label)}</button>`;
     }
 
+    renderSettingsAccountRow(label, value, hint = '') {
+        return `
+            <div class="py-3 border-b border-gray-100 last:border-b-0">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <p class="text-xs font-medium uppercase tracking-wide text-gray-500">${this.escapeHtml(label)}</p>
+                        ${hint ? `<p class="mt-1 text-xs text-gray-500">${this.escapeHtml(hint)}</p>` : ''}
+                    </div>
+                    <p class="text-sm font-medium text-gray-900 text-right break-all">${this.escapeHtml(value)}</p>
+                </div>
+            </div>
+        `;
+    }
+
     renderSettingsPanel() {
         const displayName = this.identity?.user || this.identity?.email || this.identity?.userID || 'Current user';
         const role = String(this.authz?.role || 'viewer').toLowerCase();
-        const authSource = String(this.authz?.source || 'session');
         const email = this.identity?.email || 'Not available';
-        const userID = this.identity?.userID || this.identity?.subject || 'Not available';
-        const stats = this.dashboardSummary?.metrics || {};
-        const scans = Number(stats.scans || 0);
-        const projects = Number(stats.projects || 0);
-        const violations = Number(stats.violations || 0);
         const preferences = this.preferences || this.loadDashboardPreferences();
         const profileEditable = Boolean(this.identity?.userID);
-
-        const accountCards = [
-            this.renderSettingsStatCard('Email', email),
-            this.renderSettingsStatCard('Role', role.toUpperCase(), 'Role controls what this dashboard session can change.'),
-            this.renderSettingsStatCard('Auth Source', authSource),
-            this.renderSettingsStatCard('User ID', userID),
-            this.renderSettingsStatCard('API Server', window.location.origin)
-        ].join('');
+        const passwordEditable = String(this.identity?.identitySource || '').toLowerCase() === 'supabase';
+        const roleLabel = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Viewer';
+        const initials = String(displayName || email || 'U').replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'U';
+        const accountSummary = `
+            <div class="rounded-xl border border-gray-200 bg-white p-6">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-sm font-semibold">
+                        ${this.escapeHtml(initials)}
+                    </div>
+                    <div class="min-w-0">
+                        <h3 class="text-lg font-semibold text-gray-900">${this.escapeHtml(displayName)}</h3>
+                        <p class="text-sm text-gray-600 break-all">${this.escapeHtml(email)}</p>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">${this.escapeHtml(roleLabel)}</span>
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-orange-50 text-orange-700">Role changes require admin access</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
 
         const profileEditor = `
-            <div class="rounded-lg border border-gray-200 bg-white p-5">
+            <div class="rounded-xl border border-gray-200 bg-white p-6">
                 <div class="flex items-start justify-between gap-3">
                     <div>
-                        <h4 class="text-sm font-semibold text-gray-900">Profile</h4>
-                        <p class="mt-1 text-sm text-gray-600">Update the display name shown in the dashboard and activity views.</p>
+                        <h4 class="text-base font-semibold text-gray-900">Profile</h4>
+                        <p class="mt-1 text-sm text-gray-600">Choose the name other people see across the dashboard.</p>
                     </div>
                     <span id="settings-profile-feedback" class="text-xs text-gray-500"></span>
                 </div>
-                <div class="mt-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+                <div class="mt-4 space-y-3">
                     <div>
-                        <label for="settings-display-name" class="block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1">Display Name</label>
+                        <label for="settings-display-name" class="block text-sm font-medium text-gray-700 mb-1">Display name</label>
                         <input
                             id="settings-display-name"
                             type="text"
                             maxlength="120"
                             value="${this.escapeHtml(displayName)}"
-                            placeholder="How your name should appear in the dashboard"
+                            placeholder="How your name should appear"
                             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                             ${profileEditable ? '' : 'disabled aria-disabled="true"'}
                         >
+                        <p class="mt-2 text-xs text-gray-500">Signed in with ${this.escapeHtml(email)}.</p>
                     </div>
-                    <div class="flex items-end">
+                    <div class="pt-2">
                         <button
                             id="settings-profile-save"
                             type="button"
-                            class="px-3 py-2 rounded-lg text-sm font-medium ${profileEditable ? 'bg-orange-600 text-white hover:bg-orange-700' : 'border border-gray-300 text-gray-400 bg-gray-100 cursor-not-allowed'}"
+                            class="w-full px-4 py-3 rounded-lg text-sm font-medium ${profileEditable ? 'shadow-sm' : 'border border-gray-300 text-gray-400 bg-gray-100 cursor-not-allowed'}"
+                            style="${profileEditable ? 'background-color:#ea580c;color:#ffffff;' : ''}"
                             ${profileEditable ? '' : 'disabled aria-disabled="true"'}
                         >
-                            Save Profile
+                            Save name
                         </button>
                     </div>
                 </div>
-                ${profileEditable ? '' : '<p class="mt-3 text-xs text-gray-500">This session is not linked to a persisted dashboard user, so profile changes are unavailable.</p>'}
+                ${profileEditable ? '' : '<p class="mt-3 text-xs text-gray-500">This session cannot update profile details yet. Sign in again if this keeps happening.</p>'}
             </div>
         `;
 
         const preferenceEditor = `
-            <div class="rounded-lg border border-gray-200 bg-white p-5">
+            <div class="rounded-xl border border-gray-200 bg-white p-6">
                 <div class="flex items-start justify-between gap-3">
                     <div>
-                        <h4 class="text-sm font-semibold text-gray-900">Dashboard Preferences</h4>
-                        <p class="mt-1 text-sm text-gray-600">These settings are saved in this browser for your dashboard account.</p>
+                        <h4 class="text-base font-semibold text-gray-900">Dashboard preferences</h4>
+                        <p class="mt-1 text-sm text-gray-600">Control how the dashboard opens and refreshes on this device.</p>
                     </div>
                     <span id="settings-preferences-feedback" class="text-xs text-gray-500"></span>
                 </div>
-                <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label for="settings-default-tab" class="block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1">Default Tab</label>
+                        <label for="settings-default-tab" class="block text-sm font-medium text-gray-700 mb-1">Open this section first</label>
                         <select id="settings-default-tab" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                             <option value="overview"${preferences.defaultTab === 'overview' ? ' selected' : ''}>Dashboard</option>
                             <option value="scans"${preferences.defaultTab === 'scans' ? ' selected' : ''}>Scan History</option>
@@ -3347,74 +3382,83 @@ class BaselineDashboard {
                         </select>
                     </div>
                     <div>
-                        <label for="settings-refresh-interval" class="block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1">Refresh Fallback</label>
+                        <label for="settings-refresh-interval" class="block text-sm font-medium text-gray-700 mb-1">Background refresh</label>
                         <select id="settings-refresh-interval" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                             <option value="30000"${preferences.refreshIntervalMs === 30000 ? ' selected' : ''}>30 seconds</option>
                             <option value="60000"${preferences.refreshIntervalMs === 60000 ? ' selected' : ''}>60 seconds</option>
                             <option value="120000"${preferences.refreshIntervalMs === 120000 ? ' selected' : ''}>120 seconds</option>
                         </select>
                     </div>
-                    <div class="flex items-end">
-                        <button id="settings-preferences-save" type="button" class="px-3 py-2 rounded-lg text-sm font-medium bg-orange-600 text-white hover:bg-orange-700">Save Preferences</button>
+                </div>
+                <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button id="settings-preferences-reset" type="button" class="w-full px-4 py-3 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Reset</button>
+                    <button id="settings-preferences-save" type="button" class="w-full px-4 py-3 rounded-lg text-sm font-medium shadow-sm" style="background-color:#ea580c;color:#ffffff;">Save preferences</button>
+                </div>
+            </div>
+        `;
+
+        const passwordEditor = passwordEditable ? `
+            <div class="rounded-xl border border-gray-200 bg-white p-6">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h4 class="text-base font-semibold text-gray-900">Password</h4>
+                        <p class="mt-1 text-sm text-gray-600">Change the password for your sign-in account.</p>
+                    </div>
+                    <span id="settings-password-feedback" class="text-xs text-gray-500"></span>
+                </div>
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label for="settings-new-password" class="block text-sm font-medium text-gray-700 mb-1">New password</label>
+                        <input
+                            id="settings-new-password"
+                            type="password"
+                            minlength="8"
+                            autocomplete="new-password"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            placeholder="At least 8 characters"
+                        >
+                    </div>
+                    <div>
+                        <label for="settings-confirm-password" class="block text-sm font-medium text-gray-700 mb-1">Confirm new password</label>
+                        <input
+                            id="settings-confirm-password"
+                            type="password"
+                            minlength="8"
+                            autocomplete="new-password"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            placeholder="Repeat the new password"
+                        >
                     </div>
                 </div>
-            </div>
-        `;
-
-        const commonActions = `
-            <div class="rounded-lg border border-gray-200 bg-white p-5">
-                <h4 class="text-sm font-semibold text-gray-900">Workspace Actions</h4>
-                <p class="mt-1 text-sm text-gray-600">Jump to the parts of the dashboard you can actively use.</p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                    ${this.renderSettingsActionButton('API Keys', "if(window.baselineDashboard){window.baselineDashboard.switchTab('keys')}", true)}
-                    ${this.renderSettingsActionButton('Scan History', "if(window.baselineDashboard){window.baselineDashboard.switchTab('scans')}")}
-                    ${this.renderSettingsActionButton('Projects', "if(window.baselineDashboard){window.baselineDashboard.switchTab('projects')}")}
-                    ${this.renderSettingsActionButton('Audit Log', "if(window.baselineDashboard){window.baselineDashboard.switchTab('audit')}")}
-                    ${this.renderSettingsActionButton('Export Report', 'generateReport()')}
-                    ${this.renderSettingsActionButton('CLI Guide', "window.location.href='/cli-guide.html'")}
-                    ${this.renderSettingsActionButton('Sign Out', 'handleSignOut()')}
+                <div class="pt-3">
+                    <button id="settings-password-save" type="button" class="w-full px-4 py-3 rounded-lg text-sm font-medium shadow-sm" style="background-color:#ea580c;color:#ffffff;">Change password</button>
                 </div>
             </div>
-        `;
-
-        const overviewCards = `
-            <div class="rounded-lg border border-gray-200 bg-white p-5">
-                <h4 class="text-sm font-semibold text-gray-900">Current Workspace</h4>
-                <p class="mt-1 text-sm text-gray-600">Live dashboard totals for your current access scope.</p>
-                <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    ${this.renderSettingsStatCard('Scans', String(scans))}
-                    ${this.renderSettingsStatCard('Projects', String(projects))}
-                    ${this.renderSettingsStatCard('Violations', String(violations))}
-                </div>
-            </div>
-        `;
+        ` : '';
 
         if (!this.isAdmin()) {
             return `
                 <div class="w-full p-6">
-                    <div class="space-y-6">
-                        <div class="bg-white rounded-lg border border-gray-200">
-                            <div class="p-6 border-b border-gray-200">
-                                <h3 class="text-lg font-semibold text-gray-900">My Settings</h3>
-                                <p class="mt-1 text-sm text-gray-600">Profile, dashboard preferences, and the actions available to this user.</p>
-                            </div>
-                            <div class="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                ${accountCards}
-                            </div>
+                    <div class="space-y-5 max-w-4xl">
+                        <div>
+                            <h2 class="text-2xl font-semibold text-gray-900">Account settings</h2>
+                            <p class="mt-1 text-sm text-gray-600">Update your profile and how this dashboard behaves for you.</p>
                         </div>
-                        ${profileEditor}
-                        ${preferenceEditor}
-                        ${overviewCards}
-                        ${commonActions}
+                        ${accountSummary}
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                            ${profileEditor}
+                            ${preferenceEditor}
+                        </div>
+                        ${passwordEditor}
                     </div>
                 </div>
             `;
         }
 
         const adminActions = `
-            <div class="rounded-lg border border-gray-200 bg-white p-5">
-                <h4 class="text-sm font-semibold text-gray-900">Admin Tools</h4>
-                <p class="mt-1 text-sm text-gray-600">Operational paths exposed only to admin users.</p>
+            <div class="rounded-xl border border-gray-200 bg-white p-6">
+                <h4 class="text-base font-semibold text-gray-900">Admin tools</h4>
+                <p class="mt-1 text-sm text-gray-600">Operational areas that are only available to admins.</p>
                 <div class="mt-4 flex flex-wrap gap-2">
                     ${this.renderSettingsActionButton('Users', "if(window.baselineDashboard){window.baselineDashboard.switchTab('users')}", true)}
                     ${this.renderSettingsActionButton('Projects', "if(window.baselineDashboard){window.baselineDashboard.switchTab('projects')}")}
@@ -3427,21 +3471,18 @@ class BaselineDashboard {
 
         return `
             <div class="w-full p-6">
-                <div class="space-y-6">
-                    <div class="bg-white rounded-lg border border-gray-200">
-                        <div class="p-6 border-b border-gray-200">
-                            <h3 class="text-lg font-semibold text-gray-900">Settings</h3>
-                            <p class="mt-1 text-sm text-gray-600">Profile, dashboard preferences, and the operational tools available to this admin.</p>
-                        </div>
-                        <div class="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                            ${accountCards}
-                        </div>
+                <div class="space-y-5 max-w-5xl">
+                    <div>
+                        <h2 class="text-2xl font-semibold text-gray-900">Account settings</h2>
+                        <p class="mt-1 text-sm text-gray-600">Update your profile, password, and dashboard preferences.</p>
                     </div>
-                    ${profileEditor}
-                    ${preferenceEditor}
-                    ${overviewCards}
+                    ${accountSummary}
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                        ${profileEditor}
+                        ${preferenceEditor}
+                    </div>
+                    ${passwordEditor}
                     ${adminActions}
-                    ${commonActions}
                 </div>
             </div>
         `;
@@ -3468,6 +3509,22 @@ class BaselineDashboard {
             preferenceSaveButton.dataset.bound = '1';
             preferenceSaveButton.addEventListener('click', async () => {
                 this.saveDashboardPreferencesFromSettings();
+            });
+        }
+
+        const preferenceResetButton = document.getElementById('settings-preferences-reset');
+        if (preferenceResetButton && preferenceResetButton.dataset.bound !== '1') {
+            preferenceResetButton.dataset.bound = '1';
+            preferenceResetButton.addEventListener('click', () => {
+                this.resetDashboardPreferencesFromSettings();
+            });
+        }
+
+        const passwordSaveButton = document.getElementById('settings-password-save');
+        if (passwordSaveButton && passwordSaveButton.dataset.bound !== '1') {
+            passwordSaveButton.dataset.bound = '1';
+            passwordSaveButton.addEventListener('click', async () => {
+                await this.savePasswordSettings();
             });
         }
     }
@@ -3535,6 +3592,149 @@ class BaselineDashboard {
             feedback.className = 'text-xs text-green-700';
         }
         this.showSuccess('Dashboard preferences updated.');
+        this.applyRefreshIntervalPreference();
+    }
+
+    resetDashboardPreferencesFromSettings() {
+        const defaults = { defaultTab: 'overview', refreshIntervalMs: 60000 };
+        const defaultTabField = document.getElementById('settings-default-tab');
+        const refreshField = document.getElementById('settings-refresh-interval');
+        const feedback = document.getElementById('settings-preferences-feedback');
+        if (defaultTabField) defaultTabField.value = defaults.defaultTab;
+        if (refreshField) refreshField.value = String(defaults.refreshIntervalMs);
+        this.persistDashboardPreferences(defaults);
+        if (feedback) {
+            feedback.textContent = 'Reset to defaults';
+            feedback.className = 'text-xs text-green-700';
+        }
+        this.showSuccess('Dashboard preferences reset.');
+        this.applyRefreshIntervalPreference();
+    }
+
+    async loadExternalScriptOnce(src, globalKey) {
+        if (globalKey && window[globalKey]) {
+            return window[globalKey];
+        }
+        const existing = document.querySelector(`script[src="${src}"]`);
+        if (existing) {
+            return new Promise((resolve, reject) => {
+                const checkReady = () => {
+                    if (!globalKey || window[globalKey]) {
+                        resolve(globalKey ? window[globalKey] : true);
+                    } else {
+                        reject(new Error(`Failed to load ${src}`));
+                    }
+                };
+                if (existing.dataset.loaded === '1') {
+                    checkReady();
+                    return;
+                }
+                existing.addEventListener('load', () => {
+                    existing.dataset.loaded = '1';
+                    checkReady();
+                }, { once: true });
+                existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+            });
+        }
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = true;
+            script.onload = () => {
+                script.dataset.loaded = '1';
+                if (!globalKey || window[globalKey]) {
+                    resolve(globalKey ? window[globalKey] : true);
+                    return;
+                }
+                reject(new Error(`Failed to initialize ${src}`));
+            };
+            script.onerror = () => reject(new Error(`Failed to load ${src}`));
+            document.head.appendChild(script);
+        });
+    }
+
+    async getSupabaseSettingsClient() {
+        if (this.supabaseClient) {
+            return this.supabaseClient;
+        }
+        await this.loadExternalScriptOnce('/js/runtime-config.js', 'RUNTIME_CONFIG');
+        await this.loadExternalScriptOnce('/js/supabase-config.js', 'getSupabaseConfig');
+        await this.loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', 'supabase');
+        const config = window.getSupabaseConfig ? window.getSupabaseConfig() : window.SUPABASE_CONFIG;
+        if (!config?.url || !config?.anonKey) {
+            throw new Error('Supabase runtime config is unavailable.');
+        }
+        this.supabaseClient = window.supabase.createClient(config.url, config.anonKey, {
+            auth: {
+                autoRefreshToken: true,
+                persistSession: true,
+                detectSessionInUrl: false
+            }
+        });
+        return this.supabaseClient;
+    }
+
+    async savePasswordSettings() {
+        const passwordField = document.getElementById('settings-new-password');
+        const confirmField = document.getElementById('settings-confirm-password');
+        const feedback = document.getElementById('settings-password-feedback');
+        const saveButton = document.getElementById('settings-password-save');
+        if (!passwordField || !confirmField || !saveButton) {
+            return;
+        }
+
+        const password = String(passwordField.value || '');
+        const confirmPassword = String(confirmField.value || '');
+        if (password.length < 8) {
+            this.showError('Password must be at least 8 characters.');
+            if (feedback) {
+                feedback.textContent = 'Password must be at least 8 characters.';
+                feedback.className = 'text-xs text-red-600';
+            }
+            return;
+        }
+        if (password !== confirmPassword) {
+            this.showError('Passwords do not match.');
+            if (feedback) {
+                feedback.textContent = 'Passwords do not match.';
+                feedback.className = 'text-xs text-red-600';
+            }
+            return;
+        }
+
+        saveButton.disabled = true;
+        if (feedback) {
+            feedback.textContent = 'Saving...';
+            feedback.className = 'text-xs text-gray-500';
+        }
+
+        try {
+            const supabaseClient = await this.getSupabaseSettingsClient();
+            const sessionResult = await supabaseClient.auth.getSession();
+            if (!sessionResult?.data?.session) {
+                throw new Error('Password change requires a fresh sign-in.');
+            }
+            const result = await supabaseClient.auth.updateUser({ password });
+            if (result?.error) {
+                throw result.error;
+            }
+            passwordField.value = '';
+            confirmField.value = '';
+            if (feedback) {
+                feedback.textContent = 'Password updated';
+                feedback.className = 'text-xs text-green-700';
+            }
+            this.showSuccess('Password updated.');
+        } catch (error) {
+            const message = error?.message || 'Failed to update password.';
+            if (feedback) {
+                feedback.textContent = message;
+                feedback.className = 'text-xs text-red-600';
+            }
+            this.showError(message);
+        } finally {
+            saveButton.disabled = false;
+        }
     }
 
     async loadUsersTabData() {
@@ -5177,6 +5377,13 @@ class BaselineDashboard {
         const profileEmail = document.getElementById('dashboard-profile-email');
         if (profileEmail) {
             profileEmail.textContent = email || subject || 'No email available';
+        }
+
+        if (configuredName) {
+            this.identity.user = configuredName;
+        }
+        if (email) {
+            this.identity.email = email;
         }
 
         const statusBadge = document.getElementById('dashboard-profile-status-badge');
