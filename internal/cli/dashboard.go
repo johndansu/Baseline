@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	clitrace "github.com/baseline/baseline/internal/cli/trace"
 	"github.com/baseline/baseline/internal/types"
 )
 
@@ -42,23 +43,43 @@ func HandleDashboard(args []string) {
 			args = args[1:]
 		}
 	}
+	connection := resolveCLITelemetryConnection()
+	commandName := "dashboard"
+	if len(args) > 0 && strings.TrimSpace(args[0]) == "serve" {
+		commandName = "dashboard serve"
+	}
+	os.Exit(runTracedCommand(commandName, connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runDashboardServeCommand(traceCtx, args)
+	}))
+}
 
+func runDashboardServeCommand(traceCtx *clitrace.Context, args []string) tracedCommandResult {
+	parseSpan := traceCtx.HelperEnter("cli", "parseDashboardConfig", "parsing dashboard serve configuration", nil)
 	cfg, err := parseDashboardConfig(args, os.Getenv)
 	if err != nil {
 		if errors.Is(err, errDashboardHelp) {
+			traceCtx.Branch("dashboard", "serve", "help_requested", nil)
+			traceCtx.HelperExit(parseSpan, "cli", "parseDashboardConfig", "ok", "dashboard help requested", nil)
 			printDashboardUsage()
-			os.Exit(types.ExitSuccess)
+			return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "dashboard help shown"}
 		}
+		traceCtx.Error("cli", "parseDashboardConfig", err, nil)
+		traceCtx.HelperExit(parseSpan, "cli", "parseDashboardConfig", "error", "dashboard configuration parse failed", nil)
 		fmt.Printf("DASHBOARD FAILED: %v\n\n", err)
 		printDashboardUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard configuration parse failed"}
 	}
+	traceCtx.HelperExit(parseSpan, "cli", "parseDashboardConfig", "ok", "dashboard configuration parsed", nil)
 
+	handlerSpan := traceCtx.HelperEnter("dashboard", "newDashboardHandler", "constructing dashboard proxy handler", nil)
 	handler, err := newDashboardHandler(cfg, &http.Client{Timeout: 15 * time.Second})
 	if err != nil {
+		traceCtx.Error("dashboard", "newDashboardHandler", err, nil)
+		traceCtx.HelperExit(handlerSpan, "dashboard", "newDashboardHandler", "error", "dashboard proxy handler construction failed", nil)
 		fmt.Printf("DASHBOARD FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard proxy handler construction failed"}
 	}
+	traceCtx.HelperExit(handlerSpan, "dashboard", "newDashboardHandler", "ok", "dashboard proxy handler constructed", nil)
 
 	server := &http.Server{
 		Addr:         cfg.Addr,
@@ -68,6 +89,7 @@ func HandleDashboard(args []string) {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	traceCtx.SetMetadata("status", dashboardListenURL(cfg.Addr))
 	fmt.Printf("Baseline dashboard listening on %s\n", dashboardListenURL(cfg.Addr))
 	fmt.Printf("Proxying requests to API: %s\n", cfg.APIBaseURL)
 	fmt.Println("Press Ctrl+C to stop.")
@@ -82,12 +104,15 @@ func HandleDashboard(args []string) {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
+	listenSpan := traceCtx.HelperEnter("dashboard", "ListenAndServe", "starting dashboard proxy server", nil)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		traceCtx.Error("dashboard", "ListenAndServe", err, nil)
+		traceCtx.HelperExit(listenSpan, "dashboard", "ListenAndServe", "error", "dashboard proxy server failed", nil)
 		fmt.Printf("DASHBOARD FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard proxy server failed"}
 	}
-
-	os.Exit(types.ExitSuccess)
+	traceCtx.HelperExit(listenSpan, "dashboard", "ListenAndServe", "ok", "dashboard proxy server stopped", nil)
+	return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "stopped", TraceMessage: "dashboard proxy server stopped"}
 }
 
 func parseDashboardConfig(args []string, getenv func(string) string) (dashboardConfig, error) {

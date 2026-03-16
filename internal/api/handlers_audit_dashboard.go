@@ -10,6 +10,15 @@ import (
 	"time"
 )
 
+type dashboardActivityRange string
+
+const (
+	dashboardActivityRangeLastWeek  dashboardActivityRange = "last_week"
+	dashboardActivityRangeToday     dashboardActivityRange = "today"
+	dashboardActivityRangeLastMonth dashboardActivityRange = "last_month"
+	dashboardActivityRangeLastYear  dashboardActivityRange = "last_year"
+)
+
 func (s *Server) handleDashboardStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -163,27 +172,16 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 		Scans:    len(scans),
 	}
 
-	today := time.Now().UTC()
-	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
-	activityWindow := make([]DashboardScanActivityPoint, 0, 7)
-	activityIndex := make(map[string]int, 7)
-	for i := 6; i >= 0; i-- {
-		day := today.AddDate(0, 0, -i)
-		key := day.Format("2006-01-02")
-		activityIndex[key] = len(activityWindow)
-		activityWindow = append(activityWindow, DashboardScanActivityPoint{
-			Date:  key,
-			Label: day.Format("Mon"),
-		})
-	}
+	activityRange := parseDashboardActivityRange(r.URL.Query().Get("activity_range"))
+	activityWindow, activityIndex := buildDashboardActivityWindow(time.Now().UTC(), activityRange)
 
 	violationCounts := map[string]int{}
 	for _, scan := range scans {
 		if strings.EqualFold(strings.TrimSpace(scan.Status), "fail") {
 			metrics.FailingScans++
 		}
-		dayKey := scan.CreatedAt.UTC().Format("2006-01-02")
-		if idx, ok := activityIndex[dayKey]; ok {
+		activityKey := dashboardActivityBucketKey(scan.CreatedAt.UTC(), activityRange)
+		if idx, ok := activityIndex[activityKey]; ok {
 			activityWindow[idx].Scans++
 			if strings.EqualFold(strings.TrimSpace(scan.Status), "fail") {
 				activityWindow[idx].FailingScans++
@@ -236,11 +234,98 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metrics":        metrics,
+		"activity_range": activityRange,
 		"scan_activity":  activityWindow,
 		"recent_scans":   scans,
 		"top_violations": topViolations,
 		"recent_events":  events,
 	})
+}
+
+func parseDashboardActivityRange(raw string) dashboardActivityRange {
+	switch dashboardActivityRange(strings.TrimSpace(strings.ToLower(raw))) {
+	case dashboardActivityRangeToday:
+		return dashboardActivityRangeToday
+	case dashboardActivityRangeLastMonth:
+		return dashboardActivityRangeLastMonth
+	case dashboardActivityRangeLastYear:
+		return dashboardActivityRangeLastYear
+	default:
+		return dashboardActivityRangeLastWeek
+	}
+}
+
+func buildDashboardActivityWindow(now time.Time, activityRange dashboardActivityRange) ([]DashboardScanActivityPoint, map[string]int) {
+	now = now.UTC()
+	switch activityRange {
+	case dashboardActivityRangeToday:
+		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		points := make([]DashboardScanActivityPoint, 0, 24)
+		index := make(map[string]int, 24)
+		for i := 0; i < 24; i++ {
+			hour := start.Add(time.Duration(i) * time.Hour)
+			key := hour.Format("2006-01-02T15")
+			index[key] = len(points)
+			points = append(points, DashboardScanActivityPoint{
+				Date:  key,
+				Label: hour.Format("15:00"),
+			})
+		}
+		return points, index
+	case dashboardActivityRangeLastMonth:
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		points := make([]DashboardScanActivityPoint, 0, 30)
+		index := make(map[string]int, 30)
+		for i := 29; i >= 0; i-- {
+			day := today.AddDate(0, 0, -i)
+			key := day.Format("2006-01-02")
+			index[key] = len(points)
+			points = append(points, DashboardScanActivityPoint{
+				Date:  key,
+				Label: day.Format("2 Jan"),
+			})
+		}
+		return points, index
+	case dashboardActivityRangeLastYear:
+		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		points := make([]DashboardScanActivityPoint, 0, 12)
+		index := make(map[string]int, 12)
+		for i := 11; i >= 0; i-- {
+			month := monthStart.AddDate(0, -i, 0)
+			key := month.Format("2006-01")
+			index[key] = len(points)
+			points = append(points, DashboardScanActivityPoint{
+				Date:  key,
+				Label: month.Format("Jan"),
+			})
+		}
+		return points, index
+	default:
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		points := make([]DashboardScanActivityPoint, 0, 7)
+		index := make(map[string]int, 7)
+		for i := 6; i >= 0; i-- {
+			day := today.AddDate(0, 0, -i)
+			key := day.Format("2006-01-02")
+			index[key] = len(points)
+			points = append(points, DashboardScanActivityPoint{
+				Date:  key,
+				Label: day.Format("Mon"),
+			})
+		}
+		return points, index
+	}
+}
+
+func dashboardActivityBucketKey(ts time.Time, activityRange dashboardActivityRange) string {
+	switch activityRange {
+	case dashboardActivityRangeToday:
+		return ts.UTC().Format("2006-01-02T15")
+	case dashboardActivityRangeLastYear:
+		return ts.UTC().Format("2006-01")
+	default:
+		return ts.UTC().Format("2006-01-02")
+	}
 }
 
 func (s *Server) handleDashboardActivity(w http.ResponseWriter, r *http.Request) {
@@ -356,6 +441,7 @@ func (s *Server) handleDashboardActivity(w http.ResponseWriter, r *http.Request)
 			ProjectID: strings.TrimSpace(event.ProjectID),
 			ScanID:    strings.TrimSpace(event.ScanID),
 			Actor:     strings.TrimSpace(event.Actor),
+			Details:   strings.TrimSpace(event.Details),
 			RequestID: strings.TrimSpace(event.RequestID),
 			CreatedAt: event.CreatedAt.UTC(),
 		})

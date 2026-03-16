@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+
+	clitrace "github.com/baseline/baseline/internal/cli/trace"
+	"github.com/baseline/baseline/internal/types"
 )
 
 func TestParseDashboardConfigDefaults(t *testing.T) {
@@ -70,6 +75,32 @@ func TestParseDashboardConfigHelpFlag(t *testing.T) {
 	}
 	if err != errDashboardHelp {
 		t.Fatalf("expected errDashboardHelp, got %v", err)
+	}
+}
+
+func TestRunDashboardServeCommandHelp(t *testing.T) {
+	traceCtx := clitrace.Start("dashboard serve")
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	result := runDashboardServeCommand(traceCtx, []string{"--help"})
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected exit code %d, got %d", types.ExitSuccess, result.ExitCode)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("expected dashboard usage output")
 	}
 }
 

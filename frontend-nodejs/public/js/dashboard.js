@@ -1,4 +1,117 @@
 import { DashboardAPIClient } from './api-client.js';
+import { renderAuditTable as renderDashboardAuditTable } from './dashboard-audit-table.js';
+import {
+    renderCLITelemetryPanel as renderDashboardCLITelemetryPanel,
+    renderCLITraceDetailContent as renderDashboardCLITraceDetailContent
+} from './dashboard-cli-telemetry.js';
+import { bindAPIKeyActionButtons as bindDashboardAPIKeyActionButtons } from './dashboard-key-actions.js';
+import {
+    bindGenerateKeyForm as bindDashboardGenerateKeyForm,
+    copyIssuedAPIKey as copyDashboardIssuedAPIKey,
+    openIssuedKeyModal as openDashboardIssuedKeyModal,
+    prepareGenerateKeyModal as prepareDashboardGenerateKeyModal,
+    setGenerateKeyFeedback as setDashboardGenerateKeyFeedback,
+    submitGenerateKeyForm as submitDashboardGenerateKeyForm
+} from './dashboard-key-form.js';
+import { renderApiKeysTable as renderDashboardApiKeysTable } from './dashboard-key-table.js';
+import {
+    bindModalTriggerButtons as bindDashboardModalTriggerButtons,
+    closeModal as closeDashboardModal,
+    openModal as openDashboardModal
+} from './dashboard-modal-actions.js';
+import {
+    handleDashboardSearch,
+    mountDashboardApplication,
+    setupDashboardShellEvents,
+    signOutDashboard
+} from './dashboard-shell.js';
+import {
+    countUnreadNotifications as countDashboardUnreadNotifications,
+    getUnreadNotifications as getDashboardUnreadNotifications,
+    groupNotifications as groupDashboardNotifications,
+    isNotificationUnread as isDashboardNotificationUnread,
+    markAllNotificationsRead as markAllDashboardNotificationsRead,
+    renderNotificationCard as renderDashboardNotificationCard,
+    renderNotificationSection as renderDashboardNotificationSection,
+    renderNotifications as renderDashboardNotifications,
+    selectNotifications as selectDashboardNotifications,
+    updateNotificationsIndicator as updateDashboardNotificationsIndicator
+} from './dashboard-notifications.js';
+import {
+    countNotificationGroups as countDashboardNotificationGroups,
+    isAttentionNotification as isDashboardAttentionNotification,
+    isImportantNotification as isDashboardImportantNotification,
+    loadReadNotificationIDs as loadDashboardReadNotificationIDs,
+    notificationActionLabel as getDashboardNotificationActionLabel,
+    notificationStorageKey as getDashboardNotificationStorageKey,
+    notificationSummary as getDashboardNotificationSummary,
+    notificationTargetLabel as getDashboardNotificationTargetLabel,
+    notificationTargetTab as getDashboardNotificationTargetTab,
+    notificationTitle as getDashboardNotificationTitle,
+    notificationTone as getDashboardNotificationTone,
+    persistReadNotificationIDs as persistDashboardReadNotificationIDs
+} from './dashboard-notification-meta.js';
+import { bindProjectActionButtons as bindDashboardProjectActionButtons } from './dashboard-project-actions.js';
+import {
+    bindAddProjectForm as bindDashboardAddProjectForm,
+    openEditProjectModal as openDashboardEditProjectModal,
+    prepareAddProjectModal as prepareDashboardAddProjectModal,
+    setAddProjectFeedback as setDashboardAddProjectFeedback,
+    submitAddProjectForm as submitDashboardAddProjectForm
+} from './dashboard-project-form.js';
+import {
+    bindProjectOwnerForm as bindDashboardProjectOwnerForm,
+    claimProject as claimDashboardProject,
+    currentPrincipalOwnerID as getDashboardCurrentPrincipalOwnerID,
+    describeProjectOwner as describeDashboardProjectOwner,
+    openProjectOwnerModal as openDashboardProjectOwnerModal,
+    prepareProjectOwnerModal as prepareDashboardProjectOwnerModal,
+    setProjectOwnerFeedback as setDashboardProjectOwnerFeedback,
+    submitProjectOwnerForm as submitDashboardProjectOwnerForm
+} from './dashboard-project-owner.js';
+import {
+    openProjectDetailsModal as openDashboardProjectDetailsModal,
+    renderProjectDetails as renderDashboardProjectDetails,
+    setProjectDetailsContent as setDashboardProjectDetailsContent
+} from './dashboard-project-details.js';
+import { loadProjectsData as loadDashboardProjectsData } from './dashboard-project-data.js';
+import { renderProjectsTable as renderDashboardProjectsTable } from './dashboard-project-table.js';
+import { bindScanReportButtons as bindDashboardScanReportButtons } from './dashboard-scan-actions.js';
+import { loadScansData as loadDashboardScansData } from './dashboard-scan-data.js';
+import {
+    applyScansFiltersAndRender as applyDashboardScansFiltersAndRender,
+    bindScansControls as bindDashboardScansControls,
+    renderScansTable as renderDashboardScansTable
+} from './dashboard-scan-controls.js';
+import { renderScansPage as renderDashboardScansPage } from './dashboard-scan-table.js';
+import {
+    adminUserRowKey as getDashboardAdminUserRowKey,
+    setSelectedUserStatus as setDashboardSelectedUserStatus,
+    submitAdminUserUpdate as submitDashboardAdminUserUpdate
+} from './dashboard-user-actions.js';
+import {
+    activityFilterDateToRFC3339 as toDashboardActivityFilterDate,
+    buildSelectedUserActivityPath as buildDashboardSelectedUserActivityPath,
+    loadMoreSelectedUserActivity as loadMoreDashboardSelectedUserActivity,
+    viewAdminUserDetail as viewDashboardAdminUserDetail
+} from './dashboard-user-details.js';
+import {
+    getUserSortText as getDashboardUserSortText,
+    getUserSortTime as getDashboardUserSortTime,
+    renderUsersTab as renderDashboardUsersTab,
+    sortUsersRows as sortDashboardUsersRows,
+    userSortDescriptor as getDashboardUserSortDescriptor,
+    userSortIndicator as getDashboardUserSortIndicator
+} from './dashboard-users-tab.js';
+import {
+    getSupabaseSettingsClient as getDashboardSupabaseSettingsClient,
+    resetDashboardPreferencesFromSettings as resetDashboardSettingsPreferences,
+    saveDashboardPreferencesFromSettings as saveDashboardSettingsPreferences,
+    savePasswordSettings as saveDashboardPasswordSettings,
+    saveProfileSettings as saveDashboardProfileSettings
+} from './dashboard-settings-actions.js';
+import { bindSettingsControls as bindDashboardSettingsControls } from './dashboard-settings-bind.js';
+import { renderSettingsActionButton as renderDashboardSettingsActionButton, renderSettingsPanel as renderDashboardSettingsPanel } from './dashboard-settings-render.js';
 
 const BUILTIN_POLICY_CATALOG = [
     { name: 'A1', description: 'Primary branch protection requires pull requests and direct push restrictions.' },
@@ -36,6 +149,7 @@ class BaselineDashboard {
         };
         this.identity = {
             user: '',
+            displayName: '',
             userID: '',
             email: '',
             subject: '',
@@ -43,6 +157,7 @@ class BaselineDashboard {
         };
         this.supabaseClient = null;
         this.chart = null;
+        this.usageRange = 'last_month';
         this.scanState = {
             all: [],
             filtered: [],
@@ -110,6 +225,19 @@ class BaselineDashboard {
             metrics: {},
             recentScans: []
         };
+        this.cliState = {
+            traces: [],
+            details: {},
+            selectedTraceID: '',
+            filters: {
+                command: 'all',
+                repository: 'all',
+                status: 'all',
+                project: 'all',
+                quick: 'all',
+                query: ''
+            }
+        };
         this.notificationsState = {
             items: [],
             readIDs: new Set()
@@ -140,10 +268,17 @@ class BaselineDashboard {
             'api_keys.read': true,
             'api_keys.write': false,
             'audit.read': true,
-            'integrations.read': true,
+            'integrations.read': false,
             'integrations.write': false,
             'integrations.secrets.write': false
         };
+    }
+
+    adminCapabilities() {
+        return Object.keys(this.defaultCapabilities()).reduce((acc, capability) => {
+            acc[capability] = true;
+            return acc;
+        }, {});
     }
 
     settingsStorageKey() {
@@ -199,7 +334,9 @@ class BaselineDashboard {
         this.setupTabNavigation();
         this.initializeChart();
         this.setupEventListeners();
+        this.bindOverviewControls();
         this.setupAutoRefresh();
+        this.bindModalTriggerButtons(document);
         this.bindAddProjectForm();
         this.bindProjectOwnerForm();
         this.bindRunScanForm();
@@ -252,6 +389,7 @@ class BaselineDashboard {
             }
             this.identity = {
                 user: String(payload.user || '').trim(),
+                displayName: String(payload.display_name || '').trim(),
                 userID: String(payload.user_id || '').trim(),
                 email: String(payload.email || '').trim().toLowerCase(),
                 subject: String(payload.subject || '').trim(),
@@ -262,6 +400,7 @@ class BaselineDashboard {
             this.setupAutoRefresh();
             this.notificationsState.readIDs = this.loadReadNotificationIDs();
             this.updateUserUI({
+                displayName: String(payload.display_name || ''),
                 name: String(payload.display_name || payload.user || ''),
                 email: String(payload.email || ''),
                 role: String(payload.role || '')
@@ -279,12 +418,14 @@ class BaselineDashboard {
             const fromServer = payload && typeof payload.capabilities === 'object' && payload.capabilities
                 ? payload.capabilities
                 : {};
+            const role = String(payload?.role || 'viewer').toLowerCase() || 'viewer';
             this.authz = {
-                role: String(payload?.role || 'viewer').toLowerCase() || 'viewer',
+                role,
                 source: String(payload?.source || 'session').toLowerCase() || 'session',
                 capabilities: {
                     ...this.defaultCapabilities(),
-                    ...fromServer
+                    ...fromServer,
+                    ...(role === 'admin' ? this.adminCapabilities() : {})
                 }
             };
             this.capabilitiesLoaded = true;
@@ -327,17 +468,17 @@ class BaselineDashboard {
                 return this.isAdmin() && this.hasCapability('dashboard.view');
             case 'keys':
                 return this.hasCapability('api_keys.read');
-            case 'integrations':
-                return this.isAdmin() && this.hasCapability('integrations.read');
             case 'audit':
                 return this.hasCapability('audit.read');
+            case 'cli':
+                return this.isAdmin() && this.hasCapability('audit.read');
             default:
                 return false;
         }
     }
 
     firstAllowedTab() {
-        const orderedTabs = ['overview', 'scans', 'policies', 'projects', 'users', 'keys', 'integrations', 'audit', 'settings'];
+        const orderedTabs = ['overview', 'scans', 'policies', 'projects', 'users', 'keys', 'audit', 'cli', 'settings'];
         return orderedTabs.find(tab => this.canAccessTab(tab)) || '';
     }
 
@@ -352,17 +493,6 @@ class BaselineDashboard {
                 item.removeAttribute('aria-hidden');
             }
         });
-
-        const profileIntegrationsLink = document.getElementById('profile-integrations-link');
-        if (profileIntegrationsLink) {
-            if (this.canAccessTab('integrations')) {
-                profileIntegrationsLink.classList.remove('hidden');
-                profileIntegrationsLink.removeAttribute('aria-hidden');
-            } else {
-                profileIntegrationsLink.classList.add('hidden');
-                profileIntegrationsLink.setAttribute('aria-hidden', 'true');
-            }
-        }
     }
 
     setupTabNavigation() {
@@ -431,8 +561,8 @@ class BaselineDashboard {
             projects: { title: 'Projects', subtitle: 'Repositories tracked by Baseline' },
             users: { title: 'Users', subtitle: 'Admin user and role management' },
             keys: { title: 'API Keys', subtitle: 'Manage API authentication keys and tokens' },
-            integrations: { title: 'Integrations', subtitle: 'GitHub, GitLab, and webhook connections' },
             audit: { title: 'Audit Log', subtitle: 'Enforcement activity and event trail' },
+            cli: { title: 'CLI Telemetry', subtitle: 'Admin supervision for command activity, failures, and generated artifacts' },
             settings: { title: 'Settings', subtitle: 'Profile, preferences, and dashboard tools' }
         };
 
@@ -620,8 +750,8 @@ class BaselineDashboard {
             case 'audit':
                 await this.loadAuditData();
                 break;
-            case 'integrations':
-                await this.loadIntegrationsData();
+            case 'cli':
+                await this.loadCLITelemetryData();
                 break;
             default:
                 break;
@@ -633,11 +763,17 @@ class BaselineDashboard {
 
     async loadOverviewStats() {
         try {
-            const data = await this.apiRequest('/v1/dashboard');
+            const rangeQuery = encodeURIComponent(this.usageRange || 'last_month');
+            const data = await this.apiRequest(`/v1/dashboard?activity_range=${rangeQuery}`);
             const metrics = data && typeof data.metrics === 'object' && data.metrics ? data.metrics : {};
             const recentScans = Array.isArray(data?.recent_scans) ? data.recent_scans : [];
             const scanActivity = Array.isArray(data?.scan_activity) ? data.scan_activity : [];
             const topViolations = Array.isArray(data?.top_violations) ? data.top_violations : [];
+            this.usageRange = String(data?.activity_range || this.usageRange || 'last_month').trim().toLowerCase();
+            const usageRangeSelect = document.getElementById('usage-range-select');
+            if (usageRangeSelect && usageRangeSelect.value !== this.usageRange) {
+                usageRangeSelect.value = this.usageRange;
+            }
             this.dashboardSummary = {
                 metrics,
                 recentScans,
@@ -822,9 +958,29 @@ class BaselineDashboard {
                 scales: {
                     y: {
                         beginAtZero: true
+                    },
+                    x: {
+                        ticks: {
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: this.usageRange === 'today' ? 8 : this.usageRange === 'last_year' ? 12 : 10
+                        }
                     }
                 }
             }
+        });
+    }
+
+    bindOverviewControls() {
+        const usageRangeSelect = document.getElementById('usage-range-select');
+        if (!usageRangeSelect) {
+            return;
+        }
+        usageRangeSelect.value = this.usageRange;
+        usageRangeSelect.addEventListener('change', async (event) => {
+            const nextRange = String(event.target?.value || 'last_month').trim().toLowerCase();
+            this.usageRange = nextRange || 'last_month';
+            await this.loadOverviewStats();
         });
     }
 
@@ -1052,18 +1208,11 @@ class BaselineDashboard {
     }
 
     updateNotificationsIndicator() {
-        const indicator = document.getElementById('notifications-indicator');
-        if (!indicator) return;
-        const unread = this.getUnreadNotifications();
-        if (unread.length > 0) {
-            indicator.classList.remove('hidden');
-        } else {
-            indicator.classList.add('hidden');
-        }
+        updateDashboardNotificationsIndicator(this);
     }
 
     async openNotificationsModal() {
-        openModal('notificationsModal');
+        openDashboardModal('notificationsModal');
         if (!this.hasCapability('audit.read')) {
             this.renderNotifications([]);
             return;
@@ -1081,448 +1230,88 @@ class BaselineDashboard {
     }
 
     renderNotifications(items) {
-        const list = document.getElementById('notifications-list');
-        const summary = document.getElementById('notifications-summary');
-        const markReadButton = document.getElementById('notifications-mark-read-button');
-        if (!list) return;
-
-        if (markReadButton && markReadButton.dataset.bound !== '1') {
-            markReadButton.dataset.bound = '1';
-            markReadButton.addEventListener('click', () => {
-                this.markAllNotificationsRead();
-            });
-        }
-
-        if (summary) {
-            summary.innerHTML = '';
-        }
-
-        if (!Array.isArray(items) || items.length === 0) {
-            if (summary) {
-                summary.innerHTML = `<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-600">No important updates</span>`;
-            }
-            if (markReadButton) {
-                markReadButton.disabled = true;
-            }
-            list.innerHTML = `
-                <div class="p-4 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-500">
-                    No important updates right now.
-                </div>
-            `;
-            return;
-        }
-
-        const grouped = this.groupNotifications(items);
-
-        if (summary) {
-            const unreadCount = this.countUnreadNotifications(items);
-            const chips = [];
-            chips.push(`<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-700">${items.length} updates</span>`);
-            if (unreadCount > 0) {
-                chips.push(`<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-900 text-white">${unreadCount} unread</span>`);
-            }
-            summary.innerHTML = chips.join('');
-        }
-
-        if (markReadButton) {
-            markReadButton.disabled = this.countUnreadNotifications(items) === 0;
-        }
-
-        list.innerHTML = `
-            ${this.renderNotificationSection('Needs review', 'Items that may need your attention soon.', grouped.attention)}
-            ${this.renderNotificationSection('Latest updates', 'Recent changes across your projects and access.', grouped.changes)}
-        `;
-
-        list.querySelectorAll('[data-notification-tab]').forEach((button) => {
-            if (button.dataset.bound === '1') {
-                return;
-            }
-            button.dataset.bound = '1';
-            button.addEventListener('click', () => {
-                const targetTab = button.getAttribute('data-notification-tab') || 'overview';
-                closeModal('notificationsModal');
-                this.switchTab(targetTab);
-            });
-        });
+        renderDashboardNotifications(this, items);
     }
 
     renderNotificationSection(title, subtitle, items) {
-        const body = Array.isArray(items) && items.length > 0
-            ? items.map((item) => this.renderNotificationCard(item)).join('')
-            : `<div class="p-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500">Nothing to show here.</div>`;
-
-        return `
-            <section class="space-y-2">
-                <div>
-                    <h4 class="text-sm font-semibold text-gray-900">${this.escapeHtml(title)}</h4>
-                    <p class="text-xs text-gray-500 mt-0.5">${this.escapeHtml(subtitle)}</p>
-                </div>
-                <div class="space-y-2">
-                    ${body}
-                </div>
-            </section>
-        `;
+        return renderDashboardNotificationSection(this, title, subtitle, items);
     }
 
     renderNotificationCard(item) {
-            const tone = this.notificationTone(item);
-            const targetTab = this.notificationTargetTab(item);
-            const actionLabel = this.notificationActionLabel(item, targetTab);
-            const unread = this.isNotificationUnread(item);
-        return `
-            <div class="rounded-xl border ${tone.border} bg-white overflow-hidden ${unread ? 'ring-1 ring-offset-0 ring-gray-200' : ''}">
-                <button
-                    type="button"
-                    data-notification-tab="${this.escapeHtml(targetTab)}"
-                    class="w-full text-left px-3.5 py-3 hover:bg-gray-50 transition-colors"
-                >
-                    <div class="flex items-start gap-3">
-                        <div class="w-8 h-8 rounded-xl border ${tone.iconBorder} bg-gray-50 flex items-center justify-center flex-shrink-0">
-                            <div class="w-2 h-2 rounded-full ${tone.dot}"></div>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-start justify-between gap-3 mb-1">
-                                <div class="min-w-0">
-                                    <div class="flex items-center gap-2">
-                                        <p class="text-sm font-semibold text-gray-900">${this.escapeHtml(this.notificationTitle(item))}</p>
-                                        ${unread ? '<span class="inline-flex items-center justify-center w-2.5 h-2.5 rounded-full bg-amber-500" aria-label="Unread notification" title="Unread"></span>' : ''}
-                                    </div>
-                                    <p class="text-xs text-gray-600 mt-1">${this.escapeHtml(this.notificationSummary(item))}</p>
-                                </div>
-                                <span class="text-[11px] font-medium whitespace-nowrap text-gray-400">${this.formatDate(item.created_at || item.timestamp)}</span>
-                            </div>
-                            <div class="mt-2 flex items-center justify-between gap-3">
-                                <span class="text-[11px] text-gray-500">${this.escapeHtml(this.notificationTargetLabel(targetTab))}</span>
-                                <span class="inline-flex items-center text-[11px] font-medium text-gray-700">${this.escapeHtml(actionLabel)}</span>
-                            </div>
-                        </div>
-                    </div>
-                </button>
-            </div>
-        `;
+        return renderDashboardNotificationCard(this, item);
     }
 
     groupNotifications(items) {
-        const groups = { attention: [], changes: [] };
-        for (const item of items) {
-            if (this.isAttentionNotification(item)) {
-                if (groups.attention.length < 3) {
-                    groups.attention.push(item);
-                }
-                continue;
-            }
-            if (groups.changes.length < 3) {
-                groups.changes.push(item);
-            }
-        }
-        return groups;
+        return groupDashboardNotifications(this, items);
     }
 
     selectNotifications(items) {
-        if (!Array.isArray(items)) {
-            return [];
-        }
-        const actionable = items.filter((item) => this.isImportantNotification(item));
-        return actionable.slice(0, 8);
+        return selectDashboardNotifications(this, items);
     }
 
     isNotificationUnread(item) {
-        const id = String(item?.id || '').trim();
-        if (!id) {
-            return false;
-        }
-        return !this.notificationsState.readIDs.has(id);
+        return isDashboardNotificationUnread(this, item);
     }
 
     countUnreadNotifications(items) {
-        return (Array.isArray(items) ? items : []).filter((item) => this.isNotificationUnread(item)).length;
+        return countDashboardUnreadNotifications(this, items);
     }
 
     getUnreadNotifications() {
-        const important = this.selectNotifications(this.notificationsState.items);
-        return important.filter((item) => this.isNotificationUnread(item));
+        return getDashboardUnreadNotifications(this);
     }
 
     markAllNotificationsRead() {
-        const important = this.selectNotifications(this.notificationsState.items);
-        if (!important.length) {
-            return;
-        }
-        important.forEach((item) => {
-            const id = String(item?.id || '').trim();
-            if (id) {
-                this.notificationsState.readIDs.add(id);
-            }
-        });
-        this.persistReadNotificationIDs();
-        this.updateNotificationsIndicator();
-        this.renderNotifications(important);
+        markAllDashboardNotificationsRead(this);
     }
 
     notificationStorageKey() {
-        const identityKey = String(this.identity?.userID || this.identity?.email || this.identity?.subject || this.authz?.role || 'anonymous')
-            .trim()
-            .toLowerCase();
-        return `baseline.notifications.read.${identityKey}`;
+        return getDashboardNotificationStorageKey(this);
     }
 
     loadReadNotificationIDs() {
-        try {
-            const raw = window.localStorage.getItem(this.notificationStorageKey());
-            if (!raw) {
-                return new Set();
-            }
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) {
-                return new Set();
-            }
-            return new Set(parsed.map((value) => String(value || '').trim()).filter(Boolean));
-        } catch (_) {
-            return new Set();
-        }
+        return loadDashboardReadNotificationIDs(this);
     }
 
     persistReadNotificationIDs() {
-        try {
-            const importantIDs = new Set(
-                this.selectNotifications(this.notificationsState.items)
-                    .map((item) => String(item?.id || '').trim())
-                    .filter(Boolean)
-            );
-            const retained = Array.from(this.notificationsState.readIDs).filter((id) => importantIDs.has(id));
-            window.localStorage.setItem(this.notificationStorageKey(), JSON.stringify(retained));
-            this.notificationsState.readIDs = new Set(retained);
-        } catch (_) {
-            // Ignore storage failures.
-        }
+        return persistDashboardReadNotificationIDs(this);
     }
 
     isImportantNotification(item) {
-        const action = String(item?.action || item?.event_type || '').toLowerCase();
-        const type = String(item?.type || '').toLowerCase();
-        if (!action || action === 'dashboard_initialized') {
-            return false;
-        }
-        if (action.includes('fail') || action.includes('blocked') || action.includes('warn') || action.includes('retry')) {
-            return true;
-        }
-        if (action.startsWith('api_key_') || action.startsWith('project_') || action.startsWith('user_')) {
-            return true;
-        }
-        if (action === 'policy_updated' || action === 'ruleset_updated') {
-            return true;
-        }
-        if (type === 'integration' || action.startsWith('integration_') || action.startsWith('github_') || action.startsWith('gitlab_')) {
-            return true;
-        }
-        return false;
+        return isDashboardImportantNotification(this, item);
     }
 
     isAttentionNotification(item) {
-        const action = String(item?.action || item?.event_type || '').toLowerCase();
-        return action.includes('fail') || action.includes('blocked') || action.includes('warn') || action.includes('retry');
+        return isDashboardAttentionNotification(this, item);
     }
 
     countNotificationGroups(items) {
-        return items.reduce((acc, item) => {
-            const action = String(item?.action || item?.event_type || '').toLowerCase();
-            const type = String(item?.type || '').toLowerCase();
-            if (action.includes('fail') || action.includes('blocked') || action.includes('warn') || action.includes('retry')) {
-                acc.attention += 1;
-            }
-            if (type === 'integration' || action.startsWith('integration_') || action.startsWith('github_') || action.startsWith('gitlab_')) {
-                acc.integrations += 1;
-            }
-            if (action.startsWith('api_key_') || action.startsWith('user_')) {
-                acc.access += 1;
-            }
-            return acc;
-        }, { attention: 0, integrations: 0, access: 0 });
+        return countDashboardNotificationGroups(this, items);
     }
 
     notificationTone(item) {
-        const action = String(item?.action || item?.event_type || '').toLowerCase();
-        if (action.includes('fail') || action.includes('blocked')) {
-            return {
-                border: 'border-gray-200',
-                iconBorder: 'border-red-200',
-                dot: 'bg-red-500'
-            };
-        }
-        if (action.includes('warn') || action.includes('retry')) {
-            return {
-                border: 'border-gray-200',
-                iconBorder: 'border-amber-200',
-                dot: 'bg-amber-500'
-            };
-        }
-        if (String(item?.type || '').toLowerCase() === 'integration') {
-            return {
-                border: 'border-gray-200',
-                iconBorder: 'border-gray-300',
-                dot: 'bg-gray-600'
-            };
-        }
-        return {
-            border: 'border-gray-200',
-            iconBorder: 'border-gray-300',
-            dot: 'bg-gray-500'
-        };
+        return getDashboardNotificationTone(this, item);
     }
 
     notificationTargetTab(item) {
-        const action = String(item?.action || item?.event_type || '').toLowerCase();
-        const itemType = String(item?.type || '').toLowerCase();
-        if (itemType === 'integration' || action.startsWith('integration_') || action.startsWith('github_') || action.startsWith('gitlab_')) {
-            return this.hasCapability('integrations.read') ? 'integrations' : 'audit';
-        }
-        if (action.startsWith('scan_') || action === 'scan_uploaded' || action === 'enforcement_failed') {
-            return this.hasCapability('scans.read') ? 'scans' : 'audit';
-        }
-        if (action.startsWith('project_')) {
-            return this.hasCapability('projects.read') ? 'projects' : 'audit';
-        }
-        if (action.startsWith('api_key_')) {
-            return this.hasCapability('api_keys.read') ? 'keys' : 'audit';
-        }
-        if (action === 'policy_updated' || action === 'ruleset_updated') {
-            return 'policies';
-        }
-        if (action === 'user_updated' && this.isAdmin()) {
-            return 'users';
-        }
-        return 'audit';
+        return getDashboardNotificationTargetTab(this, item);
     }
 
     notificationTargetLabel(tab) {
-        const labels = {
-            overview: 'overview',
-            scans: 'scan history',
-            projects: 'projects',
-            policies: 'policies',
-            users: 'users',
-            keys: 'API keys',
-            integrations: 'integrations',
-            audit: 'audit log',
-            settings: 'settings'
-        };
-        return labels[tab] || 'details';
+        return getDashboardNotificationTargetLabel(this, tab);
     }
 
     notificationActionLabel(item, targetTab) {
-        const action = String(item?.action || item?.event_type || '').toLowerCase();
-        if (action.includes('fail') || action.includes('blocked')) {
-            return 'Review issue';
-        }
-        if (action.includes('warn') || action.includes('retry')) {
-            return 'Check status';
-        }
-        if (action.startsWith('api_key_')) {
-            return 'Open keys';
-        }
-        if (action.startsWith('project_')) {
-            return 'Open project';
-        }
-        if (action.startsWith('user_')) {
-            return 'Review user';
-        }
-        if (action === 'policy_updated' || action === 'ruleset_updated') {
-            return 'Review policy';
-        }
-        if (String(item?.type || '').toLowerCase() === 'integration' || action.startsWith('integration_') || action.startsWith('github_') || action.startsWith('gitlab_')) {
-            return 'Open integration';
-        }
-        return `Open ${this.notificationTargetLabel(targetTab)}`;
+        return getDashboardNotificationActionLabel(this, item, targetTab);
     }
 
     notificationTitle(item) {
-        const action = String(item?.action || item?.event_type || '').toLowerCase();
-        const titles = {
-            project_registered: 'Project added',
-            project_updated: 'Project updated',
-            project_owner_claimed: 'Project claimed',
-            project_owner_assigned: 'Project owner updated',
-            scan_uploaded: 'Scan uploaded',
-            scan_pass: 'Checks passed',
-            scan_fail: 'Checks failed',
-            scan_warn: 'Checks need review',
-            enforcement_failed: 'Release blocked',
-            api_key_issued: 'API key created',
-            api_key_revoked: 'API key removed',
-            user_updated: 'Access updated',
-            policy_updated: 'Policy changed',
-            ruleset_updated: 'Ruleset changed',
-            github_webhook_received: 'GitHub sync received',
-            gitlab_webhook_received: 'GitLab sync received',
-            github_check_published: 'GitHub status sent',
-            gitlab_status_published: 'GitLab status sent',
-            integration_job_enqueued: 'Integration queued',
-            integration_job_retry_scheduled: 'Integration retry queued',
-            integration_job_succeeded: 'Integration complete',
-            integration_job_failed: 'Integration needs attention',
-            integration_secrets_updated: 'Integration credentials updated'
-        };
-        return titles[action] || this.describeEventLabel(item);
+        return getDashboardNotificationTitle(this, item);
     }
 
     notificationSummary(item) {
-        const action = String(item?.action || item?.event_type || '').toLowerCase();
-        const projectID = String(item?.project_id || '').trim();
-        const scanID = String(item?.scan_id || '').trim();
-        const actor = this.formatActorLabel(item?.actor);
-
-        const join = (...parts) => parts.filter(Boolean).join(' | ');
-
-        switch (action) {
-            case 'project_registered':
-                return join(projectID ? `${projectID} is now being tracked` : 'A project is now being tracked', actor ? `added by ${actor}` : '');
-            case 'project_updated':
-                return join(projectID ? `${projectID} settings were updated` : 'Project settings were updated', actor ? `by ${actor}` : '');
-            case 'project_owner_claimed':
-                return join(projectID ? `${projectID} was claimed` : 'A project was claimed', actor ? `by ${actor}` : '');
-            case 'project_owner_assigned':
-                return join(projectID ? `${projectID} owner was updated` : 'A project owner was updated', scanID ? `owner ${scanID}` : '');
-            case 'scan_uploaded':
-                return join(projectID ? `${projectID} has a new scan` : 'A new scan is available', scanID ? `scan ${scanID}` : '');
-            case 'scan_pass':
-                return join(projectID ? `${projectID}` : 'This project', 'passed the latest checks');
-            case 'scan_fail':
-                return join(projectID ? `${projectID}` : 'This project', 'has failing checks to fix');
-            case 'scan_warn':
-                return join(projectID ? `${projectID}` : 'This project', 'has warnings worth reviewing');
-            case 'enforcement_failed':
-                return join(projectID ? `${projectID}` : 'A release', 'was stopped by a policy rule');
-            case 'api_key_issued':
-                return join('A new API key is ready to use', actor ? `created by ${actor}` : '');
-            case 'api_key_revoked':
-                return join('An API key is no longer active', actor ? `removed by ${actor}` : '');
-            case 'user_updated':
-                return join('Someone’s access or profile details changed', actor ? `updated by ${actor}` : '');
-            case 'policy_updated':
-                return 'One of your enforcement rules was updated.';
-            case 'ruleset_updated':
-                return 'The active release rules were updated.';
-            case 'integration_job_failed':
-                return join(projectID ? `${projectID} integration` : 'An integration', 'failed and may need attention');
-            case 'integration_job_retry_scheduled':
-                return join(projectID ? `${projectID} integration` : 'An integration', 'will retry automatically');
-            case 'integration_job_succeeded':
-                return join(projectID ? `${projectID} integration` : 'An integration', 'completed successfully');
-            case 'integration_job_enqueued':
-                return join(projectID ? `${projectID} integration` : 'An integration', 'is queued');
-            case 'github_check_published':
-            case 'gitlab_status_published':
-                return join(projectID ? `${projectID}` : 'A project', 'sent a status update to your integration');
-            case 'github_webhook_received':
-            case 'gitlab_webhook_received':
-                return join(projectID ? `${projectID}` : 'A project', 'received an update from your integration');
-            case 'integration_secrets_updated':
-                return 'Integration credentials were updated.';
-            default:
-                return this.describeActivitySummary(item);
-        }
+        return getDashboardNotificationSummary(this, item);
     }
-
     async loadTabData(tabName) {
         if (!this.canAccessTab(tabName)) {
             return;
@@ -1543,11 +1332,11 @@ class BaselineDashboard {
             case 'keys':
                 await this.loadApiKeysData();
                 break;
-            case 'integrations':
-                await this.loadIntegrationsData();
-                break;
             case 'audit':
                 await this.loadAuditData();
+                break;
+            case 'cli':
+                await this.loadCLITelemetryData();
                 break;
             case 'settings':
                 await this.loadSettingsData();
@@ -1556,608 +1345,83 @@ class BaselineDashboard {
     }
 
     async loadScansData() {
-        try {
-            const [scanPayload, projectPayload] = await Promise.all([
-                this.apiRequest('/v1/scans'),
-                this.apiRequest('/v1/projects')
-            ]);
-
-            const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
-            const projectNamesByID = new Map();
-            projects.forEach(project => {
-                if (project && project.id) {
-                    projectNamesByID.set(project.id, project.name || project.id);
-                }
-            });
-
-            const scans = Array.isArray(scanPayload.scans) ? scanPayload.scans : [];
-            this.scanState.all = scans
-                .map(scan => {
-                    const violations = Array.isArray(scan.violations) ? scan.violations : [];
-                    const blockingViolations = violations.filter(v => String(v.severity || '').toLowerCase() === 'block').length;
-                    const warnings = violations.filter(v => String(v.severity || '').toLowerCase() === 'warn').length;
-                    return {
-                        id: scan.id || '',
-                        project_id: scan.project_id || '',
-                        project_name: projectNamesByID.get(scan.project_id) || scan.project_id || 'Unknown',
-                        status: String(scan.status || '').toLowerCase() || 'unknown',
-                        violations: violations.length,
-                        blocking_violations: blockingViolations,
-                        warnings: warnings,
-                        first_violation: violations.length ? violations[0].message || violations[0].policy_id || 'Violation detected' : '',
-                        created_at: scan.created_at || ''
-                    };
-                })
-                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            this.scanState.page = 1;
-            this.scanState.statusFilter = 'all';
-            this.scanState.projectFilter = 'all';
-            this.renderScansTable(this.scanState.all);
-        } catch (error) {
-            this.showError(error.message || 'Failed to load scan history');
-            this.scanState.all = [];
-            this.renderScansTable([]);
-        }
+        return loadDashboardScansData(this);
     }
 
     bindAddProjectForm() {
-        const form = document.getElementById('add-project-form');
-        if (!form || form.dataset.bound === '1') {
-            return;
-        }
-        form.dataset.bound = '1';
-        form.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            await this.submitAddProjectForm();
-        });
+        return bindDashboardAddProjectForm(this);
     }
 
     prepareAddProjectModal() {
-        if (!this.hasCapability('projects.write')) {
-            this.showError('Project write access is required.');
-            closeModal('addProjectModal');
-            return;
-        }
-        this.bindAddProjectForm();
-
-        const form = document.getElementById('add-project-form');
-        const title = document.getElementById('add-project-modal-title');
-        const nameInput = document.getElementById('add-project-name');
-        const repoInput = document.getElementById('add-project-repo');
-        const branchInput = document.getElementById('add-project-branch');
-        const policySetInput = document.getElementById('add-project-policy-set');
-        const submitButton = document.getElementById('add-project-submit');
-
-        if (!form || !nameInput || !repoInput || !branchInput || !policySetInput) {
-            return;
-        }
-
-        const pendingID = String(this.pendingProjectEditID || '').trim();
-        const project = pendingID ? this.projectState.byID.get(pendingID) : null;
-        this.pendingProjectEditID = '';
-
-        if (project) {
-            form.dataset.mode = 'edit';
-            form.dataset.projectId = project.id;
-            if (title) title.textContent = 'Edit Project';
-            nameInput.value = project.name || '';
-            repoInput.value = project.repository_url || '';
-            branchInput.value = project.default_branch || 'main';
-            policySetInput.value = project.policy_set || 'baseline:prod';
-            this.setAddProjectFeedback(`Updating project ${project.name || project.id}.`, false);
-        } else {
-            form.dataset.mode = 'create';
-            delete form.dataset.projectId;
-            if (title) title.textContent = 'Add New Project';
-            nameInput.value = '';
-            repoInput.value = '';
-            branchInput.value = 'main';
-            policySetInput.value = 'baseline:prod';
-            this.setAddProjectFeedback('Creates a new project and refreshes dashboard data.', false);
-        }
-        if (submitButton) submitButton.disabled = false;
+        return prepareDashboardAddProjectModal(this);
     }
 
     setAddProjectFeedback(message, isError) {
-        const feedback = document.getElementById('add-project-feedback');
-        if (!feedback) {
-            return;
-        }
-        feedback.textContent = message;
-        feedback.className = isError ? 'text-xs text-red-600' : 'text-xs text-gray-500';
+        return setDashboardAddProjectFeedback(message, isError);
     }
 
     async submitAddProjectForm() {
-        if (!this.hasCapability('projects.write')) {
-            this.showError('Project write access is required.');
-            return;
-        }
-        const form = document.getElementById('add-project-form');
-        const nameInput = document.getElementById('add-project-name');
-        const repoInput = document.getElementById('add-project-repo');
-        const branchInput = document.getElementById('add-project-branch');
-        const policySetInput = document.getElementById('add-project-policy-set');
-        const submitButton = document.getElementById('add-project-submit');
-
-        if (!form || !nameInput || !repoInput || !branchInput || !policySetInput) {
-            this.showError('Add Project form is not available.');
-            return;
-        }
-
-        const name = String(nameInput.value || '').trim();
-        const repositoryURL = String(repoInput.value || '').trim();
-        const defaultBranch = String(branchInput.value || '').trim() || 'main';
-        const policySet = String(policySetInput.value || '').trim() || 'baseline:prod';
-
-        if (!name) {
-            this.setAddProjectFeedback('Project name is required.', true);
-            return;
-        }
-        if (/\s/.test(defaultBranch)) {
-            this.setAddProjectFeedback('Default branch cannot contain whitespace.', true);
-            return;
-        }
-        if (/\s/.test(policySet)) {
-            this.setAddProjectFeedback('Policy set cannot contain whitespace.', true);
-            return;
-        }
-
-        const payload = {
-            name: name,
-            repository_url: repositoryURL,
-            default_branch: defaultBranch,
-            policy_set: policySet
-        };
-        const isEdit = String(form.dataset.mode || 'create') === 'edit';
-        const projectID = String(form.dataset.projectId || '').trim();
-        if (isEdit && !projectID) {
-            this.setAddProjectFeedback('Missing project identifier for update.', true);
-            return;
-        }
-        const method = isEdit ? 'PUT' : 'POST';
-        const path = isEdit ? `/v1/projects/${encodeURIComponent(projectID)}` : '/v1/projects';
-
-        if (submitButton) submitButton.disabled = true;
-        this.setAddProjectFeedback(isEdit ? 'Submitting project update...' : 'Submitting project creation...', false);
-
-        try {
-            const created = await this.apiRequest(path, {
-                method: method,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
-
-            closeModal('addProjectModal');
-            await Promise.allSettled([
-                this.loadDashboardData(),
-                this.loadProjectsData()
-            ]);
-            const createdName = created && created.name ? ` ${created.name}` : '';
-            this.showSuccess(isEdit
-                ? `Project${createdName} updated successfully.`
-                : `Project${createdName} created successfully.`);
-        } catch (error) {
-            this.setAddProjectFeedback(error.message || (isEdit ? 'Failed to update project.' : 'Failed to create project.'), true);
-            this.showError(error.message || (isEdit ? 'Failed to update project.' : 'Failed to create project.'));
-        } finally {
-            if (submitButton) submitButton.disabled = false;
-        }
+        return submitDashboardAddProjectForm(this);
     }
 
     openEditProjectModal(projectID) {
-        if (!this.hasCapability('projects.write')) {
-            this.showError('Project write access is required.');
-            return;
-        }
-        const normalizedID = String(projectID || '').trim();
-        if (!normalizedID) {
-            this.showError('Invalid project selected.');
-            return;
-        }
-        if (!this.projectState.byID.has(normalizedID)) {
-            this.showError('Project details not loaded yet.');
-            return;
-        }
-        this.pendingProjectEditID = normalizedID;
-        openModal('addProjectModal');
+        return openDashboardEditProjectModal(this, projectID);
     }
 
     bindProjectOwnerForm() {
-        const form = document.getElementById('project-owner-form');
-        if (!form || form.dataset.bound === '1') {
-            return;
-        }
-        form.dataset.bound = '1';
-        form.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            await this.submitProjectOwnerForm();
-        });
+        return bindDashboardProjectOwnerForm(this);
     }
 
     async prepareProjectOwnerModal() {
-        if (!this.isAdmin()) {
-            this.showError('Admin access is required.');
-            closeModal('projectOwnerModal');
-            return;
-        }
-        this.bindProjectOwnerForm();
-        const projectID = String(this.pendingProjectOwnerID || '').trim();
-        if (!projectID) {
-            this.showError('Project owner assignment is missing a project.');
-            closeModal('projectOwnerModal');
-            return;
-        }
-
-        await this.loadUsersData();
-        const project = this.projectState.byID.get(projectID);
-        if (!project) {
-            this.showError('Project details are not available.');
-            closeModal('projectOwnerModal');
-            return;
-        }
-
-        const title = document.getElementById('project-owner-modal-title');
-        const projectLabel = document.getElementById('project-owner-project-label');
-        const currentOwner = document.getElementById('project-owner-current-owner');
-        const select = document.getElementById('project-owner-user-select');
-        const submitButton = document.getElementById('project-owner-submit');
-
-        if (title) title.textContent = 'Assign Project Owner';
-        if (projectLabel) projectLabel.textContent = project.name || project.id || 'Project';
-        if (currentOwner) currentOwner.textContent = this.describeProjectOwner(project.owner_id);
-        if (select) {
-            const options = this.userState.all
-                .filter((user) => String(user?.id || '').trim())
-                .sort((a, b) => String(a.email || a.display_name || a.id || '').localeCompare(String(b.email || b.display_name || b.id || '')))
-                .map((user) => {
-                    const userID = String(user.id || '').trim();
-                    const selected = String(project.owner_id || '').toLowerCase() === `user:${userID.toLowerCase()}` ? ' selected' : '';
-                    const label = user.email || user.display_name || userID;
-                    return `<option value="${this.escapeHtml(userID)}"${selected}>${this.escapeHtml(label)}</option>`;
-                });
-            const currentOwnerID = this.currentPrincipalOwnerID();
-            if (currentOwnerID.startsWith('user:')) {
-                const currentUserID = currentOwnerID.slice('user:'.length);
-                const exists = this.userState.all.some((user) => String(user?.id || '').trim().toLowerCase() === currentUserID.toLowerCase());
-                if (!exists) {
-                    const selected = String(project.owner_id || '').toLowerCase() === currentOwnerID.toLowerCase() ? ' selected' : '';
-                    options.unshift(`<option value="${this.escapeHtml(currentUserID)}"${selected}>You (${this.escapeHtml(this.identity.email || this.identity.user || currentUserID)})</option>`);
-                }
-            }
-            select.innerHTML = `<option value="">Select a user</option>${options.join('')}`;
-        }
-        if (submitButton) submitButton.disabled = false;
-        this.setProjectOwnerFeedback('Choose the user who should own new scans for this project.', false);
+        return prepareDashboardProjectOwnerModal(this);
     }
 
     setProjectOwnerFeedback(message, isError) {
-        const feedback = document.getElementById('project-owner-feedback');
-        if (!feedback) {
-            return;
-        }
-        feedback.textContent = message;
-        feedback.className = isError ? 'text-xs text-red-600' : 'text-xs text-gray-500';
+        return setDashboardProjectOwnerFeedback(message, isError);
     }
 
     async submitProjectOwnerForm() {
-        if (!this.isAdmin()) {
-            this.showError('Admin access is required.');
-            return;
-        }
-        const projectID = String(this.pendingProjectOwnerID || '').trim();
-        const select = document.getElementById('project-owner-user-select');
-        const submitButton = document.getElementById('project-owner-submit');
-        if (!projectID || !select) {
-            this.showError('Project owner form is not available.');
-            return;
-        }
-        const userID = String(select.value || '').trim();
-        if (!userID) {
-            this.setProjectOwnerFeedback('Select a user to continue.', true);
-            return;
-        }
-
-        if (submitButton) submitButton.disabled = true;
-        this.setProjectOwnerFeedback('Assigning project owner...', false);
-        try {
-            const updated = await this.apiRequest(`/v1/projects/${encodeURIComponent(projectID)}/owner`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ user_id: userID })
-            });
-            closeModal('projectOwnerModal');
-            this.pendingProjectOwnerID = '';
-            await Promise.allSettled([
-                this.loadDashboardData(),
-                this.loadProjectsData()
-            ]);
-            this.showSuccess(`Project owner updated to ${this.describeProjectOwner(updated?.owner_id || '')}.`);
-        } catch (error) {
-            this.setProjectOwnerFeedback(error.message || 'Failed to assign project owner.', true);
-            this.showError(error.message || 'Failed to assign project owner.');
-        } finally {
-            if (submitButton) submitButton.disabled = false;
-        }
+        return submitDashboardProjectOwnerForm(this);
     }
 
     async claimProject(projectID) {
-        const normalizedID = String(projectID || '').trim();
-        if (!normalizedID) {
-            this.showError('Invalid project selected.');
-            return;
-        }
-        try {
-            const updated = await this.apiRequest(`/v1/projects/${encodeURIComponent(normalizedID)}/claim`, {
-                method: 'POST'
-            });
-            await Promise.allSettled([
-                this.loadDashboardData(),
-                this.loadProjectsData()
-            ]);
-            this.showSuccess(`Project now belongs to ${this.describeProjectOwner(updated?.owner_id || this.currentPrincipalOwnerID())}.`);
-        } catch (error) {
-            this.showError(error.message || 'Failed to claim project.');
-        }
+        return claimDashboardProject(this, projectID);
     }
 
     async openProjectDetailsModal(projectID) {
-        const normalizedID = String(projectID || '').trim();
-        if (!normalizedID) {
-            this.showError('Invalid project selected.');
-            return;
-        }
-        const project = this.projectState.byID.get(normalizedID);
-        if (!project) {
-            this.showError('Project details not loaded yet.');
-            return;
-        }
-
-        this.pendingProjectDetailsID = normalizedID;
-        this.setProjectDetailsContent('<div class="text-sm text-gray-600">Loading project summary...</div>');
-        openModal('projectDetailsModal');
-
-        try {
-            const payload = await this.apiRequest(`/v1/scans?project_id=${encodeURIComponent(normalizedID)}`);
-            const scans = Array.isArray(payload?.scans) ? payload.scans : [];
-            scans.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            this.projectState.scansByProject.set(normalizedID, scans);
-            this.setProjectDetailsContent(this.renderProjectDetails(project, scans));
-        } catch (error) {
-            this.setProjectDetailsContent(`
-                <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                    ${this.escapeHtml(error.message || 'Failed to load project summary.')}
-                </div>
-            `);
-        }
+        return openDashboardProjectDetailsModal(this, projectID);
     }
 
     setProjectDetailsContent(markup) {
-        const body = document.getElementById('projectDetailsBody');
-        if (body) {
-            body.innerHTML = markup;
-        }
-
-        const openScansButton = document.getElementById('projectDetailsOpenScansButton');
-        if (openScansButton) {
-            openScansButton.onclick = () => {
-                closeModal('projectDetailsModal');
-                this.switchTab('scans');
-            };
-        }
+        setDashboardProjectDetailsContent(this, markup);
     }
 
     renderProjectDetails(project, scans) {
-        const totalScans = scans.length;
-        const failingScans = scans.filter((scan) => this.normalizeScanStatus(scan?.status || '') === 'fail').length;
-        const latestScan = scans[0] || null;
-        const latestStatus = this.normalizeScanStatus(latestScan?.status || '') || 'unknown';
-        const latestViolations = Array.isArray(latestScan?.violations) ? latestScan.violations : [];
-        const totalViolations = scans.reduce((sum, scan) => sum + (Array.isArray(scan?.violations) ? scan.violations.length : 0), 0);
-        const recentScans = scans.slice(0, 2);
-        const latestCommit = String(latestScan?.commit_sha || '').trim();
-        const latestCommitDisplay = latestCommit ? latestCommit.slice(0, 12) : 'Not provided';
-        const latestFilesScanned = Number(latestScan?.files_scanned || 0);
-        const latestScanTime = latestScan ? this.formatDate(latestScan.created_at) : 'No scans yet';
-        const scanSummary = totalScans === 0
-            ? 'No scans uploaded yet.'
-            : failingScans > 0
-                ? `${failingScans} of ${totalScans} scans failed.`
-                : `All ${totalScans} scans passed.`;
-        const latestSummary = latestScan
-            ? [
-                latestStatus.toUpperCase(),
-                latestScanTime,
-                latestCommit ? `Commit ${latestCommitDisplay}` : '',
-                latestFilesScanned > 0 ? `${latestFilesScanned} files` : '',
-                latestViolations.length > 0 ? `${latestViolations.length} violations` : 'No violations',
-            ].filter(Boolean).join(' • ')
-            : 'No scan details available.';
-
-        return `
-            <div class="flex items-start justify-between gap-3">
-                <div>
-                    <h4 class="text-base font-bold text-gray-900">${this.escapeHtml(project.name)}</h4>
-                    <p class="mt-1 text-sm text-gray-600">${this.escapeHtml(project.repository_url || 'Repository URL not set')}</p>
-                    <p class="mt-1 text-sm text-gray-700">${this.escapeHtml(scanSummary)}</p>
-                    <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                        <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-1 text-gray-700">${this.escapeHtml(project.default_branch || 'main')}</span>
-                    </div>
-                </div>
-                <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${this.statusBadgeClass(latestStatus)}">${this.escapeHtml(latestStatus.toUpperCase())}</span>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-                <div class="rounded-lg bg-gray-50 p-2.5">
-                    <p class="text-xs text-gray-600">Scans</p>
-                    <p class="mt-1 text-lg font-bold text-gray-900">${totalScans}</p>
-                </div>
-                <div class="rounded-lg bg-gray-50 p-2.5">
-                    <p class="text-xs text-gray-600">Files scanned</p>
-                    <p class="mt-1 text-lg font-bold text-gray-900">${latestScan ? latestFilesScanned : 'Not recorded'}</p>
-                </div>
-                <div class="rounded-lg bg-gray-50 p-2.5">
-                    <p class="text-xs text-gray-600">Failures</p>
-                    <p class="mt-1 text-lg font-bold text-gray-900">${failingScans}</p>
-                </div>
-                <div class="rounded-lg bg-gray-50 p-2.5">
-                    <p class="text-xs text-gray-600">Violations</p>
-                    <p class="mt-1 text-lg font-bold text-gray-900">${totalViolations}</p>
-                </div>
-            </div>
-
-            <div class="rounded-lg border border-gray-200 p-3">
-                <p class="text-sm text-gray-700">${this.escapeHtml(latestSummary)}</p>
-            </div>
-
-            <div class="rounded-lg border border-gray-200 p-3">
-                <h5 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Recent scans</h5>
-                ${recentScans.length ? `
-                    <div class="mt-2 space-y-1.5">
-                        ${recentScans.map((scan) => {
-                            const status = this.normalizeScanStatus(scan?.status || '') || 'unknown';
-                            const violations = Array.isArray(scan?.violations) ? scan.violations.length : 0;
-                            const commit = String(scan?.commit_sha || '').trim();
-                            const commitDisplay = commit ? commit.slice(0, 12) : 'No commit';
-                            const filesScanned = Number(scan?.files_scanned || 0);
-                            return `
-                                <div class="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-2.5 py-2 text-sm">
-                                    <div>
-                                        <p class="font-medium text-gray-900">${this.escapeHtml(commitDisplay)}</p>
-                                        <p class="text-xs text-gray-500">${this.escapeHtml(this.formatDate(scan.created_at))}${filesScanned > 0 ? ` • ${filesScanned} files` : ''}</p>
-                                    </div>
-                                    <div class="text-right">
-                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${this.statusBadgeClass(status)}">${this.escapeHtml(status.toUpperCase())}</span>
-                                        <p class="mt-1 text-xs text-gray-600">${violations === 0 ? 'Clean' : `${violations} issues`}</p>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-                ` : `
-                    <p class="mt-2 text-sm text-gray-600">No recent scans available.</p>
-                `}
-            </div>
-        `;
+        return renderDashboardProjectDetails(this, project, scans);
     }
 
     openProjectOwnerModal(projectID) {
-        if (!this.isAdmin()) {
-            this.showError('Admin access is required.');
-            return;
-        }
-        const normalizedID = String(projectID || '').trim();
-        if (!normalizedID) {
-            this.showError('Invalid project selected.');
-            return;
-        }
-        this.pendingProjectOwnerID = normalizedID;
-        openModal('projectOwnerModal');
+        return openDashboardProjectOwnerModal(this, projectID);
     }
 
     currentPrincipalOwnerID() {
-        if (this.identity.userID) {
-            return `user:${String(this.identity.userID).trim().toLowerCase()}`;
-        }
-        if (this.identity.subject) {
-            return `sub:${String(this.identity.subject).trim().toLowerCase()}`;
-        }
-        if (this.identity.email) {
-            return `email:${String(this.identity.email).trim().toLowerCase()}`;
-        }
-        if (this.identity.user) {
-            return `user:${String(this.identity.user).trim().toLowerCase()}`;
-        }
-        return '';
+        return getDashboardCurrentPrincipalOwnerID(this);
     }
 
     describeProjectOwner(ownerID) {
-        const normalized = String(ownerID || '').trim();
-        if (!normalized) {
-            return 'Unassigned';
-        }
-        if (normalized.toLowerCase() === this.currentPrincipalOwnerID()) {
-            return 'You';
-        }
-        if (normalized.startsWith('user:')) {
-            const userID = normalized.slice('user:'.length);
-            const user = this.userState.byID.get(userID) || this.userState.byID.get(userID.toLowerCase()) || null;
-            if (user) {
-                return user.email || user.display_name || user.id || normalized;
-            }
-            return `User ${userID}`;
-        }
-        if (normalized.startsWith('email:')) {
-            return normalized.slice('email:'.length);
-        }
-        if (normalized.startsWith('sub:')) {
-            return 'Linked identity';
-        }
-        if (normalized.startsWith('api_key:')) {
-            return `API key ${normalized.slice('api_key:'.length)}`;
-        }
-        return normalized;
+        return describeDashboardProjectOwner(this, ownerID);
     }
 
     bindGenerateKeyForm() {
-        const form = document.getElementById('generate-key-form');
-        if (!form || form.dataset.bound === '1') {
-            return;
-        }
-        form.dataset.bound = '1';
-        form.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            await this.submitGenerateKeyForm();
-        });
-
-        const copyButton = document.getElementById('issued-key-copy-btn');
-        if (copyButton && copyButton.dataset.bound !== '1') {
-            copyButton.dataset.bound = '1';
-            copyButton.addEventListener('click', async () => {
-                await this.copyIssuedAPIKey();
-            });
-        }
+        return bindDashboardGenerateKeyForm(this);
     }
 
     prepareGenerateKeyModal() {
-        if (!this.hasCapability('api_keys.write')) {
-            this.showError('API key write access is required.');
-            closeModal('generateKeyModal');
-            return;
-        }
-        this.bindGenerateKeyForm();
-        const nameInput = document.getElementById('generate-key-name');
-        const roleSelect = document.getElementById('generate-key-role');
-        const submitButton = document.getElementById('generate-key-submit');
-        if (!nameInput || !roleSelect) {
-            return;
-        }
-        nameInput.value = '';
-        const roleOptions = this.allowedRoleOptionsForCurrentScope();
-        roleSelect.innerHTML = roleOptions
-            .map(role => `<option value="${this.escapeHtml(role)}">${this.escapeHtml(role.charAt(0).toUpperCase() + role.slice(1))}</option>`)
-            .join('');
-        roleSelect.value = roleOptions[0] || 'viewer';
-        if (submitButton) submitButton.disabled = false;
-        const scope = this.resolveAPIKeyScope();
-        const scopeLabel = scope.mode === 'user'
-            ? `selected user (${this.apiKeyScopeUserLabel()})`
-            : scope.mode === 'me'
-                ? 'your account'
-                : 'admin inventory';
-        this.setGenerateKeyFeedback(`Generated key value is shown once. Scope: ${scopeLabel}.`, false);
+        return prepareDashboardGenerateKeyModal(this);
     }
 
     setGenerateKeyFeedback(message, isError) {
-        const feedback = document.getElementById('generate-key-feedback');
-        if (!feedback) {
-            return;
-        }
-        feedback.textContent = message;
-        feedback.className = isError ? 'text-xs text-red-600' : 'text-xs text-gray-500';
+        return setDashboardGenerateKeyFeedback(message, isError);
     }
 
     allowedRoleOptionsForCurrentScope() {
@@ -2196,92 +1460,15 @@ class BaselineDashboard {
     }
 
     async submitGenerateKeyForm() {
-        if (!this.hasCapability('api_keys.write')) {
-            this.showError('API key write access is required.');
-            return;
-        }
-        const nameInput = document.getElementById('generate-key-name');
-        const roleSelect = document.getElementById('generate-key-role');
-        const submitButton = document.getElementById('generate-key-submit');
-        if (!nameInput || !roleSelect) {
-            this.showError('Generate Key form is not available.');
-            return;
-        }
-
-        const name = String(nameInput.value || '').trim();
-        const role = String(roleSelect.value || 'viewer').trim().toLowerCase();
-        const allowedRoles = this.allowedRoleOptionsForCurrentScope();
-        if (!allowedRoles.includes(role)) {
-            this.setGenerateKeyFeedback('Invalid role selected.', true);
-            return;
-        }
-
-        const payload = {
-            name: name,
-            role: role
-        };
-
-        if (submitButton) submitButton.disabled = true;
-        this.setGenerateKeyFeedback('Issuing API key...', false);
-
-        try {
-            const scope = this.resolveAPIKeyScope();
-            const created = await this.apiRequest(scope.createPath, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
-
-            closeModal('generateKeyModal');
-            await Promise.allSettled([
-                this.loadDashboardData(),
-                this.loadApiKeysData(),
-                this.loadAuditData()
-            ]);
-            this.openIssuedKeyModal(created);
-            this.showSuccess('API key generated successfully.');
-        } catch (error) {
-            this.setGenerateKeyFeedback(error.message || 'Failed to generate API key.', true);
-            this.showError(error.message || 'Failed to generate API key.');
-        } finally {
-            if (submitButton) submitButton.disabled = false;
-        }
+        return submitDashboardGenerateKeyForm(this);
     }
 
     openIssuedKeyModal(created) {
-        const keyValue = String(created?.api_key || '').trim();
-        this.lastIssuedAPIKey = keyValue;
-        this.lastIssuedAPIKeyMeta = created || null;
-
-        const keyField = document.getElementById('issued-key-value');
-        const metaField = document.getElementById('issued-key-meta');
-        if (keyField) {
-            keyField.value = keyValue || 'No key value returned.';
-        }
-        if (metaField) {
-            const id = created?.id ? `id=${created.id}` : '';
-            const role = created?.role ? `role=${created.role}` : '';
-            const prefix = created?.prefix ? `prefix=${created.prefix}` : '';
-            const parts = [id, role, prefix].filter(Boolean);
-            metaField.textContent = parts.length ? parts.join(' | ') : '';
-        }
-        openModal('copyKeyModal');
+        return openDashboardIssuedKeyModal(this, created);
     }
 
     async copyIssuedAPIKey() {
-        const keyValue = String(this.lastIssuedAPIKey || '').trim();
-        if (!keyValue) {
-            this.showError('No issued API key value available to copy.');
-            return;
-        }
-        try {
-            await navigator.clipboard.writeText(keyValue);
-            this.showSuccess('API key copied to clipboard.');
-        } catch (_) {
-            this.showError('Unable to copy API key. Copy it manually.');
-        }
+        return copyDashboardIssuedAPIKey(this);
     }
 
     bindRevokeKeyForm() {
@@ -2311,13 +1498,13 @@ class BaselineDashboard {
             return;
         }
         this.pendingKeyRevokeID = normalizedID;
-        openModal('revokeKeyModal');
+        openDashboardModal('revokeKeyModal');
     }
 
     prepareRevokeKeyModal() {
         if (!this.hasCapability('api_keys.write')) {
             this.showError('API key write access is required.');
-            closeModal('revokeKeyModal');
+            closeDashboardModal('revokeKeyModal');
             return;
         }
         this.bindRevokeKeyForm();
@@ -2442,7 +1629,7 @@ class BaselineDashboard {
             }
         }
 
-        closeModal('revokeKeyModal');
+        closeDashboardModal('revokeKeyModal');
         this.pendingKeyRevokeID = '';
         await Promise.allSettled([
             this.loadDashboardData(),
@@ -2468,7 +1655,7 @@ class BaselineDashboard {
     async prepareRunScanModal() {
         if (!this.hasCapability('scans.run')) {
             this.showError('Scan run access is required.');
-            closeModal('runScanModal');
+            closeDashboardModal('runScanModal');
             return;
         }
         this.bindRunScanForm();
@@ -2578,7 +1765,7 @@ class BaselineDashboard {
                 body: JSON.stringify(payload)
             });
 
-            closeModal('runScanModal');
+            closeDashboardModal('runScanModal');
             await Promise.allSettled([
                 this.loadDashboardData(),
                 this.loadScansData()
@@ -2640,55 +1827,7 @@ class BaselineDashboard {
     }
 
     async loadProjectsData() {
-        try {
-            const [projectPayload, scanPayload] = await Promise.all([
-                this.apiRequest('/v1/projects'),
-                this.apiRequest('/v1/scans')
-            ]);
-
-            const projects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
-            const scans = Array.isArray(scanPayload.scans) ? scanPayload.scans : [];
-
-            const scansByProject = new Map();
-            scans.forEach(scan => {
-                const projectID = String(scan.project_id || '');
-                if (!projectID) return;
-                if (!scansByProject.has(projectID)) {
-                    scansByProject.set(projectID, []);
-                }
-                scansByProject.get(projectID).push(scan);
-            });
-
-            const normalizedProjects = projects.map(project => {
-                const projectScans = scansByProject.get(project.id) || [];
-                projectScans.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                const latestScan = projectScans[0] || null;
-                const latestStatus = this.normalizeScanStatus(latestScan?.status || '');
-
-                return {
-                    id: String(project.id || ''),
-                    name: String(project.name || project.id || 'Unnamed'),
-                    repository_url: String(project.repository_url || ''),
-                    default_branch: String(project.default_branch || 'main'),
-                    policy_set: String(project.policy_set || 'baseline:prod'),
-                    owner_id: String(project.owner_id || ''),
-                    scan_count: projectScans.length,
-                    last_scan_at: latestScan?.created_at || '',
-                    last_scan_status: latestStatus || 'unknown'
-                };
-            }).sort((a, b) => a.name.localeCompare(b.name));
-
-            this.projectState.all = normalizedProjects;
-            this.projectState.byID = new Map(normalizedProjects.map(project => [project.id, project]));
-            this.projectState.scansByProject = scansByProject;
-            this.renderProjectsTable(normalizedProjects);
-        } catch (error) {
-            this.showError(error.message || 'Failed to load projects');
-            this.projectState.all = [];
-            this.projectState.byID = new Map();
-            this.projectState.scansByProject = new Map();
-            this.renderProjectsTable([]);
-        }
+        return loadDashboardProjectsData(this);
     }
 
     async loadApiKeysData() {
@@ -3270,11 +2409,8 @@ class BaselineDashboard {
         `;
     }
 
-    renderSettingsActionButton(label, action, primary = false) {
-        const classes = primary
-            ? 'px-3 py-2 rounded-lg text-sm font-medium bg-orange-600 text-white hover:bg-orange-700'
-            : 'px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50';
-        return `<button type="button" onclick="${action}" class="${classes}">${this.escapeHtml(label)}</button>`;
+    renderSettingsActionButton(label, options = {}, primary = false) {
+        return renderDashboardSettingsActionButton(this, label, options, primary);
     }
 
     renderSettingsAccountRow(label, value, hint = '') {
@@ -3292,200 +2428,7 @@ class BaselineDashboard {
     }
 
     renderSettingsPanel() {
-        const displayName = this.identity?.user || this.identity?.email || this.identity?.userID || 'Current user';
-        const role = String(this.authz?.role || 'viewer').toLowerCase();
-        const email = this.identity?.email || 'Not available';
-        const preferences = this.preferences || this.loadDashboardPreferences();
-        const profileEditable = Boolean(this.identity?.userID);
-        const passwordEditable = String(this.identity?.identitySource || '').toLowerCase() === 'supabase';
-        const roleLabel = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Viewer';
-        const initials = String(displayName || email || 'U').replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'U';
-        const accountSummary = `
-            <div class="rounded-xl border border-gray-200 bg-white p-6">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-sm font-semibold">
-                        ${this.escapeHtml(initials)}
-                    </div>
-                    <div class="min-w-0">
-                        <h3 class="text-lg font-semibold text-gray-900">${this.escapeHtml(displayName)}</h3>
-                        <p class="text-sm text-gray-600 break-all">${this.escapeHtml(email)}</p>
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">${this.escapeHtml(roleLabel)}</span>
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-orange-50 text-orange-700">Role changes require admin access</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        const profileEditor = `
-            <div class="rounded-xl border border-gray-200 bg-white p-6">
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <h4 class="text-base font-semibold text-gray-900">Profile</h4>
-                        <p class="mt-1 text-sm text-gray-600">Choose the name other people see across the dashboard.</p>
-                    </div>
-                    <span id="settings-profile-feedback" class="text-xs text-gray-500"></span>
-                </div>
-                <div class="mt-4 space-y-3">
-                    <div>
-                        <label for="settings-display-name" class="block text-sm font-medium text-gray-700 mb-1">Display name</label>
-                        <input
-                            id="settings-display-name"
-                            type="text"
-                            maxlength="120"
-                            value="${this.escapeHtml(displayName)}"
-                            placeholder="How your name should appear"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                            ${profileEditable ? '' : 'disabled aria-disabled="true"'}
-                        >
-                        <p class="mt-2 text-xs text-gray-500">Signed in with ${this.escapeHtml(email)}.</p>
-                    </div>
-                    <div class="pt-2">
-                        <button
-                            id="settings-profile-save"
-                            type="button"
-                            class="w-full px-4 py-3 rounded-lg text-sm font-medium ${profileEditable ? 'shadow-sm' : 'border border-gray-300 text-gray-400 bg-gray-100 cursor-not-allowed'}"
-                            style="${profileEditable ? 'background-color:#ea580c;color:#ffffff;' : ''}"
-                            ${profileEditable ? '' : 'disabled aria-disabled="true"'}
-                        >
-                            Save name
-                        </button>
-                    </div>
-                </div>
-                ${profileEditable ? '' : '<p class="mt-3 text-xs text-gray-500">This session cannot update profile details yet. Sign in again if this keeps happening.</p>'}
-            </div>
-        `;
-
-        const preferenceEditor = `
-            <div class="rounded-xl border border-gray-200 bg-white p-6">
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <h4 class="text-base font-semibold text-gray-900">Dashboard preferences</h4>
-                        <p class="mt-1 text-sm text-gray-600">Control how the dashboard opens and refreshes on this device.</p>
-                    </div>
-                    <span id="settings-preferences-feedback" class="text-xs text-gray-500"></span>
-                </div>
-                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label for="settings-default-tab" class="block text-sm font-medium text-gray-700 mb-1">Open this section first</label>
-                        <select id="settings-default-tab" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                            <option value="overview"${preferences.defaultTab === 'overview' ? ' selected' : ''}>Dashboard</option>
-                            <option value="scans"${preferences.defaultTab === 'scans' ? ' selected' : ''}>Scan History</option>
-                            <option value="projects"${preferences.defaultTab === 'projects' ? ' selected' : ''}>Projects</option>
-                            <option value="policies"${preferences.defaultTab === 'policies' ? ' selected' : ''}>Policies</option>
-                            <option value="audit"${preferences.defaultTab === 'audit' ? ' selected' : ''}>Audit Log</option>
-                            <option value="keys"${preferences.defaultTab === 'keys' ? ' selected' : ''}>API Keys</option>
-                            ${this.isAdmin() ? '<option value="users"' + (preferences.defaultTab === 'users' ? ' selected' : '') + '>Users</option>' : ''}
-                            ${this.isAdmin() ? '<option value="integrations"' + (preferences.defaultTab === 'integrations' ? ' selected' : '') + '>Integrations</option>' : ''}
-                            <option value="settings"${preferences.defaultTab === 'settings' ? ' selected' : ''}>Settings</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="settings-refresh-interval" class="block text-sm font-medium text-gray-700 mb-1">Background refresh</label>
-                        <select id="settings-refresh-interval" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                            <option value="30000"${preferences.refreshIntervalMs === 30000 ? ' selected' : ''}>30 seconds</option>
-                            <option value="60000"${preferences.refreshIntervalMs === 60000 ? ' selected' : ''}>60 seconds</option>
-                            <option value="120000"${preferences.refreshIntervalMs === 120000 ? ' selected' : ''}>120 seconds</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button id="settings-preferences-reset" type="button" class="w-full px-4 py-3 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50">Reset</button>
-                    <button id="settings-preferences-save" type="button" class="w-full px-4 py-3 rounded-lg text-sm font-medium shadow-sm" style="background-color:#ea580c;color:#ffffff;">Save preferences</button>
-                </div>
-            </div>
-        `;
-
-        const passwordEditor = passwordEditable ? `
-            <div class="rounded-xl border border-gray-200 bg-white p-6">
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <h4 class="text-base font-semibold text-gray-900">Password</h4>
-                        <p class="mt-1 text-sm text-gray-600">Change the password for your sign-in account.</p>
-                    </div>
-                    <span id="settings-password-feedback" class="text-xs text-gray-500"></span>
-                </div>
-                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                        <label for="settings-new-password" class="block text-sm font-medium text-gray-700 mb-1">New password</label>
-                        <input
-                            id="settings-new-password"
-                            type="password"
-                            minlength="8"
-                            autocomplete="new-password"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                            placeholder="At least 8 characters"
-                        >
-                    </div>
-                    <div>
-                        <label for="settings-confirm-password" class="block text-sm font-medium text-gray-700 mb-1">Confirm new password</label>
-                        <input
-                            id="settings-confirm-password"
-                            type="password"
-                            minlength="8"
-                            autocomplete="new-password"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                            placeholder="Repeat the new password"
-                        >
-                    </div>
-                </div>
-                <div class="pt-3">
-                    <button id="settings-password-save" type="button" class="w-full px-4 py-3 rounded-lg text-sm font-medium shadow-sm" style="background-color:#ea580c;color:#ffffff;">Change password</button>
-                </div>
-            </div>
-        ` : '';
-
-        if (!this.isAdmin()) {
-            return `
-                <div class="w-full p-6">
-                    <div class="space-y-5 max-w-4xl">
-                        <div>
-                            <h2 class="text-2xl font-semibold text-gray-900">Account settings</h2>
-                            <p class="mt-1 text-sm text-gray-600">Update your profile and how this dashboard behaves for you.</p>
-                        </div>
-                        ${accountSummary}
-                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                            ${profileEditor}
-                            ${preferenceEditor}
-                        </div>
-                        ${passwordEditor}
-                    </div>
-                </div>
-            `;
-        }
-
-        const adminActions = `
-            <div class="rounded-xl border border-gray-200 bg-white p-6">
-                <h4 class="text-base font-semibold text-gray-900">Admin tools</h4>
-                <p class="mt-1 text-sm text-gray-600">Operational areas that are only available to admins.</p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                    ${this.renderSettingsActionButton('Users', "if(window.baselineDashboard){window.baselineDashboard.switchTab('users')}", true)}
-                    ${this.renderSettingsActionButton('Projects', "if(window.baselineDashboard){window.baselineDashboard.switchTab('projects')}")}
-                    ${this.renderSettingsActionButton('API Keys', "if(window.baselineDashboard){window.baselineDashboard.switchTab('keys')}")}
-                    ${this.renderSettingsActionButton('Integrations', "if(window.baselineDashboard){window.baselineDashboard.switchTab('integrations')}")}
-                    ${this.renderSettingsActionButton('OpenAPI', "window.open('/openapi.yaml','_blank','noopener')")}
-                </div>
-            </div>
-        `;
-
-        return `
-            <div class="w-full p-6">
-                <div class="space-y-5 max-w-5xl">
-                    <div>
-                        <h2 class="text-2xl font-semibold text-gray-900">Account settings</h2>
-                        <p class="mt-1 text-sm text-gray-600">Update your profile, password, and dashboard preferences.</p>
-                    </div>
-                    ${accountSummary}
-                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                        ${profileEditor}
-                        ${preferenceEditor}
-                    </div>
-                    ${passwordEditor}
-                    ${adminActions}
-                </div>
-            </div>
-        `;
+        return renderDashboardSettingsPanel(this);
     }
 
     async loadSettingsData() {
@@ -3496,119 +2439,19 @@ class BaselineDashboard {
     }
 
     bindSettingsControls() {
-        const profileSaveButton = document.getElementById('settings-profile-save');
-        if (profileSaveButton && profileSaveButton.dataset.bound !== '1') {
-            profileSaveButton.dataset.bound = '1';
-            profileSaveButton.addEventListener('click', async () => {
-                await this.saveProfileSettings();
-            });
-        }
-
-        const preferenceSaveButton = document.getElementById('settings-preferences-save');
-        if (preferenceSaveButton && preferenceSaveButton.dataset.bound !== '1') {
-            preferenceSaveButton.dataset.bound = '1';
-            preferenceSaveButton.addEventListener('click', async () => {
-                this.saveDashboardPreferencesFromSettings();
-            });
-        }
-
-        const preferenceResetButton = document.getElementById('settings-preferences-reset');
-        if (preferenceResetButton && preferenceResetButton.dataset.bound !== '1') {
-            preferenceResetButton.dataset.bound = '1';
-            preferenceResetButton.addEventListener('click', () => {
-                this.resetDashboardPreferencesFromSettings();
-            });
-        }
-
-        const passwordSaveButton = document.getElementById('settings-password-save');
-        if (passwordSaveButton && passwordSaveButton.dataset.bound !== '1') {
-            passwordSaveButton.dataset.bound = '1';
-            passwordSaveButton.addEventListener('click', async () => {
-                await this.savePasswordSettings();
-            });
-        }
+        bindDashboardSettingsControls(this);
     }
 
     async saveProfileSettings() {
-        const displayNameField = document.getElementById('settings-display-name');
-        const feedback = document.getElementById('settings-profile-feedback');
-        const saveButton = document.getElementById('settings-profile-save');
-        if (!displayNameField || !saveButton) {
-            return;
-        }
-
-        const displayName = String(displayNameField.value || '').trim();
-        if (feedback) {
-            feedback.textContent = 'Saving...';
-            feedback.className = 'text-xs text-gray-500';
-        }
-        saveButton.disabled = true;
-
-        try {
-            const payload = await this.apiRequest('/v1/auth/me', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ display_name: displayName })
-            });
-            this.identity.user = String(payload?.display_name || payload?.user || displayName).trim();
-            if (payload?.email) {
-                this.identity.email = String(payload.email).trim().toLowerCase();
-            }
-            this.updateUserUI({
-                displayName: this.identity.user,
-                email: this.identity.email,
-                role: String(payload?.role || this.authz?.role || '')
-            });
-            if (feedback) {
-                feedback.textContent = 'Saved';
-                feedback.className = 'text-xs text-green-700';
-            }
-            this.showSuccess('Profile updated.');
-            if (this.currentTab === 'settings') {
-                await this.loadSettingsData();
-            }
-        } catch (error) {
-            if (feedback) {
-                feedback.textContent = error.message || 'Failed to save profile.';
-                feedback.className = 'text-xs text-red-600';
-            }
-            this.showError(error.message || 'Failed to save profile.');
-        } finally {
-            saveButton.disabled = false;
-        }
+        return saveDashboardProfileSettings(this);
     }
 
     saveDashboardPreferencesFromSettings() {
-        const defaultTabField = document.getElementById('settings-default-tab');
-        const refreshField = document.getElementById('settings-refresh-interval');
-        const feedback = document.getElementById('settings-preferences-feedback');
-        const nextPreferences = {
-            defaultTab: String(defaultTabField?.value || 'overview').trim().toLowerCase(),
-            refreshIntervalMs: Number(refreshField?.value || 60000)
-        };
-        this.persistDashboardPreferences(nextPreferences);
-        if (feedback) {
-            feedback.textContent = 'Saved';
-            feedback.className = 'text-xs text-green-700';
-        }
-        this.showSuccess('Dashboard preferences updated.');
-        this.applyRefreshIntervalPreference();
+        return saveDashboardSettingsPreferences(this);
     }
 
     resetDashboardPreferencesFromSettings() {
-        const defaults = { defaultTab: 'overview', refreshIntervalMs: 60000 };
-        const defaultTabField = document.getElementById('settings-default-tab');
-        const refreshField = document.getElementById('settings-refresh-interval');
-        const feedback = document.getElementById('settings-preferences-feedback');
-        if (defaultTabField) defaultTabField.value = defaults.defaultTab;
-        if (refreshField) refreshField.value = String(defaults.refreshIntervalMs);
-        this.persistDashboardPreferences(defaults);
-        if (feedback) {
-            feedback.textContent = 'Reset to defaults';
-            feedback.className = 'text-xs text-green-700';
-        }
-        this.showSuccess('Dashboard preferences reset.');
-        this.applyRefreshIntervalPreference();
+        return resetDashboardSettingsPreferences(this);
     }
 
     async loadExternalScriptOnce(src, globalKey) {
@@ -3654,87 +2497,11 @@ class BaselineDashboard {
     }
 
     async getSupabaseSettingsClient() {
-        if (this.supabaseClient) {
-            return this.supabaseClient;
-        }
-        await this.loadExternalScriptOnce('/js/runtime-config.js', 'RUNTIME_CONFIG');
-        await this.loadExternalScriptOnce('/js/supabase-config.js', 'getSupabaseConfig');
-        await this.loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', 'supabase');
-        const config = window.getSupabaseConfig ? window.getSupabaseConfig() : window.SUPABASE_CONFIG;
-        if (!config?.url || !config?.anonKey) {
-            throw new Error('Supabase runtime config is unavailable.');
-        }
-        this.supabaseClient = window.supabase.createClient(config.url, config.anonKey, {
-            auth: {
-                autoRefreshToken: true,
-                persistSession: true,
-                detectSessionInUrl: false
-            }
-        });
-        return this.supabaseClient;
+        return getDashboardSupabaseSettingsClient(this);
     }
 
     async savePasswordSettings() {
-        const passwordField = document.getElementById('settings-new-password');
-        const confirmField = document.getElementById('settings-confirm-password');
-        const feedback = document.getElementById('settings-password-feedback');
-        const saveButton = document.getElementById('settings-password-save');
-        if (!passwordField || !confirmField || !saveButton) {
-            return;
-        }
-
-        const password = String(passwordField.value || '');
-        const confirmPassword = String(confirmField.value || '');
-        if (password.length < 8) {
-            this.showError('Password must be at least 8 characters.');
-            if (feedback) {
-                feedback.textContent = 'Password must be at least 8 characters.';
-                feedback.className = 'text-xs text-red-600';
-            }
-            return;
-        }
-        if (password !== confirmPassword) {
-            this.showError('Passwords do not match.');
-            if (feedback) {
-                feedback.textContent = 'Passwords do not match.';
-                feedback.className = 'text-xs text-red-600';
-            }
-            return;
-        }
-
-        saveButton.disabled = true;
-        if (feedback) {
-            feedback.textContent = 'Saving...';
-            feedback.className = 'text-xs text-gray-500';
-        }
-
-        try {
-            const supabaseClient = await this.getSupabaseSettingsClient();
-            const sessionResult = await supabaseClient.auth.getSession();
-            if (!sessionResult?.data?.session) {
-                throw new Error('Password change requires a fresh sign-in.');
-            }
-            const result = await supabaseClient.auth.updateUser({ password });
-            if (result?.error) {
-                throw result.error;
-            }
-            passwordField.value = '';
-            confirmField.value = '';
-            if (feedback) {
-                feedback.textContent = 'Password updated';
-                feedback.className = 'text-xs text-green-700';
-            }
-            this.showSuccess('Password updated.');
-        } catch (error) {
-            const message = error?.message || 'Failed to update password.';
-            if (feedback) {
-                feedback.textContent = message;
-                feedback.className = 'text-xs text-red-600';
-            }
-            this.showError(message);
-        } finally {
-            saveButton.disabled = false;
-        }
+        return saveDashboardPasswordSettings(this);
     }
 
     async loadUsersTabData() {
@@ -3786,346 +2553,27 @@ class BaselineDashboard {
     }
 
     renderUsersTab(users, errorMessage = '') {
-        const usersTab = document.getElementById('users-tab');
-        if (!usersTab) {
-            return;
-        }
-
-        if (!this.isAdmin()) {
-            usersTab.innerHTML = `
-                <div class="bg-white rounded-lg border border-amber-200 p-6">
-                    <h3 class="text-lg font-semibold text-amber-900">Users</h3>
-                    <p class="text-sm text-amber-700 mt-1">Admin access is required.</p>
-                </div>
-            `;
-            return;
-        }
-
-        const userList = Array.isArray(users) ? users : [];
-        const filters = this.userState.filters || {};
-        const sortBy = String(filters.sortBy || 'updated_at').trim().toLowerCase();
-        const sortDir = String(filters.sortDir || 'desc').trim().toLowerCase() === 'asc' ? 'asc' : 'desc';
-        const totalCount = Number(this.userState.total || userList.length);
-        const limit = Number(this.userState.limit || filters.limit || 100);
-        const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 100;
-        const offset = Number(this.userState.offset || 0);
-        const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
-        const safePage = Math.max(1, Math.floor(safeOffset / safeLimit) + 1);
-        const totalPages = Math.max(1, Math.ceil(totalCount / safeLimit));
-        const start = safeOffset;
-        const pageRows = userList;
-        const selected = this.userState.selected;
-        const selectedActivity = Array.isArray(this.userState.selectedActivity) ? this.userState.selectedActivity : [];
-        const selectedActivityFilters = this.userState.selectedActivityFilters || { eventType: '', from: '', to: '' };
-        const selectedActivityTypeOptions = this.userActivityEventTypeOptions(selectedActivity, selectedActivityFilters.eventType);
-        const selectedActivityRows = selectedActivity.length
-            ? selectedActivity.map((event) => `
-                <tr>
-                    <td class="px-3 py-2 text-xs text-gray-700">${this.escapeHtml(this.formatDate(event.created_at))}</td>
-                    <td class="px-3 py-2 text-xs text-gray-900">${this.escapeHtml(event.event_type || '-')}</td>
-                    <td class="px-3 py-2 text-xs text-gray-700">${this.escapeHtml(event.project_id || '-')}</td>
-                    <td class="px-3 py-2 text-xs text-gray-700">${this.escapeHtml(event.scan_id || '-')}</td>
-                    <td class="px-3 py-2 text-xs text-gray-500">${this.escapeHtml(event.request_id || '-')}</td>
-                </tr>
-            `).join('')
-            : `
-                <tr>
-                    <td colspan="5" class="px-3 py-3 text-xs text-gray-500 text-center">No activity events found for this user.</td>
-                </tr>
-            `;
-        const detailPanel = selected
-            ? `
-                <div class="mx-6 mt-4 mb-2 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                        <div>
-                            <h4 class="text-sm font-semibold text-blue-900">Selected User</h4>
-                            <p class="mt-1 text-xs text-blue-800">Basic edits are limited to role and status. Identity data stays read-only.</p>
-                        </div>
-                        <button type="button" id="users-detail-clear" class="text-xs text-blue-700 hover:text-blue-900 font-medium">Clear</button>
-                    </div>
-                    <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                        <p><span class="text-gray-600">ID:</span> <span class="font-mono text-gray-900">${this.escapeHtml(selected.id || '-')}</span></p>
-                        <p><span class="text-gray-600">Email:</span> <span class="text-gray-900">${this.escapeHtml(selected.email || '-')}</span></p>
-                        <p><span class="text-gray-600">Role:</span> <span class="text-gray-900">${this.escapeHtml(selected.role || '-')}</span></p>
-                        <p><span class="text-gray-600">Status:</span> <span class="text-gray-900">${this.escapeHtml(selected.status || '-')}</span></p>
-                        <p><span class="text-gray-600">Provider:</span> <span class="text-gray-900">${this.escapeHtml(selected.provider || '-')}</span></p>
-                        <p><span class="text-gray-600">Last login:</span> <span class="text-gray-900">${this.escapeHtml(this.formatDate(selected.last_login_at))}</span></p>
-                    </div>
-                    <div class="mt-3 rounded-lg border border-blue-200 bg-white p-3">
-                        <div class="flex flex-col md:flex-row md:items-end gap-3">
-                            <div>
-                                <label for="admin-user-detail-role" class="block text-[11px] font-medium uppercase tracking-wide text-gray-500 mb-1">Role</label>
-                                <select id="admin-user-detail-role" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                                    <option value="viewer"${String(selected.role || '').toLowerCase() === 'viewer' ? ' selected' : ''}>viewer</option>
-                                    <option value="operator"${String(selected.role || '').toLowerCase() === 'operator' ? ' selected' : ''}>operator</option>
-                                    <option value="admin"${String(selected.role || '').toLowerCase() === 'admin' ? ' selected' : ''}>admin</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label for="admin-user-detail-status" class="block text-[11px] font-medium uppercase tracking-wide text-gray-500 mb-1">Status</label>
-                                <select id="admin-user-detail-status" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                                    <option value="active"${String(selected.status || '').toLowerCase() === 'active' ? ' selected' : ''}>active</option>
-                                    <option value="suspended"${String(selected.status || '').toLowerCase() === 'suspended' ? ' selected' : ''}>suspended</option>
-                                </select>
-                            </div>
-                            <div class="flex items-center gap-2 md:ml-auto">
-                                <button
-                                    type="button"
-                                    class="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-xs font-medium"
-                                    onclick="window.baselineDashboard && window.baselineDashboard.submitAdminUserUpdate(decodeURIComponent('${encodeURIComponent(String(selected.id || ''))}'),'detail')"
-                                >
-                                    Save Access
-                                </button>
-                                <button
-                                    type="button"
-                                    class="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-xs font-medium"
-                                    onclick="window.baselineDashboard && window.baselineDashboard.setSelectedUserStatus(decodeURIComponent('${encodeURIComponent(String(selected.id || ''))}'),'${String(selected.status || '').toLowerCase() === 'suspended' ? 'active' : 'suspended'}')"
-                                >
-                                    ${String(selected.status || '').toLowerCase() === 'suspended' ? 'Activate' : 'Suspend'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="mt-3 rounded-lg border border-blue-200 bg-white">
-                        <div class="px-3 py-2 border-b border-blue-100 flex items-center justify-between">
-                            <p class="text-xs font-semibold text-gray-900">Recent Activity</p>
-                            <p class="text-[11px] text-gray-500">Showing ${selectedActivity.length} of ${Number(this.userState.selectedActivityTotal || 0)}</p>
-                        </div>
-                        <div class="px-3 py-2 border-b border-blue-100 bg-blue-50/40">
-                            <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-                                <div>
-                                    <input id="users-activity-filter-event-type" list="users-activity-event-type-list" type="text" value="${this.escapeHtml(selectedActivityFilters.eventType || '')}" placeholder="event_type (optional)" class="w-full px-2 py-1 border border-gray-300 rounded text-xs">
-                                    <datalist id="users-activity-event-type-list">
-                                        ${selectedActivityTypeOptions}
-                                    </datalist>
-                                </div>
-                                <input id="users-activity-filter-from" type="datetime-local" value="${this.escapeHtml(selectedActivityFilters.from || '')}" class="px-2 py-1 border border-gray-300 rounded text-xs">
-                                <input id="users-activity-filter-to" type="datetime-local" value="${this.escapeHtml(selectedActivityFilters.to || '')}" class="px-2 py-1 border border-gray-300 rounded text-xs">
-                                <div class="flex items-center gap-2 justify-start md:justify-end">
-                                    <button id="users-activity-filter-apply" type="button" class="px-3 py-1.5 bg-blue-700 text-white rounded text-xs hover:bg-blue-800">Apply</button>
-                                    <button id="users-activity-filter-reset" type="button" class="px-3 py-1.5 border border-gray-300 text-gray-700 rounded text-xs hover:bg-gray-50">Reset</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                                        <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Event</th>
-                                        <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                        <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Scan</th>
-                                        <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Request ID</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="bg-white divide-y divide-gray-100">
-                                    ${selectedActivityRows}
-                                </tbody>
-                            </table>
-                        </div>
-                        <div class="px-3 py-2 border-t border-blue-100 flex items-center justify-end">
-                            <button id="users-activity-load-more" type="button" class="px-3 py-1.5 border border-gray-300 rounded text-xs ${this.userState.selectedActivityHasMore ? 'text-gray-700 hover:bg-gray-50' : 'text-gray-400 bg-gray-100 cursor-not-allowed'}" ${this.userState.selectedActivityHasMore ? '' : 'disabled aria-disabled="true"'}>Load More</button>
-                        </div>
-                    </div>
-                </div>
-            `
-            : '';
-        const rows = pageRows.length
-            ? pageRows.map((user) => {
-                const userID = String(user.id || '').trim();
-                const rowKey = this.adminUserRowKey(userID);
-                const role = String(user.role || 'viewer').toLowerCase();
-                const status = String(user.status || 'active').toLowerCase();
-                return `
-                    <tr>
-                        <td class="px-4 py-3 text-sm text-gray-900">${this.escapeHtml(user.email || user.display_name || userID)}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700">${this.escapeHtml(userID)}</td>
-                        <td class="px-4 py-3">
-                            <select id="admin-user-role-${rowKey}" class="px-2 py-1 border border-gray-300 rounded text-sm">
-                                <option value="viewer"${role === 'viewer' ? ' selected' : ''}>viewer</option>
-                                <option value="operator"${role === 'operator' ? ' selected' : ''}>operator</option>
-                                <option value="admin"${role === 'admin' ? ' selected' : ''}>admin</option>
-                            </select>
-                        </td>
-                        <td class="px-4 py-3">
-                            <select id="admin-user-status-${rowKey}" class="px-2 py-1 border border-gray-300 rounded text-sm">
-                                <option value="active"${status === 'active' ? ' selected' : ''}>active</option>
-                                <option value="suspended"${status === 'suspended' ? ' selected' : ''}>suspended</option>
-                            </select>
-                        </td>
-                        <td class="px-4 py-3 text-sm text-gray-700">${this.escapeHtml(this.formatDate(user.last_login_at))}</td>
-                        <td class="px-4 py-3 text-sm">
-                            <button
-                                type="button"
-                                class="px-3 py-1 mr-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-xs font-medium"
-                                onclick="window.baselineDashboard && window.baselineDashboard.viewAdminUserDetail(decodeURIComponent('${encodeURIComponent(userID)}'))"
-                            >
-                                View
-                            </button>
-                            <button
-                                type="button"
-                                class="px-3 py-1 bg-orange-600 text-white rounded hover:bg-orange-700 text-xs font-medium"
-                                onclick="window.baselineDashboard && window.baselineDashboard.submitAdminUserUpdate(decodeURIComponent('${encodeURIComponent(userID)}'),'row')"
-                            >
-                                Save Access
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            }).join('')
-            : `
-                <tr>
-                    <td colspan="6" class="px-4 py-4 text-sm text-gray-500 text-center">No users found.</td>
-                </tr>
-            `;
-
-        usersTab.innerHTML = `
-            <div class="bg-white rounded-lg border border-gray-200">
-                <div class="p-6 border-b border-gray-200">
-                    <h3 class="text-lg font-semibold text-gray-900">Users</h3>
-                    <p class="text-sm text-gray-700 mt-1">Basic user administration for role and access status.</p>
-                    <p class="text-xs text-gray-500 mt-1">Backed by <code>/v1/users</code> and <code>/v1/users/{id}</code>.</p>
-                    <div class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
-                        <input id="users-filter-q" type="text" value="${this.escapeHtml(filters.q || '')}" placeholder="Search user/email..." class="md:col-span-2 px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                        <select id="users-filter-role" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                            <option value="all"${String(filters.role || 'all') === 'all' ? ' selected' : ''}>All roles</option>
-                            <option value="viewer"${String(filters.role || '') === 'viewer' ? ' selected' : ''}>viewer</option>
-                            <option value="operator"${String(filters.role || '') === 'operator' ? ' selected' : ''}>operator</option>
-                            <option value="admin"${String(filters.role || '') === 'admin' ? ' selected' : ''}>admin</option>
-                        </select>
-                        <select id="users-filter-status" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                            <option value="all"${String(filters.status || 'all') === 'all' ? ' selected' : ''}>All status</option>
-                            <option value="active"${String(filters.status || '') === 'active' ? ' selected' : ''}>active</option>
-                            <option value="suspended"${String(filters.status || '') === 'suspended' ? ' selected' : ''}>suspended</option>
-                        </select>
-                        <select id="users-filter-limit" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                            <option value="25"${Number(filters.limit || 100) === 25 ? ' selected' : ''}>Limit 25</option>
-                            <option value="50"${Number(filters.limit || 100) === 50 ? ' selected' : ''}>Limit 50</option>
-                            <option value="100"${Number(filters.limit || 100) === 100 ? ' selected' : ''}>Limit 100</option>
-                            <option value="200"${Number(filters.limit || 100) === 200 ? ' selected' : ''}>Limit 200</option>
-                        </select>
-                    </div>
-                    <div class="mt-3 flex items-center gap-2">
-                        <button id="users-filter-apply" type="button" class="px-3 py-1.5 bg-orange-600 text-white rounded hover:bg-orange-700 text-xs font-medium">Apply</button>
-                        <button id="users-filter-reset" type="button" class="px-3 py-1.5 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-xs font-medium">Reset</button>
-                        <span class="text-xs text-gray-500">Showing ${totalCount === 0 ? 0 : start + 1}-${Math.min(start + pageRows.length, totalCount)} of ${totalCount} | Sort: ${this.userSortDescriptor(sortBy, sortDir)}</span>
-                    </div>
-                    <p id="admin-users-feedback" class="mt-2 text-xs ${errorMessage ? 'text-red-600' : 'text-gray-500'}">${this.escapeHtml(errorMessage || 'Edit role or status, then save from the row or the selected user panel.')}</p>
-                </div>
-                ${detailPanel}
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    <button id="users-sort-user" type="button" class="flex items-center gap-1 hover:text-gray-700">
-                                        User <span class="text-[10px]">${this.userSortIndicator('user', sortBy, sortDir)}</span>
-                                    </button>
-                                </th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User ID</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    <button id="users-sort-role" type="button" class="flex items-center gap-1 hover:text-gray-700">
-                                        Role <span class="text-[10px]">${this.userSortIndicator('role', sortBy, sortDir)}</span>
-                                    </button>
-                                </th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    <button id="users-sort-status" type="button" class="flex items-center gap-1 hover:text-gray-700">
-                                        Status <span class="text-[10px]">${this.userSortIndicator('status', sortBy, sortDir)}</span>
-                                    </button>
-                                </th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    <button id="users-sort-last-login" type="button" class="flex items-center gap-1 hover:text-gray-700">
-                                        Last Login <span class="text-[10px]">${this.userSortIndicator('last_login_at', sortBy, sortDir)}</span>
-                                    </button>
-                                </th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">${rows}</tbody>
-                    </table>
-                </div>
-                <div class="px-6 py-3 border-t border-gray-200 flex items-center justify-between">
-                    <p class="text-xs text-gray-500">Page ${safePage} of ${totalPages}</p>
-                    <div class="flex items-center gap-2">
-                        <button id="users-page-prev" type="button" class="px-3 py-1.5 border border-gray-300 rounded text-xs ${safePage <= 1 ? 'text-gray-400 bg-gray-100 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-50'}" ${safePage <= 1 ? 'disabled aria-disabled="true"' : ''}>Previous</button>
-                        <button id="users-page-next" type="button" class="px-3 py-1.5 border border-gray-300 rounded text-xs ${!this.userState.hasMore ? 'text-gray-400 bg-gray-100 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-50'}" ${!this.userState.hasMore ? 'disabled aria-disabled="true"' : ''}>Next</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        this.bindUsersTabControls();
+        return renderDashboardUsersTab(this, users, errorMessage);
     }
 
     sortUsersRows(users, sortBy, sortDir) {
-        const rows = Array.isArray(users) ? [...users] : [];
-        const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
-        rows.sort((left, right) => {
-            let comparison = 0;
-            switch (sortBy) {
-                case 'role':
-                    comparison = collator.compare(
-                        String(left?.role || '').toLowerCase(),
-                        String(right?.role || '').toLowerCase()
-                    );
-                    break;
-                case 'status':
-                    comparison = collator.compare(
-                        String(left?.status || '').toLowerCase(),
-                        String(right?.status || '').toLowerCase()
-                    );
-                    break;
-                case 'last_login_at':
-                    comparison = this.getUserSortTime(left?.last_login_at) - this.getUserSortTime(right?.last_login_at);
-                    break;
-                case 'created_at':
-                    comparison = this.getUserSortTime(left?.created_at) - this.getUserSortTime(right?.created_at);
-                    break;
-                case 'updated_at':
-                    comparison = this.getUserSortTime(left?.updated_at) - this.getUserSortTime(right?.updated_at);
-                    break;
-                case 'user':
-                default:
-                    comparison = collator.compare(
-                        this.getUserSortText(left),
-                        this.getUserSortText(right)
-                    );
-                    break;
-            }
-            if (comparison === 0) {
-                comparison = collator.compare(String(left?.id || ''), String(right?.id || ''));
-            }
-            return sortDir === 'asc' ? comparison : -comparison;
-        });
-        return rows;
+        return sortDashboardUsersRows(this, users, sortBy, sortDir);
     }
 
     getUserSortText(user) {
-        return String(user?.email || user?.display_name || user?.id || '').toLowerCase();
+        return getDashboardUserSortText(user);
     }
 
     getUserSortTime(value) {
-        const parsed = Date.parse(String(value || ''));
-        return Number.isNaN(parsed) ? 0 : parsed;
+        return getDashboardUserSortTime(value);
     }
 
     userSortIndicator(key, activeBy, activeDir) {
-        if (String(key) !== String(activeBy)) {
-            return '↕';
-        }
-        return String(activeDir) === 'asc' ? '▲' : '▼';
+        return getDashboardUserSortIndicator(key, activeBy, activeDir);
     }
 
     userSortDescriptor(sortBy, sortDir) {
-        const labels = {
-            user: 'user',
-            role: 'role',
-            status: 'status',
-            last_login_at: 'last login',
-            created_at: 'created',
-            updated_at: 'updated'
-        };
-        const base = labels[String(sortBy || '').toLowerCase()] || 'updated';
-        return `${base} ${String(sortDir) === 'asc' ? 'asc' : 'desc'}`;
+        return getDashboardUserSortDescriptor(sortBy, sortDir);
     }
 
     knownUserActivityEventTypes() {
@@ -4366,162 +2814,61 @@ class BaselineDashboard {
                 await this.loadMoreSelectedUserActivity();
             });
         }
+
+        document.querySelectorAll('[data-user-action]').forEach((button) => {
+            if (button.dataset.bound === '1') {
+                return;
+            }
+            button.dataset.bound = '1';
+            button.addEventListener('click', async () => {
+                const action = String(button.getAttribute('data-user-action') || '').trim().toLowerCase();
+                const userID = String(button.getAttribute('data-user-id') || '').trim();
+                if (!userID) {
+                    return;
+                }
+                if (action === 'view') {
+                    await this.viewAdminUserDetail(userID);
+                    return;
+                }
+                if (action === 'save') {
+                    const source = String(button.getAttribute('data-user-source') || 'row').trim().toLowerCase();
+                    await this.submitAdminUserUpdate(userID, source);
+                    return;
+                }
+                if (action === 'toggle-status') {
+                    const nextStatus = String(button.getAttribute('data-user-next-status') || '').trim().toLowerCase();
+                    await this.setSelectedUserStatus(userID, nextStatus);
+                }
+            });
+        });
     }
 
     async viewAdminUserDetail(userID) {
-        const id = String(userID || '').trim();
-        if (!id || !this.isAdmin()) {
-            return;
-        }
-        try {
-            const detailPath = `/v1/users/${encodeURIComponent(id)}`;
-            const activityPath = this.buildSelectedUserActivityPath(id, Number(this.userState.selectedActivityLimit || 10), 0);
-            const [detail, activity] = await Promise.all([
-                this.apiRequest(detailPath),
-                this.apiRequest(activityPath)
-            ]);
-            this.userState.selected = detail && typeof detail === 'object' ? detail : null;
-            const firstPageEvents = Array.isArray(activity?.events) ? activity.events : [];
-            const firstPageOffset = Number(activity?.offset || 0);
-            this.userState.selectedActivity = firstPageEvents;
-            this.userState.selectedActivityTotal = Number(activity?.total || firstPageEvents.length);
-            this.userState.selectedActivityOffset = firstPageOffset + firstPageEvents.length;
-            this.userState.selectedActivityHasMore = activity?.has_more === true;
-            this.renderUsersTab(this.userState.rows);
-        } catch (error) {
-            this.showError(error.message || 'Failed to load user detail.');
-        }
+        return viewDashboardAdminUserDetail(this, userID);
     }
 
     buildSelectedUserActivityPath(userID, limit, offset) {
-        const safeUserID = String(userID || '').trim();
-        const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : 10;
-        const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0;
-        const params = new URLSearchParams();
-        params.set('limit', String(safeLimit));
-        params.set('offset', String(safeOffset));
-
-        const filters = this.userState.selectedActivityFilters || {};
-        const eventType = String(filters.eventType || '').trim().toLowerCase();
-        if (eventType) {
-            params.set('event_type', eventType);
-        }
-
-        const fromRFC3339 = this.activityFilterDateToRFC3339(filters.from);
-        if (fromRFC3339) {
-            params.set('from', fromRFC3339);
-        }
-        const toRFC3339 = this.activityFilterDateToRFC3339(filters.to);
-        if (toRFC3339) {
-            params.set('to', toRFC3339);
-        }
-
-        return `/v1/users/${encodeURIComponent(safeUserID)}/activity?${params.toString()}`;
+        return buildDashboardSelectedUserActivityPath(this, userID, limit, offset);
     }
 
     activityFilterDateToRFC3339(raw) {
-        const value = String(raw || '').trim();
-        if (!value) {
-            return '';
-        }
-        const parsed = new Date(value);
-        if (Number.isNaN(parsed.getTime())) {
-            return '';
-        }
-        return parsed.toISOString();
+        return toDashboardActivityFilterDate(raw);
     }
 
     async loadMoreSelectedUserActivity() {
-        const selectedID = String(this.userState.selected?.id || '').trim();
-        if (!selectedID || !this.userState.selectedActivityHasMore) {
-            return;
-        }
-        const limit = Number(this.userState.selectedActivityLimit || 10);
-        const nextOffset = Number(this.userState.selectedActivityOffset || 0);
-        const path = this.buildSelectedUserActivityPath(selectedID, limit, nextOffset);
-        try {
-            const activity = await this.apiRequest(path);
-            const additional = Array.isArray(activity?.events) ? activity.events : [];
-            this.userState.selectedActivity = [...this.userState.selectedActivity, ...additional];
-            this.userState.selectedActivityTotal = Number(activity?.total || this.userState.selectedActivity.length);
-            this.userState.selectedActivityOffset = Number(activity?.offset || nextOffset) + additional.length;
-            this.userState.selectedActivityHasMore = activity?.has_more === true;
-            this.renderUsersTab(this.userState.rows);
-        } catch (error) {
-            this.showError(error.message || 'Failed to load more user activity.');
-        }
+        return loadMoreDashboardSelectedUserActivity(this);
     }
 
     adminUserRowKey(userID) {
-        return String(userID || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        return getDashboardAdminUserRowKey(userID);
     }
 
     async setSelectedUserStatus(userID, status) {
-        const id = String(userID || '').trim();
-        const nextStatus = String(status || '').trim().toLowerCase();
-        const detailStatusField = document.getElementById('admin-user-detail-status');
-        if (detailStatusField && (nextStatus === 'active' || nextStatus === 'suspended')) {
-            detailStatusField.value = nextStatus;
-        }
-        await this.submitAdminUserUpdate(id, 'detail');
+        return setDashboardSelectedUserStatus(this, userID, status);
     }
 
     async submitAdminUserUpdate(userID, source = 'row') {
-        const id = String(userID || '').trim();
-        if (!id) {
-            this.showError('Invalid user id.');
-            return;
-        }
-        const rowKey = this.adminUserRowKey(id);
-        const roleField = source === 'detail'
-            ? document.getElementById('admin-user-detail-role')
-            : document.getElementById(`admin-user-role-${rowKey}`);
-        const statusField = source === 'detail'
-            ? document.getElementById('admin-user-detail-status')
-            : document.getElementById(`admin-user-status-${rowKey}`);
-        const feedback = document.getElementById('admin-users-feedback');
-        if (!roleField || !statusField) {
-            this.showError('User controls are not available.');
-            return;
-        }
-        const role = String(roleField.value || '').trim().toLowerCase();
-        const status = String(statusField.value || '').trim().toLowerCase();
-        if (feedback) {
-            feedback.textContent = `Updating ${id}...`;
-            feedback.className = 'mt-2 text-xs text-gray-500';
-        }
-        try {
-            const updatedUser = await this.apiRequest(`/v1/users/${encodeURIComponent(id)}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role, status })
-            });
-            if (updatedUser && typeof updatedUser === 'object') {
-                this.userState.byID.set(id, updatedUser);
-                if (this.userState.selected && String(this.userState.selected.id || '').trim() === id) {
-                    this.userState.selected = updatedUser;
-                }
-            }
-            await this.loadUsersData(true);
-            if (this.currentTab === 'users') {
-                await this.loadUsersTabData();
-            }
-            const refreshedFeedback = document.getElementById('admin-users-feedback');
-            if (refreshedFeedback) {
-                refreshedFeedback.textContent = `Updated ${id} successfully.`;
-                refreshedFeedback.className = 'mt-2 text-xs text-green-700';
-            }
-            this.showSuccess(`Updated ${id}.`);
-            if (this.currentTab === 'keys') {
-                await this.loadApiKeysData();
-            }
-        } catch (error) {
-            if (feedback) {
-                feedback.textContent = error.message || `Failed to update ${id}.`;
-                feedback.className = 'mt-2 text-xs text-red-600';
-            }
-            this.showError(error.message || `Failed to update ${id}.`);
-        }
+        return submitDashboardAdminUserUpdate(this, userID, source);
     }
 
     async loadAuditData() {
@@ -4537,6 +2884,66 @@ class BaselineDashboard {
         } catch (error) {
             this.showError(error.message || 'Failed to load audit events');
             this.renderAuditTable([]);
+        }
+    }
+
+    async loadCLITelemetryData() {
+        if (!this.isAdmin()) {
+            const cliTab = document.getElementById('cli-tab');
+            if (cliTab) {
+                cliTab.innerHTML = `
+                    <div class="bg-white rounded-lg border border-gray-200 p-6">
+                        <h3 class="text-lg font-semibold text-gray-900">CLI Telemetry</h3>
+                        <p class="text-sm text-gray-700 mt-1">Admin role is required.</p>
+                    </div>
+                `;
+            }
+            return;
+        }
+        try {
+            const payload = await this.apiRequest('/v1/cli/traces?limit=250');
+            this.cliState.traces = Array.isArray(payload?.traces) ? payload.traces : [];
+            this.renderCLITelemetryPanel();
+        } catch (error) {
+            const cliTab = document.getElementById('cli-tab');
+            if (cliTab) {
+                cliTab.innerHTML = `
+                    <div class="bg-white rounded-lg border border-gray-200 p-6">
+                        <h3 class="text-lg font-semibold text-gray-900">CLI Telemetry</h3>
+                        <p class="text-sm text-red-600 mt-1">${this.escapeHtml(error.message || 'Failed to load CLI telemetry')}</p>
+                    </div>
+                `;
+            }
+        }
+    }
+
+    async openCLITraceDetail(traceID) {
+        const normalizedID = String(traceID || '').trim();
+        if (!normalizedID) {
+            this.showError('Invalid trace selected.');
+            return;
+        }
+        this.cliState.selectedTraceID = normalizedID;
+        this.renderCLITraceDetailContent(null, true);
+        openDashboardModal('cliTraceDetailModal');
+
+        if (this.cliState.details[normalizedID]) {
+            this.renderCLITraceDetailContent(this.cliState.details[normalizedID]);
+            return;
+        }
+
+        try {
+            const trace = await this.apiRequest(`/v1/cli/traces/${encodeURIComponent(normalizedID)}`);
+            this.cliState.details[normalizedID] = trace;
+            if (this.cliState.selectedTraceID !== normalizedID) {
+                return;
+            }
+            this.renderCLITraceDetailContent(trace);
+        } catch (error) {
+            if (this.cliState.selectedTraceID !== normalizedID) {
+                return;
+            }
+            this.renderCLITraceDetailContent(null, false, error.message || 'Failed to load trace detail.');
         }
     }
 
@@ -4557,192 +2964,23 @@ class BaselineDashboard {
     }
 
     renderScansTable(scans) {
-        const scansTab = document.getElementById('scans-tab');
-        if (!scansTab) return;
-        const canRunScans = this.hasCapability('scans.run');
-        const runScanButton = canRunScans
-            ? `<button onclick="openModal('runScanModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">Run New Scan</button>`
-            : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Run New Scan</button>`;
+        return renderDashboardScansTable(this, scans);
+    }
 
-        const uniqueProjects = Array.from(new Set(scans.map(scan => scan.project_name))).sort((a, b) => a.localeCompare(b));
-        const projectOptions = uniqueProjects
-            .map(name => `<option value="${this.escapeHtml(name)}">${this.escapeHtml(name)}</option>`)
-            .join('');
-
-        scansTab.innerHTML = `
-            <div class="bg-white rounded-lg border border-gray-200">
-                <div class="p-6 border-b border-gray-200 flex items-center justify-between gap-4">
-                    <div>
-                        <h3 class="text-lg font-semibold text-gray-900">Scan History</h3>
-                        <p class="text-sm text-gray-700 mt-1">Real scan results from the Baseline API</p>
-                    </div>
-                    ${runScanButton}
-                </div>
-                <div class="p-4 border-b border-gray-200 bg-gray-50 flex flex-wrap items-end gap-3">
-                    <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                        <select id="scans-status-filter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                            <option value="all">All</option>
-                            <option value="pass">Pass</option>
-                            <option value="fail">Fail</option>
-                            <option value="warn">Warn</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">Project</label>
-                        <select id="scans-project-filter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                            <option value="all">All</option>
-                            ${projectOptions}
-                        </select>
-                    </div>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Violations</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failure Details</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reports</th>
-                            </tr>
-                        </thead>
-                        <tbody id="scans-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                    </table>
-                </div>
-                <div class="p-4 border-t border-gray-200 flex items-center justify-between">
-                    <p id="scans-page-meta" class="text-sm text-gray-600"></p>
-                    <div class="flex items-center gap-2">
-                        <button id="scans-prev-page" class="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">Previous</button>
-                        <button id="scans-next-page" class="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50">Next</button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        this.bindScansControls();
-        this.applyScansFiltersAndRender();
+    renderScansPage(filtered, start, end, pageItems, totalPages) {
+        return renderDashboardScansPage(this, filtered, start, end, pageItems, totalPages);
     }
 
     bindScansControls() {
-        const statusFilter = document.getElementById('scans-status-filter');
-        const projectFilter = document.getElementById('scans-project-filter');
-        const prevBtn = document.getElementById('scans-prev-page');
-        const nextBtn = document.getElementById('scans-next-page');
-
-        if (statusFilter) {
-            statusFilter.value = this.scanState.statusFilter;
-            statusFilter.addEventListener('change', () => {
-                this.scanState.statusFilter = statusFilter.value || 'all';
-                this.scanState.page = 1;
-                this.applyScansFiltersAndRender();
-            });
-        }
-        if (projectFilter) {
-            projectFilter.value = this.scanState.projectFilter;
-            projectFilter.addEventListener('change', () => {
-                this.scanState.projectFilter = projectFilter.value || 'all';
-                this.scanState.page = 1;
-                this.applyScansFiltersAndRender();
-            });
-        }
-        if (prevBtn) {
-            prevBtn.addEventListener('click', () => {
-                if (this.scanState.page > 1) {
-                    this.scanState.page -= 1;
-                    this.applyScansFiltersAndRender();
-                }
-            });
-        }
-        if (nextBtn) {
-            nextBtn.addEventListener('click', () => {
-                const totalPages = Math.max(1, Math.ceil(this.scanState.filtered.length / this.scanState.pageSize));
-                if (this.scanState.page < totalPages) {
-                    this.scanState.page += 1;
-                    this.applyScansFiltersAndRender();
-                }
-            });
-        }
+        return bindDashboardScansControls(this);
     }
 
     applyScansFiltersAndRender() {
-        let filtered = [...this.scanState.all];
-        if (this.scanState.statusFilter !== 'all') {
-            filtered = filtered.filter(scan => this.normalizeScanStatus(scan.status) === this.scanState.statusFilter);
-        }
-        if (this.scanState.projectFilter !== 'all') {
-            filtered = filtered.filter(scan => scan.project_name === this.scanState.projectFilter);
-        }
-        this.scanState.filtered = filtered;
-
-        const totalPages = Math.max(1, Math.ceil(filtered.length / this.scanState.pageSize));
-        if (this.scanState.page > totalPages) {
-            this.scanState.page = totalPages;
-        }
-        const start = (this.scanState.page - 1) * this.scanState.pageSize;
-        const end = start + this.scanState.pageSize;
-        const pageItems = filtered.slice(start, end);
-
-        const tableBody = document.getElementById('scans-table-body');
-        if (tableBody) {
-            if (!pageItems.length) {
-                tableBody.innerHTML = `
-                    <tr>
-                        <td colspan="6" class="px-6 py-6 text-sm text-gray-500 text-center">No scans found for the selected filters.</td>
-                    </tr>
-                `;
-            } else {
-                tableBody.innerHTML = pageItems.map(scan => {
-                    const status = this.normalizeScanStatus(scan.status);
-                    const failureDetails = status === 'fail'
-                        ? `${scan.blocking_violations} blocking, ${scan.warnings} warnings${scan.first_violation ? ` - ${this.escapeHtml(scan.first_violation)}` : ''}`
-                        : '-';
-                    return `
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${this.escapeHtml(scan.project_name)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 py-1 text-xs rounded-full ${this.statusBadgeClass(status)}">${this.escapeHtml(status.toUpperCase())}</span>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${scan.violations}</td>
-                            <td class="px-6 py-4 text-sm text-gray-700">${failureDetails}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${this.formatDate(scan.created_at)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                <button type="button" class="scan-report-btn text-orange-600 hover:text-orange-700 mr-2" data-scan-id="${this.escapeHtml(scan.id)}" data-format="json">JSON</button>
-                                <button type="button" class="scan-report-btn text-orange-600 hover:text-orange-700 mr-2" data-scan-id="${this.escapeHtml(scan.id)}" data-format="text">Text</button>
-                                <button type="button" class="scan-report-btn text-orange-600 hover:text-orange-700" data-scan-id="${this.escapeHtml(scan.id)}" data-format="sarif">SARIF</button>
-                            </td>
-                        </tr>
-                    `;
-                }).join('');
-            }
-        }
-
-        this.bindScanReportButtons();
-
-        const meta = document.getElementById('scans-page-meta');
-        if (meta) {
-            const from = filtered.length === 0 ? 0 : start + 1;
-            const to = Math.min(end, filtered.length);
-            meta.textContent = `Showing ${from}-${to} of ${filtered.length} scans`;
-        }
-
-        const prevBtn = document.getElementById('scans-prev-page');
-        const nextBtn = document.getElementById('scans-next-page');
-        if (prevBtn) prevBtn.disabled = this.scanState.page <= 1;
-        if (nextBtn) nextBtn.disabled = this.scanState.page >= totalPages;
+        return applyDashboardScansFiltersAndRender(this);
     }
 
     bindScanReportButtons() {
-        const buttons = document.querySelectorAll('.scan-report-btn');
-        buttons.forEach((button) => {
-            button.addEventListener('click', async (event) => {
-                event.preventDefault();
-                const scanID = button.getAttribute('data-scan-id') || '';
-                const format = button.getAttribute('data-format') || 'json';
-                await this.downloadScanReport(scanID, format);
-            });
-        });
+        bindDashboardScanReportButtons(this);
     }
 
     async downloadScanReport(scanID, format) {
@@ -4895,219 +3133,23 @@ class BaselineDashboard {
     }
 
     renderProjectsTable(projects) {
-        const projectsTab = document.getElementById('projects-tab');
-        if (!projectsTab) return;
-        const canWriteProjects = this.hasCapability('projects.write');
-        const isAdmin = this.isAdmin();
-        const showActions = true;
-        const addProjectButton = canWriteProjects
-            ? `<button onclick="openModal('addProjectModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">Add Project</button>`
-            : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Add Project</button>`;
-        const editActionHeader = showActions
-            ? `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>`
-            : '';
-        const ownerHeader = `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>`;
+        renderDashboardProjectsTable(this, projects);
+    }
 
-        if (!Array.isArray(projects) || projects.length === 0) {
-            projectsTab.innerHTML = `
-                <div class="bg-white rounded-lg border border-gray-200 p-6">
-                    <div class="flex items-center justify-between gap-4">
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-900">Projects</h3>
-                            <p class="text-sm text-gray-700 mt-1">No projects found.</p>
-                        </div>
-                        ${addProjectButton}
-                    </div>
-                </div>
-            `;
-            return;
-        }
-
-        projectsTab.innerHTML = `
-            <div class="bg-white rounded-lg border border-gray-200">
-                <div class="p-6 border-b border-gray-200 flex items-center justify-between gap-4">
-                    <div>
-                        <h3 class="text-lg font-semibold text-gray-900">Projects</h3>
-                        <p class="text-sm text-gray-700 mt-1">Live projects and scan posture from backend APIs</p>
-                    </div>
-                    ${addProjectButton}
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repository</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Policy Set</th>
-                                ${ownerHeader}
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scans</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Scan</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                ${editActionHeader}
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            ${projects.map(project => `
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${this.escapeHtml(project.name)}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-700">${this.escapeHtml(project.repository_url || '-')}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(project.default_branch)}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(project.policy_set)}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(this.describeProjectOwner(project.owner_id))}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${project.scan_count}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${this.formatDate(project.last_scan_at)}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <span class="px-2 py-1 text-xs rounded-full ${this.statusBadgeClass(project.last_scan_status)}">${this.escapeHtml(project.last_scan_status.toUpperCase())}</span>
-                                    </td>
-                                    ${showActions ? `
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                            <div class="flex items-center gap-3">
-                                                ${canWriteProjects ? `
-                                                    <button
-                                                        onclick="window.baselineDashboard && window.baselineDashboard.openEditProjectModal(decodeURIComponent('${encodeURIComponent(project.id)}'))"
-                                                        class="text-orange-600 hover:text-orange-700 font-medium"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                ` : ''}
-                                                <button
-                                                    onclick="window.baselineDashboard && window.baselineDashboard.openProjectDetailsModal(decodeURIComponent('${encodeURIComponent(project.id)}'))"
-                                                    class="text-gray-700 hover:text-gray-900 font-medium"
-                                                >
-                                                    View
-                                                </button>
-                                                ${isAdmin ? `
-                                                    <button
-                                                        onclick="window.baselineDashboard && window.baselineDashboard.openProjectOwnerModal(decodeURIComponent('${encodeURIComponent(project.id)}'))"
-                                                        class="text-gray-600 hover:text-gray-900 font-medium"
-                                                    >
-                                                        Assign owner
-                                                    </button>
-                                                ` : ''}
-                                            </div>
-                                        </td>
-                                    ` : ''}
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        `;
+    bindProjectActionButtons(root = document) {
+        bindDashboardProjectActionButtons(this, root);
     }
 
     renderApiKeysTable(apiKeys) {
-        const keysTab = document.getElementById('keys-tab');
-        if (!keysTab) return;
-        const canWriteKeys = this.hasCapability('api_keys.write');
-        const scope = this.resolveAPIKeyScope();
-        const adminScopeControls = this.renderAPIKeyScopeControls();
-        const scopeLabel = scope.mode === 'user'
-            ? `User scope: ${this.escapeHtml(this.apiKeyScopeUserLabel() || 'unknown')}`
-            : scope.mode === 'me'
-                ? 'My keys: API keys linked to your dashboard user'
-                : 'Admin inventory: global key management';
-        const canGenerateInScope = canWriteKeys && (scope.mode !== 'user' || String(this.apiKeyState.targetUserID || '').trim() !== '');
-        const generateKeyButton = canGenerateInScope
-            ? `<button onclick="openModal('generateKeyModal')" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium" style="background-color:#ea580c;color:#ffffff;">Generate Key</button>`
-            : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Generate Key</button>`;
-        const actionsHeader = canWriteKeys
-            ? `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>`
-            : '';
-        const ownerHeader = this.isAdmin()
-            ? `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>`
-            : '';
+        renderDashboardApiKeysTable(this, apiKeys);
+    }
 
-        if (!Array.isArray(apiKeys) || apiKeys.length === 0) {
-            keysTab.innerHTML = `
-                <div class="bg-white rounded-lg border border-gray-200 p-6" style="color:#111827;">
-                    <div class="flex items-center justify-between gap-4">
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-900" style="color:#111827;">API Keys</h3>
-                            <p class="text-sm text-gray-700 mt-1" style="color:#374151;">No API keys found.</p>
-                        </div>
-                        ${generateKeyButton}
-                    </div>
-                    ${adminScopeControls}
-                    <p class="mt-3 text-xs text-gray-500" style="color:#6b7280;">${scopeLabel}</p>
-                </div>
-            `;
-            this.bindAPIKeyScopeControls();
-            return;
-        }
+    bindModalTriggerButtons(root = document) {
+        bindDashboardModalTriggerButtons(root);
+    }
 
-        keysTab.innerHTML = `
-            <div class="bg-white rounded-lg border border-gray-200" style="color:#111827;">
-                <div class="p-6 border-b border-gray-200 flex items-center justify-between gap-4">
-                    <div>
-                        <h3 class="text-lg font-semibold text-gray-900" style="color:#111827;">API Keys</h3>
-                        <p class="text-sm text-gray-700 mt-1" style="color:#374151;">Metadata only. Secrets are never returned after issuance.</p>
-                        <p class="text-xs text-gray-500 mt-1" style="color:#6b7280;">${scopeLabel}</p>
-                    </div>
-                    ${generateKeyButton}
-                </div>
-                ${adminScopeControls}
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Key ID</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prefix</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                                ${ownerHeader}
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                                ${actionsHeader}
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            ${apiKeys.map(key => {
-                                const status = key.revoked ? 'revoked' : 'active';
-                                const role = String(key.role || 'viewer').toLowerCase();
-                                const keyIDEncoded = encodeURIComponent(String(key.id || ''));
-                                const disableRevoke = key.revoked;
-                                return `
-                                    <tr>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${this.escapeHtml(key.name || 'unnamed')}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(key.id || '')}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(key.prefix || '-')}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="px-2 py-1 text-xs rounded-full ${this.roleBadgeClass(role)}">${this.escapeHtml(role)}</span>
-                                        </td>
-                                        ${this.isAdmin() ? `
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                ${this.escapeHtml(key.owner_user_id || key.owner_email || key.owner_subject || '-')}
-                                            </td>
-                                        ` : ''}
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${this.escapeHtml(key.source || '-')}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="px-2 py-1 text-xs rounded-full ${status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${status}</span>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${this.formatDate(key.created_at)}</td>
-                                        ${canWriteKeys ? `
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                                ${disableRevoke ? '<span class="text-gray-400">-</span>' : `
-                                                    <button
-                                                        onclick="window.baselineDashboard && window.baselineDashboard.openRevokeKeyModal(decodeURIComponent('${keyIDEncoded}'))"
-                                                        class="text-red-600 hover:text-red-700 font-medium"
-                                                    >
-                                                        Revoke
-                                                    </button>
-                                                `}
-                                            </td>
-                                        ` : ''}
-                                    </tr>
-                                `;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-        this.bindAPIKeyScopeControls();
+    bindAPIKeyActionButtons(root = document) {
+        bindDashboardAPIKeyActionButtons(this, root);
     }
 
     renderAPIKeyScopeControls() {
@@ -5152,50 +3194,15 @@ class BaselineDashboard {
     }
 
     renderAuditTable(events) {
-        const auditTab = document.getElementById('audit-tab');
-        if (!auditTab) return;
+        renderDashboardAuditTable(this, events);
+    }
 
-        if (!Array.isArray(events) || events.length === 0) {
-            auditTab.innerHTML = `
-                <div class="bg-white rounded-lg border border-gray-200 p-6">
-                    <h3 class="text-lg font-semibold text-gray-900">Audit Log</h3>
-                    <p class="text-sm text-gray-700 mt-1">No audit events found.</p>
-                </div>
-            `;
-            return;
-        }
+    renderCLITelemetryPanel() {
+        renderDashboardCLITelemetryPanel(this);
+    }
 
-        auditTab.innerHTML = `
-            <div class="bg-white rounded-lg border border-gray-200">
-                <div class="p-6 border-b border-gray-200">
-                    <h3 class="text-lg font-semibold text-gray-900">Audit Log</h3>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Type</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scan</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            ${events.map(event => `
-                                <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${this.formatDate(event.created_at)}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${this.escapeHtml(event.event_type || '-')}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${this.escapeHtml(event.project_id || '-')}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${this.escapeHtml(event.scan_id || '-')}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-700">${this.escapeHtml(this.describeAuditEvent(event))}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        `;
+    renderCLITraceDetailContent(trace, isLoading = false, errorMessage = '') {
+        renderDashboardCLITraceDetailContent(this, trace, isLoading, errorMessage);
     }
 
     setCardMetric(card, value, label) {
@@ -5219,6 +3226,10 @@ class BaselineDashboard {
     }
 
     describeAuditEvent(event) {
+        const details = String(event?.details || '').trim();
+        if (details) {
+            return details;
+        }
         const summary = this.describeEventLabel({
             action: event.event_type,
             type: String(event.event_type || '').toLowerCase().startsWith('integration_') ? 'integration' : 'audit'
@@ -5254,6 +3265,14 @@ class BaselineDashboard {
             scan_fail: 'Scan failed',
             scan_warn: 'Scan warned',
             enforcement_failed: 'Release blocked',
+            cli_started: 'CLI command started',
+            cli_completed: 'CLI command completed',
+            cli_health: 'CLI health',
+            cli_warning: 'CLI warning',
+            cli_error: 'CLI error',
+            cli_config_changed: 'CLI configuration changed',
+            cli_report_generated: 'CLI output generated',
+            cli_service_started: 'CLI service started',
             api_key_issued: 'API key issued',
             api_key_revoked: 'API key revoked',
             user_updated: 'User updated',
@@ -5280,6 +3299,10 @@ class BaselineDashboard {
     }
 
     describeActivitySummary(event) {
+        const details = String(event?.details || '').trim();
+        if (details) {
+            return details;
+        }
         const parts = [];
         if (event?.project_id) {
             parts.push(`project ${event.project_id}`);
@@ -5295,6 +3318,30 @@ class BaselineDashboard {
             return 'System activity';
         }
         return parts.join(' | ');
+    }
+
+    cliEventField(rawDetails, key) {
+        const details = String(rawDetails || '').trim();
+        const prefix = `${String(key || '').trim().toLowerCase()} `;
+        if (!details || prefix.trim() === '') {
+            return '';
+        }
+        for (const part of details.split('|')) {
+            const trimmed = String(part || '').trim();
+            const lower = trimmed.toLowerCase();
+            if (lower.startsWith(prefix)) {
+                return trimmed.slice(prefix.length).trim();
+            }
+        }
+        return '';
+    }
+
+    cliEventCommand(event) {
+        return this.cliEventField(event?.details, 'command');
+    }
+
+    cliEventStatus(event) {
+        return this.cliEventField(event?.details, 'status');
     }
 
     formatActorLabel(rawActor) {
@@ -5348,7 +3395,7 @@ class BaselineDashboard {
         const role = String(user.role || this.authz?.role || '').trim().toLowerCase();
         const email = String(user.email || this.identity?.email || '').trim().toLowerCase();
         const subject = String(this.identity?.subject || '').trim();
-        const configuredName = String(user.displayName || user.display_name || user.name || this.identity?.user || '').trim();
+        const configuredName = String(user.displayName || user.display_name || this.identity?.displayName || '').trim();
         const displayName = configuredName || (email
             ? email.split('@')[0]
             : (role ? role : 'User'));
@@ -5379,11 +3426,29 @@ class BaselineDashboard {
             profileEmail.textContent = email || subject || 'No email available';
         }
 
-        if (configuredName) {
-            this.identity.user = configuredName;
-        }
+        const userButton = document.getElementById('dashboard-user-button');
+        const userDropdown = document.getElementById('userDropdown');
+
+        this.identity.displayName = configuredName;
         if (email) {
             this.identity.email = email;
+        }
+        const normalizedRole = role || 'viewer';
+
+        if (userButton) {
+            userButton.className = 'flex items-center gap-2.5 pl-1 pr-3 py-1 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors';
+        }
+
+        if (headerAvatar) {
+            headerAvatar.className = 'w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold bg-gray-800 text-white';
+        }
+
+        if (profileAvatar) {
+            profileAvatar.className = 'w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-white text-sm font-bold';
+        }
+
+        if (userDropdown) {
+            userDropdown.className = 'absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 hidden z-50';
         }
 
         const statusBadge = document.getElementById('dashboard-profile-status-badge');
@@ -5396,7 +3461,6 @@ class BaselineDashboard {
 
         const roleBadge = document.getElementById('dashboard-profile-role-badge');
         if (roleBadge) {
-            const normalizedRole = role || 'viewer';
             roleBadge.textContent = normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1);
             roleBadge.className = normalizedRole === 'admin'
                 ? 'inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800'
@@ -5407,55 +3471,15 @@ class BaselineDashboard {
     }
 
     setupEventListeners() {
-        const searchInput = document.getElementById('dashboard-search');
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                this.handleSearch(e.target.value);
-            });
-        }
-
-        const docsButton = document.getElementById('api-docs-button');
-        if (docsButton) {
-            docsButton.addEventListener('click', () => {
-                window.open('/openapi.yaml', '_blank', 'noopener,noreferrer');
-            });
-        }
-
-        const notificationsButton = document.getElementById('notifications-button');
-        if (notificationsButton) {
-            notificationsButton.addEventListener('click', async () => {
-                await this.openNotificationsModal();
-            });
-        }
+        return setupDashboardShellEvents(this);
     }
 
     handleSearch(query) {
-        const normalized = String(query || '').trim().toLowerCase();
-        const currentTabRoot = document.getElementById(`${this.currentTab}-tab`);
-        if (!currentTabRoot) {
-            return;
-        }
-
-        const rows = currentTabRoot.querySelectorAll('tbody tr');
-        if (!rows.length) {
-            return;
-        }
-
-        rows.forEach((row) => {
-            const text = (row.textContent || '').toLowerCase();
-            row.style.display = normalized === '' || text.includes(normalized) ? '' : 'none';
-        });
+        return handleDashboardSearch(this, query);
     }
 
     async signOut() {
-        try {
-            await this.apiRequest('/v1/auth/session', {
-                method: 'DELETE'
-            });
-        } catch (_) {
-            // Continue redirect even if API logout fails.
-        }
-        window.location.href = '/signin.html';
+        return signOutDashboard(this);
     }
 
     showError(message) {
@@ -5496,33 +3520,5 @@ class BaselineDashboard {
     }
 }
 
-// Initialize dashboard when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    window.baselineDashboard = new BaselineDashboard();
+mountDashboardApplication(() => new BaselineDashboard());
 
-    // Legacy onclick bindings from static template markup.
-    window.generateReport = () => window.baselineDashboard?.generateReport();
-});
-
-// Handle responsive sidebar
-function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    sidebar.classList.toggle('-translate-x-full');
-}
-
-// Add mobile responsiveness
-if (window.innerWidth < 768) {
-    const sidebar = document.getElementById('sidebar');
-    sidebar.classList.add('-translate-x-full');
-    
-    // Add mobile menu button
-    const mobileMenuButton = document.createElement('button');
-    mobileMenuButton.className = 'fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-lg md:hidden';
-    mobileMenuButton.innerHTML = `
-        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-        </svg>
-    `;
-    mobileMenuButton.addEventListener('click', toggleSidebar);
-    document.body.appendChild(mobileMenuButton);
-}

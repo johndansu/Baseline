@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/baseline/baseline/internal/api"
+	clitrace "github.com/baseline/baseline/internal/cli/trace"
 	"github.com/baseline/baseline/internal/types"
 	"gopkg.in/yaml.v3"
 )
@@ -68,58 +69,185 @@ var errDashboardUploadPromptSkipped = errors.New("dashboard upload prompt skippe
 var interactiveTerminalCheck = isInteractiveTerminal
 
 func handleDashboardConnect(args []string) {
-	if err := requireGitRepo(); err != nil {
-		fmt.Printf("DASHBOARD CONNECT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
-	if err := loadAPIEnvFiles(); err != nil {
-		fmt.Printf("DASHBOARD CONNECT FAILED: unable to load API env file: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
-
-	opts, err := parseDashboardConnectArgs(args)
-	if err != nil {
-		fmt.Printf("DASHBOARD CONNECT FAILED: %v\n\n", err)
-		printDashboardConnectUsage()
-		os.Exit(types.ExitSystemError)
-	}
-
-	result, err := connectDashboardForCurrentProject(opts, os.Stdin, os.Stdout, true)
-	if err != nil {
-		fmt.Printf("DASHBOARD CONNECT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
-
-	fmt.Printf("Dashboard connection saved.\n")
-	fmt.Printf("API: %s\n", result.APIBaseURL)
-	fmt.Printf("Project: %s\n", result.ProjectID)
-	os.Exit(types.ExitSuccess)
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("dashboard connect", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runDashboardConnectCommand(traceCtx, connection, args)
+	}))
 }
 
 func handleDashboardStatus(args []string) {
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("dashboard status", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runDashboardStatusCommand(traceCtx, connection, args)
+	}))
+}
+
+func handleDashboardDisconnect(args []string) {
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("dashboard disconnect", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runDashboardDisconnectCommand(traceCtx, connection, args)
+	}))
+}
+
+func runDashboardConnectCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
+	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
+	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard connect",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
+		fmt.Printf("DASHBOARD CONNECT FAILED: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
+	}
+	traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
+
+	envSpan := traceCtx.HelperEnter("cli", "loadAPIEnvFiles", "loading API env files", nil)
+	if err := loadAPIEnvFiles(); err != nil {
+		traceCtx.Error("cli", "loadAPIEnvFiles", err, nil)
+		traceCtx.HelperExit(envSpan, "cli", "loadAPIEnvFiles", "error", "API env loading failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard connect",
+			Message:   "unable to load API env file: " + err.Error(),
+			Status:    "system_error",
+		})
+		fmt.Printf("DASHBOARD CONNECT FAILED: unable to load API env file: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "API env loading failed"}
+	}
+	traceCtx.HelperExit(envSpan, "cli", "loadAPIEnvFiles", "ok", "API env files loaded", nil)
+
+	parseSpan := traceCtx.HelperEnter("cli", "parseDashboardConnectArgs", "parsing dashboard connect arguments", nil)
+	opts, err := parseDashboardConnectArgs(args)
+	if err != nil {
+		if errors.Is(err, errDashboardHelp) {
+			traceCtx.Branch("cli", "dashboard connect", "help_requested", nil)
+			traceCtx.HelperExit(parseSpan, "cli", "parseDashboardConnectArgs", "ok", "help requested", nil)
+			emitCLIEvent(telemetryConnection, cliEventPayload{
+				EventType: "cli_completed",
+				Command:   "dashboard connect",
+				Message:   "dashboard connect help shown",
+				Status:    "help",
+			})
+			printDashboardConnectUsage()
+			return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "dashboard connect help shown"}
+		}
+		traceCtx.Error("cli", "parseDashboardConnectArgs", err, nil)
+		traceCtx.HelperExit(parseSpan, "cli", "parseDashboardConnectArgs", "error", "dashboard connect arguments invalid", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard connect",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
+		fmt.Printf("DASHBOARD CONNECT FAILED: %v\n\n", err)
+		printDashboardConnectUsage()
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard connect arguments invalid"}
+	}
+	traceCtx.HelperExit(parseSpan, "cli", "parseDashboardConnectArgs", "ok", "dashboard connect arguments parsed", nil)
+
+	connectSpan := traceCtx.HelperEnter("cli", "connectDashboardForCurrentProject", "connecting dashboard for current project", nil)
+	result, err := connectDashboardForCurrentProject(traceCtx, opts, os.Stdin, os.Stdout, true)
+	if err != nil {
+		traceCtx.Error("cli", "connectDashboardForCurrentProject", err, nil)
+		traceCtx.HelperExit(connectSpan, "cli", "connectDashboardForCurrentProject", "error", "dashboard connection failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard connect",
+			Message:   err.Error(),
+			Status:    "connect_failed",
+		})
+		fmt.Printf("DASHBOARD CONNECT FAILED: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "connect_failed", TraceMessage: "dashboard connection failed"}
+	}
+	traceCtx.SetMetadata("project_id", result.ProjectID)
+	traceCtx.HelperExit(connectSpan, "cli", "connectDashboardForCurrentProject", "ok", "dashboard connection saved", map[string]string{
+		"project_id": result.ProjectID,
+	})
+
+	emitCLIEvent(telemetryConnection, cliEventPayload{
+		EventType: "cli_config_changed",
+		Command:   "dashboard connect",
+		Message:   "dashboard connection saved",
+		Status:    "connected",
+		ProjectID: result.ProjectID,
+	})
+	fmt.Printf("Dashboard connection saved.\n")
+	fmt.Printf("API: %s\n", result.APIBaseURL)
+	fmt.Printf("Project: %s\n", result.ProjectID)
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  "connected",
+		TraceMessage: "dashboard connection saved",
+		Attributes: map[string]string{
+			"project_id": result.ProjectID,
+		},
+	}
+}
+
+func runDashboardStatusCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
 	if len(args) > 0 && hasHelpFlag(args) {
+		traceCtx.Branch("cli", "dashboard status", "help_requested", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_completed",
+			Command:   "dashboard status",
+			Message:   "dashboard status help shown",
+			Status:    "help",
+		})
 		printDashboardStatusUsage()
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "dashboard status help shown"}
 	}
 	if len(args) > 0 {
+		traceCtx.Error("cli", "dashboard status", fmt.Errorf("unknown flag %s", args[0]), nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard status",
+			Message:   "unknown flag " + args[0],
+			Status:    "system_error",
+		})
 		fmt.Printf("DASHBOARD STATUS FAILED: unknown flag %s\n\n", args[0])
 		printDashboardStatusUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard status arguments invalid"}
 	}
 
+	configSpan := traceCtx.HelperEnter("cli", "loadBaselineLocalConfig", "loading local dashboard config", nil)
 	cfg, err := loadBaselineLocalConfig()
 	if err != nil {
+		traceCtx.Error("cli", "loadBaselineLocalConfig", err, nil)
+		traceCtx.HelperExit(configSpan, "cli", "loadBaselineLocalConfig", "error", "local dashboard config load failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard status",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
 		fmt.Printf("DASHBOARD STATUS FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard config load failed"}
 	}
+	traceCtx.HelperExit(configSpan, "cli", "loadBaselineLocalConfig", "ok", "local dashboard config loaded", nil)
+
+	secretsSpan := traceCtx.HelperEnter("cli", "loadBaselineSecrets", "loading dashboard secrets", nil)
 	secrets, err := loadBaselineSecrets()
 	if err != nil {
+		traceCtx.Error("cli", "loadBaselineSecrets", err, nil)
+		traceCtx.HelperExit(secretsSpan, "cli", "loadBaselineSecrets", "error", "dashboard secrets load failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard status",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
 		fmt.Printf("DASHBOARD STATUS FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard secrets load failed"}
 	}
+	traceCtx.HelperExit(secretsSpan, "cli", "loadBaselineSecrets", "ok", "dashboard secrets loaded", nil)
 
 	upload := cfg.Dashboard.Upload
 	apiKey := strings.TrimSpace(secrets.Dashboard.APIKeys[upload.APIKeyRef])
+	traceCtx.SetMetadata("project_id", strings.TrimSpace(upload.ProjectID))
 
 	fmt.Println("=== DASHBOARD CONNECTION STATUS ===")
 	fmt.Printf("Config file: %s\n", baselineConfigPath())
@@ -129,57 +257,143 @@ func handleDashboardStatus(args []string) {
 	fmt.Printf("Project ID: %s\n", valueOrPlaceholder(upload.ProjectID))
 	fmt.Printf("API key stored: %t\n", apiKey != "")
 
+	status := "not_configured"
 	if !upload.Prompted {
 		fmt.Println("Status: not configured for this project.")
 	} else if upload.Enabled && upload.APIBaseURL != "" && upload.ProjectID != "" && apiKey != "" {
+		status = "connected"
 		fmt.Println("Status: connected.")
 	} else if upload.Enabled {
+		status = "incomplete"
 		fmt.Println("Status: incomplete connection. Run `baseline dashboard connect` to repair it.")
 	} else {
+		status = "disabled"
 		fmt.Println("Status: dashboard upload disabled for this project.")
 	}
-	os.Exit(types.ExitSuccess)
+	traceCtx.Branch("cli", "dashboard status", status, nil)
+	emitCLIEvent(telemetryConnection, cliEventPayload{
+		EventType: "cli_completed",
+		Command:   "dashboard status",
+		Message:   "dashboard status inspected",
+		Status:    "ok",
+		ProjectID: strings.TrimSpace(upload.ProjectID),
+	})
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  "ok",
+		TraceMessage: "dashboard status inspected",
+		Attributes: map[string]string{
+			"project_id": strings.TrimSpace(upload.ProjectID),
+		},
+	}
 }
 
-func handleDashboardDisconnect(args []string) {
+func runDashboardDisconnectCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
 	if len(args) > 0 && hasHelpFlag(args) {
+		traceCtx.Branch("cli", "dashboard disconnect", "help_requested", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_completed",
+			Command:   "dashboard disconnect",
+			Message:   "dashboard disconnect help shown",
+			Status:    "help",
+		})
 		printDashboardDisconnectUsage()
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "dashboard disconnect help shown"}
 	}
 	if len(args) > 0 {
+		traceCtx.Error("cli", "dashboard disconnect", fmt.Errorf("unknown flag %s", args[0]), nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard disconnect",
+			Message:   "unknown flag " + args[0],
+			Status:    "system_error",
+		})
 		fmt.Printf("DASHBOARD DISCONNECT FAILED: unknown flag %s\n\n", args[0])
 		printDashboardDisconnectUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard disconnect arguments invalid"}
 	}
 
+	configSpan := traceCtx.HelperEnter("cli", "loadBaselineLocalConfig", "loading local dashboard config", nil)
 	cfg, err := loadBaselineLocalConfig()
 	if err != nil {
+		traceCtx.Error("cli", "loadBaselineLocalConfig", err, nil)
+		traceCtx.HelperExit(configSpan, "cli", "loadBaselineLocalConfig", "error", "local dashboard config load failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard disconnect",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
 		fmt.Printf("DASHBOARD DISCONNECT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard config load failed"}
 	}
+	traceCtx.HelperExit(configSpan, "cli", "loadBaselineLocalConfig", "ok", "local dashboard config loaded", nil)
+
+	secretsSpan := traceCtx.HelperEnter("cli", "loadBaselineSecrets", "loading dashboard secrets", nil)
 	secrets, err := loadBaselineSecrets()
 	if err != nil {
+		traceCtx.Error("cli", "loadBaselineSecrets", err, nil)
+		traceCtx.HelperExit(secretsSpan, "cli", "loadBaselineSecrets", "error", "dashboard secrets load failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard disconnect",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
 		fmt.Printf("DASHBOARD DISCONNECT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard secrets load failed"}
 	}
+	traceCtx.HelperExit(secretsSpan, "cli", "loadBaselineSecrets", "ok", "dashboard secrets loaded", nil)
 
 	ref := strings.TrimSpace(cfg.Dashboard.Upload.APIKeyRef)
+	traceCtx.SetMetadata("project_id", strings.TrimSpace(cfg.Dashboard.Upload.ProjectID))
 	cfg.Dashboard.Upload = dashboardUploadConfig{}
 	if ref != "" && secrets.Dashboard.APIKeys != nil {
 		delete(secrets.Dashboard.APIKeys, ref)
 	}
 
+	saveConfigSpan := traceCtx.HelperEnter("cli", "saveBaselineLocalConfig", "saving cleared dashboard config", nil)
 	if err := saveBaselineLocalConfig(cfg); err != nil {
+		traceCtx.Error("cli", "saveBaselineLocalConfig", err, nil)
+		traceCtx.HelperExit(saveConfigSpan, "cli", "saveBaselineLocalConfig", "error", "local dashboard config save failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard disconnect",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
 		fmt.Printf("DASHBOARD DISCONNECT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard config save failed"}
 	}
-	if err := saveBaselineSecrets(secrets); err != nil {
-		fmt.Printf("DASHBOARD DISCONNECT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
+	traceCtx.HelperExit(saveConfigSpan, "cli", "saveBaselineLocalConfig", "ok", "cleared dashboard config saved", nil)
 
+	saveSecretsSpan := traceCtx.HelperEnter("cli", "saveBaselineSecrets", "saving cleared dashboard secrets", nil)
+	if err := saveBaselineSecrets(secrets); err != nil {
+		traceCtx.Error("cli", "saveBaselineSecrets", err, nil)
+		traceCtx.HelperExit(saveSecretsSpan, "cli", "saveBaselineSecrets", "error", "dashboard secrets save failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "dashboard disconnect",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
+		fmt.Printf("DASHBOARD DISCONNECT FAILED: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard secrets save failed"}
+	}
+	traceCtx.HelperExit(saveSecretsSpan, "cli", "saveBaselineSecrets", "ok", "cleared dashboard secrets saved", nil)
+
+	emitCLIEvent(telemetryConnection, cliEventPayload{
+		EventType: "cli_config_changed",
+		Command:   "dashboard disconnect",
+		Message:   "dashboard connection removed",
+		Status:    "disconnected",
+	})
 	fmt.Println("Dashboard connection removed for this project.")
-	os.Exit(types.ExitSuccess)
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  "disconnected",
+		TraceMessage: "dashboard connection removed",
+	}
 }
 
 func parseDashboardConnectArgs(args []string) (dashboardConnectOptions, error) {
@@ -215,15 +429,15 @@ func parseDashboardConnectArgs(args []string) (dashboardConnectOptions, error) {
 	return opts, nil
 }
 
-func connectDashboardForCurrentProject(opts dashboardConnectOptions, stdin *os.File, stdout *os.File, interactive bool) (dashboardConnectResult, error) {
+func connectDashboardForCurrentProject(traceCtx *clitrace.Context, opts dashboardConnectOptions, stdin *os.File, stdout *os.File, interactive bool) (dashboardConnectResult, error) {
 	var reader *bufio.Reader
 	if interactive {
 		reader = bufio.NewReader(stdin)
 	}
-	return connectDashboardForCurrentProjectWithReader(opts, reader, stdout, interactive)
+	return connectDashboardForCurrentProjectWithReader(traceCtx, opts, reader, stdout, interactive)
 }
 
-func connectDashboardForCurrentProjectWithReader(opts dashboardConnectOptions, reader *bufio.Reader, stdout *os.File, interactive bool) (dashboardConnectResult, error) {
+func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opts dashboardConnectOptions, reader *bufio.Reader, stdout *os.File, interactive bool) (dashboardConnectResult, error) {
 	apiBaseURL := strings.TrimSpace(opts.APIBaseURL)
 	apiKey := strings.TrimSpace(opts.APIKey)
 	projectID := strings.TrimSpace(opts.ProjectID)
@@ -258,9 +472,20 @@ func connectDashboardForCurrentProjectWithReader(opts dashboardConnectOptions, r
 	if strings.TrimSpace(apiBaseURL) == "" {
 		return dashboardConnectResult{}, errors.New("dashboard API URL is required")
 	}
+	validateSpan := ""
+	if traceCtx != nil {
+		validateSpan = traceCtx.HelperEnter("cli", "validateAPIBaseURL", "validating dashboard API base URL", nil)
+	}
 	normalizedURL, err := validateAPIBaseURL(apiBaseURL)
 	if err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "validateAPIBaseURL", err, nil)
+			traceCtx.HelperExit(validateSpan, "cli", "validateAPIBaseURL", "error", "dashboard API base URL validation failed", nil)
+		}
 		return dashboardConnectResult{}, err
+	}
+	if traceCtx != nil {
+		traceCtx.HelperExit(validateSpan, "cli", "validateAPIBaseURL", "ok", "dashboard API base URL validated", nil)
 	}
 	apiBaseURL = normalizedURL
 	if strings.TrimSpace(apiKey) == "" {
@@ -269,18 +494,54 @@ func connectDashboardForCurrentProjectWithReader(opts dashboardConnectOptions, r
 
 	client := &http.Client{Timeout: 15 * time.Second}
 
+	resolveProjectSpan := ""
+	if traceCtx != nil {
+		resolveProjectSpan = traceCtx.HelperEnter("cli", "resolveOrCreateProjectForConnection", "resolving or creating dashboard project", nil)
+	}
 	resolvedProjectID, err := resolveOrCreateProjectForConnection(client, apiBaseURL, apiKey, projectID)
 	if err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "resolveOrCreateProjectForConnection", err, nil)
+			traceCtx.HelperExit(resolveProjectSpan, "cli", "resolveOrCreateProjectForConnection", "error", "dashboard project resolution failed", nil)
+		}
 		return dashboardConnectResult{}, err
 	}
+	if traceCtx != nil {
+		traceCtx.SetMetadata("project_id", resolvedProjectID)
+		traceCtx.HelperExit(resolveProjectSpan, "cli", "resolveOrCreateProjectForConnection", "ok", "dashboard project resolved", map[string]string{
+			"project_id": resolvedProjectID,
+		})
+	}
 
+	configSpan := ""
+	if traceCtx != nil {
+		configSpan = traceCtx.HelperEnter("cli", "loadBaselineLocalConfig", "loading local dashboard config", nil)
+	}
 	cfg, err := loadBaselineLocalConfig()
 	if err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "loadBaselineLocalConfig", err, nil)
+			traceCtx.HelperExit(configSpan, "cli", "loadBaselineLocalConfig", "error", "local dashboard config load failed", nil)
+		}
 		return dashboardConnectResult{}, err
+	}
+	if traceCtx != nil {
+		traceCtx.HelperExit(configSpan, "cli", "loadBaselineLocalConfig", "ok", "local dashboard config loaded", nil)
+	}
+	secretsSpan := ""
+	if traceCtx != nil {
+		secretsSpan = traceCtx.HelperEnter("cli", "loadBaselineSecrets", "loading dashboard secrets", nil)
 	}
 	secrets, err := loadBaselineSecrets()
 	if err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "loadBaselineSecrets", err, nil)
+			traceCtx.HelperExit(secretsSpan, "cli", "loadBaselineSecrets", "error", "dashboard secrets load failed", nil)
+		}
 		return dashboardConnectResult{}, err
+	}
+	if traceCtx != nil {
+		traceCtx.HelperExit(secretsSpan, "cli", "loadBaselineSecrets", "ok", "dashboard secrets loaded", nil)
 	}
 	if secrets.Dashboard.APIKeys == nil {
 		secrets.Dashboard.APIKeys = map[string]string{}
@@ -295,11 +556,33 @@ func connectDashboardForCurrentProjectWithReader(opts dashboardConnectOptions, r
 	}
 	secrets.Dashboard.APIKeys["default"] = apiKey
 
+	saveConfigSpan := ""
+	if traceCtx != nil {
+		saveConfigSpan = traceCtx.HelperEnter("cli", "saveBaselineLocalConfig", "saving dashboard connection config", nil)
+	}
 	if err := saveBaselineLocalConfig(cfg); err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "saveBaselineLocalConfig", err, nil)
+			traceCtx.HelperExit(saveConfigSpan, "cli", "saveBaselineLocalConfig", "error", "dashboard connection config save failed", nil)
+		}
 		return dashboardConnectResult{}, err
 	}
+	if traceCtx != nil {
+		traceCtx.HelperExit(saveConfigSpan, "cli", "saveBaselineLocalConfig", "ok", "dashboard connection config saved", nil)
+	}
+	saveSecretsSpan := ""
+	if traceCtx != nil {
+		saveSecretsSpan = traceCtx.HelperEnter("cli", "saveBaselineSecrets", "saving dashboard API key", nil)
+	}
 	if err := saveBaselineSecrets(secrets); err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "saveBaselineSecrets", err, nil)
+			traceCtx.HelperExit(saveSecretsSpan, "cli", "saveBaselineSecrets", "error", "dashboard API key save failed", nil)
+		}
 		return dashboardConnectResult{}, err
+	}
+	if traceCtx != nil {
+		traceCtx.HelperExit(saveSecretsSpan, "cli", "saveBaselineSecrets", "ok", "dashboard API key saved", nil)
 	}
 
 	return dashboardConnectResult{
@@ -325,7 +608,7 @@ func maybePromptForDashboardUpload(stdin *os.File, stdout *os.File) (dashboardCo
 		return dashboardConnectionConfig{}, errDashboardUploadPromptSkipped
 	}
 
-	result, err := connectDashboardForCurrentProjectWithReader(dashboardConnectOptions{}, reader, stdout, true)
+	result, err := connectDashboardForCurrentProjectWithReader(nil, dashboardConnectOptions{}, reader, stdout, true)
 	if err != nil {
 		return dashboardConnectionConfig{}, err
 	}
@@ -403,6 +686,19 @@ func shouldSuggestDashboardRepair(connection dashboardConnectionConfig, err erro
 		strings.Contains(message, "no projects found in api")
 }
 
+func shouldResetDashboardSavedConnection(connection dashboardConnectionConfig, err error) bool {
+	if connection.Source != "saved" || err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "status 401") ||
+		strings.Contains(message, "status 403") ||
+		strings.Contains(message, "rejected with status 401") ||
+		strings.Contains(message, "rejected with status 403") ||
+		strings.Contains(message, "unauthorized") ||
+		strings.Contains(message, "forbidden")
+}
+
 func formatDashboardUploadFailure(connection dashboardConnectionConfig, err error) string {
 	if !shouldSuggestDashboardRepair(connection, err) {
 		return fmt.Sprintf("API upload failed: %v", err)
@@ -411,6 +707,31 @@ func formatDashboardUploadFailure(connection dashboardConnectionConfig, err erro
 		"Dashboard upload failed: %v\nRun `baseline dashboard connect` to repair this project connection.",
 		err,
 	)
+}
+
+func resetSavedDashboardConnection() error {
+	cfg, err := loadBaselineLocalConfig()
+	if err != nil {
+		return err
+	}
+	secrets, err := loadBaselineSecrets()
+	if err != nil {
+		return err
+	}
+
+	ref := strings.TrimSpace(cfg.Dashboard.Upload.APIKeyRef)
+	cfg.Dashboard.Upload = dashboardUploadConfig{}
+	if ref != "" && secrets.Dashboard.APIKeys != nil {
+		delete(secrets.Dashboard.APIKeys, ref)
+	}
+
+	if err := saveBaselineLocalConfig(cfg); err != nil {
+		return err
+	}
+	if err := saveBaselineSecrets(secrets); err != nil {
+		return err
+	}
+	return nil
 }
 
 func resolveOrCreateProjectForConnection(client *http.Client, baseURL, apiKey, explicitProjectID string) (string, error) {

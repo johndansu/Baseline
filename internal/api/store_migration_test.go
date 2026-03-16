@@ -61,6 +61,7 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 	assertSQLiteColumnExists(t, store.db, "api_keys", "created_by_user_id")
 	assertSQLiteColumnExists(t, store.db, "api_keys", "revoked_by_user_id")
 	assertSQLiteColumnExists(t, store.db, "api_keys", "revocation_reason")
+	assertSQLiteColumnExists(t, store.db, "audit_events", "details")
 
 	now := time.Now().UTC()
 	apiKey := "fresh-bootstrap-key"
@@ -91,6 +92,7 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 		EventType: "fresh_bootstrap_validated",
 		ProjectID: "proj_fresh",
 		ScanID:    "scan_fresh",
+		Details:   "command scan | status ok",
 		CreatedAt: now,
 	}
 	if err := store.AppendAuditEvent(event); err != nil {
@@ -102,6 +104,9 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 	}
 	if len(events) == 0 || events[0].EventType != event.EventType {
 		t.Fatalf("unexpected audit events after bootstrap: %+v", events)
+	}
+	if events[0].Details != event.Details {
+		t.Fatalf("expected audit details %q, got %q", event.Details, events[0].Details)
 	}
 }
 
@@ -143,6 +148,7 @@ func TestNewStoreMigratesLegacySchemaAndPreservesData(t *testing.T) {
 	assertSQLiteColumnExists(t, store.db, "api_keys", "created_by_user_id")
 	assertSQLiteColumnExists(t, store.db, "api_keys", "revoked_by_user_id")
 	assertSQLiteColumnExists(t, store.db, "api_keys", "revocation_reason")
+	assertSQLiteColumnExists(t, store.db, "audit_events", "details")
 
 	keys, err := store.LoadAPIKeys()
 	if err != nil {
@@ -163,6 +169,9 @@ func TestNewStoreMigratesLegacySchemaAndPreservesData(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].EventType != "legacy_event" {
 		t.Fatalf("legacy audit event was not preserved: %+v", events)
+	}
+	if events[0].Details != "" {
+		t.Fatalf("expected migrated legacy audit event details to default empty string, got %q", events[0].Details)
 	}
 }
 

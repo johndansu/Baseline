@@ -67,12 +67,20 @@ func (s *Server) getDashboardSession(r *http.Request) (dashboardSession, error) 
 			}
 			return dashboardSession{}, errors.New("session expired")
 		}
+		session, err = s.syncDashboardSessionState(token, session, now)
+		if err != nil {
+			return dashboardSession{}, err
+		}
 		return session, nil
 	}
 
 	if s.store != nil {
 		persisted, found, err := s.store.LoadAuthSession(token, now)
 		if err == nil && found {
+			persisted, err = s.syncDashboardSessionState(token, persisted, now)
+			if err != nil {
+				return dashboardSession{}, err
+			}
 			s.sessionMu.Lock()
 			s.sessions[token] = persisted
 			s.sessionMu.Unlock()
@@ -81,6 +89,67 @@ func (s *Server) getDashboardSession(r *http.Request) (dashboardSession, error) 
 	}
 
 	return dashboardSession{}, errors.New("session not found")
+}
+
+func (s *Server) syncDashboardSessionState(token string, session dashboardSession, now time.Time) (dashboardSession, error) {
+	if s.store == nil {
+		return session, nil
+	}
+
+	var (
+		user  UserRecord
+		found bool
+		err   error
+	)
+
+	if userID := strings.TrimSpace(session.UserID); userID != "" {
+		user, found, err = s.store.GetUserByID(userID)
+	} else if email := strings.ToLower(strings.TrimSpace(session.Email)); email != "" {
+		user, found, err = s.store.GetUserByEmail(email)
+		if err == nil && found {
+			session.UserID = strings.TrimSpace(user.ID)
+		}
+	} else {
+		return session, nil
+	}
+	if err != nil {
+		return dashboardSession{}, err
+	}
+	if !found {
+		return session, nil
+	}
+	if user.Status == UserStatusSuspended {
+		s.sessionMu.Lock()
+		delete(s.sessions, token)
+		s.sessionMu.Unlock()
+		_ = s.store.RevokeAuthSession(token, now)
+		return dashboardSession{}, errors.New("session suspended")
+	}
+
+	updated := false
+	if isValidRole(user.Role) && user.Role != session.Role {
+		session.Role = user.Role
+		updated = true
+	}
+	if displayName := strings.TrimSpace(user.DisplayName); displayName != "" && displayName != session.User {
+		session.User = displayName
+		updated = true
+	}
+	if email := strings.ToLower(strings.TrimSpace(user.Email)); email != "" && email != session.Email {
+		session.Email = email
+		updated = true
+	}
+	if !updated {
+		return session, nil
+	}
+
+	if err := s.store.UpsertAuthSession(token, session, now); err != nil {
+		return dashboardSession{}, err
+	}
+	s.sessionMu.Lock()
+	s.sessions[token] = session
+	s.sessionMu.Unlock()
+	return session, nil
 }
 
 func (s *Server) dashboardAuthMode() string {

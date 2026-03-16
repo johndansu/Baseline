@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,6 +12,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	clitrace "github.com/baseline/baseline/internal/cli/trace"
+	"github.com/baseline/baseline/internal/types"
 )
 
 func TestResolveDashboardUploadConfigForScanPrefersSavedDisabledConfigOverEnv(t *testing.T) {
@@ -168,6 +172,216 @@ func TestFormatDashboardUploadFailureKeepsRawMessageForNonSavedConnection(t *tes
 	}
 	if !strings.Contains(message, "API upload failed: project lookup rejected with status 403") {
 		t.Fatalf("expected raw failure message, got %q", message)
+	}
+}
+
+func TestShouldResetDashboardSavedConnection(t *testing.T) {
+	connection := dashboardConnectionConfig{
+		Enabled:  true,
+		Prompted: true,
+		Source:   "saved",
+	}
+
+	if !shouldResetDashboardSavedConnection(connection, errors.New("project lookup rejected with status 401")) {
+		t.Fatal("expected 401 saved connection failure to reset stored dashboard connection")
+	}
+	if !shouldResetDashboardSavedConnection(connection, errors.New("upload rejected with status 403")) {
+		t.Fatal("expected 403 saved connection failure to reset stored dashboard connection")
+	}
+	if shouldResetDashboardSavedConnection(connection, errors.New("no projects found in API")) {
+		t.Fatal("did not expect non-auth saved connection failure to reset stored dashboard connection")
+	}
+	if shouldResetDashboardSavedConnection(dashboardConnectionConfig{Source: "flags"}, errors.New("upload rejected with status 401")) {
+		t.Fatal("did not expect flag-based connection failure to reset stored dashboard connection")
+	}
+}
+
+func TestResetSavedDashboardConnectionClearsConfigAndSecret(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+
+	cfg := baselineLocalConfig{
+		Dashboard: baselineDashboardConfig{
+			Upload: dashboardUploadConfig{
+				Prompted:   true,
+				Enabled:    true,
+				APIBaseURL: "http://127.0.0.1:8080",
+				ProjectID:  "proj_saved",
+				APIKeyRef:  "default",
+			},
+		},
+	}
+	if err := saveBaselineLocalConfig(cfg); err != nil {
+		t.Fatalf("saveBaselineLocalConfig: %v", err)
+	}
+	secrets := baselineSecrets{
+		Dashboard: baselineDashboardSecrets{
+			APIKeys: map[string]string{
+				"default": "revoked-key",
+			},
+		},
+	}
+	if err := saveBaselineSecrets(secrets); err != nil {
+		t.Fatalf("saveBaselineSecrets: %v", err)
+	}
+
+	if err := resetSavedDashboardConnection(); err != nil {
+		t.Fatalf("resetSavedDashboardConnection returned error: %v", err)
+	}
+
+	savedConfig, err := loadBaselineLocalConfig()
+	if err != nil {
+		t.Fatalf("loadBaselineLocalConfig: %v", err)
+	}
+	if savedConfig.Dashboard.Upload.Prompted || savedConfig.Dashboard.Upload.Enabled || savedConfig.Dashboard.Upload.APIKeyRef != "" {
+		t.Fatalf("expected cleared saved dashboard upload config, got %+v", savedConfig.Dashboard.Upload)
+	}
+
+	savedSecrets, err := loadBaselineSecrets()
+	if err != nil {
+		t.Fatalf("loadBaselineSecrets: %v", err)
+	}
+	if got := savedSecrets.Dashboard.APIKeys["default"]; got != "" {
+		t.Fatalf("expected saved dashboard API key to be removed, got %q", got)
+	}
+}
+
+func TestRunDashboardConnectCommandHelp(t *testing.T) {
+	traceCtx := clitrace.Start("dashboard connect")
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	result := runDashboardConnectCommand(traceCtx, dashboardConnectionConfig{}, []string{"--help"})
+
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected help exit code %d, got %d", types.ExitSuccess, result.ExitCode)
+	}
+	if !strings.Contains(buf.String(), "Usage: baseline dashboard connect") {
+		t.Fatalf("expected dashboard connect usage output, got %q", buf.String())
+	}
+	foundBranch := false
+	for _, event := range traceCtx.Events() {
+		if event.Type == "cli_branch_taken" && event.Branch == "help_requested" {
+			foundBranch = true
+			break
+		}
+	}
+	if !foundBranch {
+		t.Fatal("expected help_requested trace branch for dashboard connect")
+	}
+}
+
+func TestRunDashboardConnectCommandRecordsProjectResolutionAndPersistenceHelpers(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+
+	var authHeaders []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"projects":[]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"proj_baseline","name":"baseline","repository_url":"https://github.com/example/baseline.git"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	traceCtx := clitrace.Start("dashboard connect")
+	result := runDashboardConnectCommand(traceCtx, dashboardConnectionConfig{}, []string{"--api", server.URL, "--api-key", "test-api-key"})
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected success exit code %d, got %d", types.ExitSuccess, result.ExitCode)
+	}
+	if len(authHeaders) != 2 {
+		t.Fatalf("expected project lookup/create to use API key, got %#v", authHeaders)
+	}
+
+	foundProjectResolution := false
+	foundConfigSave := false
+	foundSecretsSave := false
+	for _, event := range traceCtx.Events() {
+		if event.Type == "cli_helper_exited" && event.Function == "resolveOrCreateProjectForConnection" && event.Status == "ok" {
+			foundProjectResolution = true
+		}
+		if event.Type == "cli_helper_exited" && event.Function == "saveBaselineLocalConfig" && event.Status == "ok" {
+			foundConfigSave = true
+		}
+		if event.Type == "cli_helper_exited" && event.Function == "saveBaselineSecrets" && event.Status == "ok" {
+			foundSecretsSave = true
+		}
+	}
+	if !foundProjectResolution {
+		t.Fatal("expected resolveOrCreateProjectForConnection helper exit trace event for dashboard connect")
+	}
+	if !foundConfigSave {
+		t.Fatal("expected saveBaselineLocalConfig helper exit trace event for dashboard connect")
+	}
+	if !foundSecretsSave {
+		t.Fatal("expected saveBaselineSecrets helper exit trace event for dashboard connect")
+	}
+}
+
+func TestRunDashboardDisconnectCommandClearsSavedConnection(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+
+	cfg := baselineLocalConfig{
+		Dashboard: baselineDashboardConfig{
+			Upload: dashboardUploadConfig{
+				Prompted:   true,
+				Enabled:    true,
+				APIBaseURL: "http://127.0.0.1:8080",
+				ProjectID:  "proj_saved",
+				APIKeyRef:  "default",
+			},
+		},
+	}
+	if err := saveBaselineLocalConfig(cfg); err != nil {
+		t.Fatalf("saveBaselineLocalConfig: %v", err)
+	}
+	secrets := baselineSecrets{
+		Dashboard: baselineDashboardSecrets{
+			APIKeys: map[string]string{
+				"default": "revoked-key",
+			},
+		},
+	}
+	if err := saveBaselineSecrets(secrets); err != nil {
+		t.Fatalf("saveBaselineSecrets: %v", err)
+	}
+
+	traceCtx := clitrace.Start("dashboard disconnect")
+	result := runDashboardDisconnectCommand(traceCtx, dashboardConnectionConfig{}, nil)
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected success exit code %d, got %d", types.ExitSuccess, result.ExitCode)
+	}
+
+	savedConfig, err := loadBaselineLocalConfig()
+	if err != nil {
+		t.Fatalf("loadBaselineLocalConfig: %v", err)
+	}
+	if savedConfig.Dashboard.Upload.Prompted || savedConfig.Dashboard.Upload.Enabled || savedConfig.Dashboard.Upload.APIKeyRef != "" {
+		t.Fatalf("expected cleared saved dashboard upload config, got %+v", savedConfig.Dashboard.Upload)
 	}
 }
 

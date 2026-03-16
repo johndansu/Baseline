@@ -108,6 +108,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.handleGitLabStatuses(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/dashboard"):
 		s.handleDashboardRoutes(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/cli/events"):
+		s.handleCLIEvents(w, r)
+	case strings.HasPrefix(r.URL.Path, "/v1/cli/traces"):
+		s.handleCLITraces(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/projects"):
 		s.handleProjects(w, r)
 	case strings.HasPrefix(r.URL.Path, "/v1/scans"):

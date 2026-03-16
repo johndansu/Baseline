@@ -496,6 +496,57 @@ func TestDashboardSummaryReturnsAggregates(t *testing.T) {
 	}
 }
 
+func TestDashboardSummarySupportsActivityRanges(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	now := time.Now().UTC()
+	server.dataMu.Lock()
+	server.projects = append(server.projects, Project{ID: "proj_range", Name: "range-project"})
+	server.scans = append(server.scans,
+		ScanSummary{ID: "scan_range_today", ProjectID: "proj_range", Status: "pass", CreatedAt: now},
+		ScanSummary{ID: "scan_range_month", ProjectID: "proj_range", Status: "fail", CreatedAt: now.AddDate(0, 0, -10)},
+		ScanSummary{ID: "scan_range_year", ProjectID: "proj_range", Status: "pass", CreatedAt: now.AddDate(0, -6, 0)},
+	)
+	server.dataMu.Unlock()
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	client := &http.Client{}
+	headers := map[string]string{"Authorization": "Bearer admin-key"}
+
+	assertRange := func(path, expectedRange string, expectedCount int) {
+		resp, body := mustRequest(t, client, http.MethodGet, ts.URL+path, nil, headers)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 loading %s, got %d body=%s", expectedRange, resp.StatusCode, body)
+		}
+		var summary struct {
+			ActivityRange string                       `json:"activity_range"`
+			ScanActivity  []DashboardScanActivityPoint `json:"scan_activity"`
+		}
+		if err := json.Unmarshal([]byte(body), &summary); err != nil {
+			t.Fatalf("failed to decode %s dashboard summary: %v body=%s", expectedRange, err, body)
+		}
+		if summary.ActivityRange != expectedRange {
+			t.Fatalf("expected activity_range=%s, got %q", expectedRange, summary.ActivityRange)
+		}
+		if len(summary.ScanActivity) != expectedCount {
+			t.Fatalf("expected %d points for %s, got %d", expectedCount, expectedRange, len(summary.ScanActivity))
+		}
+	}
+
+	assertRange("/v1/dashboard?activity_range=today", "today", 24)
+	assertRange("/v1/dashboard?activity_range=last_month", "last_month", 30)
+	assertRange("/v1/dashboard?activity_range=last_year", "last_year", 12)
+}
+
 func TestDashboardAndAuditAreOwnershipScopedForSessionUsers(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DashboardSessionEnabled = true

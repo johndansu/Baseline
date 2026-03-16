@@ -131,6 +131,7 @@ type DashboardActivityItem struct {
 	ProjectID string    `json:"project_id,omitempty"`
 	ScanID    string    `json:"scan_id,omitempty"`
 	Actor     string    `json:"actor,omitempty"`
+	Details   string    `json:"details,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	RequestID string    `json:"request_id,omitempty"`
 }
@@ -175,6 +176,7 @@ type AuditEvent struct {
 	ScanID    string    `json:"scan_id,omitempty"`
 	Actor     string    `json:"actor,omitempty"`
 	RequestID string    `json:"request_id,omitempty"`
+	Details   string    `json:"details,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -252,4 +254,46 @@ type IntegrationJobSummary struct {
 // IntegrationJobsResponse is the integrations jobs list payload.
 type IntegrationJobsResponse struct {
 	Jobs []IntegrationJobSummary `json:"jobs"`
+}
+
+// CLITraceEvent is one structured event within a traced CLI command run.
+type CLITraceEvent struct {
+	ID           int               `json:"id"`
+	TraceID      string            `json:"trace_id"`
+	SpanID       string            `json:"span_id"`
+	ParentSpanID string            `json:"parent_span_id,omitempty"`
+	Type         string            `json:"type"`
+	Component    string            `json:"component,omitempty"`
+	Function     string            `json:"function,omitempty"`
+	Branch       string            `json:"branch,omitempty"`
+	Status       string            `json:"status,omitempty"`
+	Message      string            `json:"message,omitempty"`
+	Attributes   map[string]string `json:"attributes,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+}
+
+// CLITraceSummary is the persisted model for one traced CLI command run.
+type CLITraceSummary struct {
+	TraceID        string            `json:"trace_id"`
+	Command        string            `json:"command"`
+	Repository     string            `json:"repository,omitempty"`
+	ProjectID      string            `json:"project_id,omitempty"`
+	ScanID         string            `json:"scan_id,omitempty"`
+	Status         string            `json:"status,omitempty"`
+	Message        string            `json:"message,omitempty"`
+	Version        string            `json:"version,omitempty"`
+	StartedAt      time.Time         `json:"started_at"`
+	FinishedAt     time.Time         `json:"finished_at"`
+	DurationMS     int64             `json:"duration_ms"`
+	EventCount     int               `json:"event_count"`
+	FilesScanned   int               `json:"files_scanned,omitempty"`
+	SecurityIssues int               `json:"security_issues,omitempty"`
+	ViolationCount int               `json:"violation_count,omitempty"`
+	Attributes     map[string]string `json:"attributes,omitempty"`
+}
+
+// CLITraceDetail is the full persisted trace payload with ordered events.
+type CLITraceDetail struct {
+	Summary CLITraceSummary `json:"summary"`
+	Events  []CLITraceEvent `json:"events"`
 }

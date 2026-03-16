@@ -196,6 +196,7 @@ func (s *Server) handleAuthSessionExchange(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	now := time.Now().UTC()
 	userLabel := pickOIDCDisplayUser(claims)
 	userID := ""
 	if s.store != nil {
@@ -204,7 +205,7 @@ func (s *Server) handleAuthSessionExchange(w http.ResponseWriter, r *http.Reques
 			claims.Subject,
 			strings.TrimSpace(strings.ToLower(claims.Email)),
 			userLabel,
-			time.Now().UTC(),
+			now,
 		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "system_error", "unable to persist OIDC user")
@@ -220,6 +221,22 @@ func (s *Server) handleAuthSessionExchange(w http.ResponseWriter, r *http.Reques
 	if !isValidRole(role) {
 		role = RoleViewer
 	}
+	if s.store != nil && userID != "" {
+		persistedUser, found, err := s.store.GetUserByID(userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "system_error", "unable to load persisted user")
+			return
+		}
+		if found {
+			if persistedUser.Status == UserStatusSuspended {
+				writeError(w, http.StatusForbidden, "account_suspended", "account is suspended")
+				return
+			}
+			if isValidRole(persistedUser.Role) {
+				role = persistedUser.Role
+			}
+		}
+	}
 
 	if err := s.issueDashboardSession(w, r, dashboardSession{
 		UserID:     userID,
@@ -228,7 +245,7 @@ func (s *Server) handleAuthSessionExchange(w http.ResponseWriter, r *http.Reques
 		Subject:    claims.Subject,
 		Email:      claims.Email,
 		AuthSource: "supabase",
-		ExpiresAt:  time.Now().UTC().Add(s.config.DashboardSessionTTL),
+		ExpiresAt:  now.Add(s.config.DashboardSessionTTL),
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "system_error", "unable to create dashboard session")
 		return
