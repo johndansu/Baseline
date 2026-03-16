@@ -13,6 +13,7 @@
     "serve": "node src/main.js",
     "setup:supabase": "node scripts/setup-supabase.js",
     "test": "node --test src/routes/auth.test.js src/middleware/logging.test.js",
+    "test:browser": "playwright test",
     "lint": "echo \"Error: no linter specified\" && exit 1",
     "clean": "rimraf dist",
     "deploy": "npm run build:prod && npm run start:prod"
@@ -44,6 +45,7 @@
     "vite": "^7.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "rimraf": "^6.1.3"
   },
   "engines": {

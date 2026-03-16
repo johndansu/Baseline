@@ -22,6 +22,7 @@ import (
 
 	"github.com/baseline/baseline/internal/ai"
 	"github.com/baseline/baseline/internal/api"
+	clitrace "github.com/baseline/baseline/internal/cli/trace"
 	"github.com/baseline/baseline/internal/log"
 	"github.com/baseline/baseline/internal/policy"
 	"github.com/baseline/baseline/internal/report"
@@ -34,120 +35,197 @@ const securityAdviceDisclaimer = "> AI-generated suggestions may be incorrect. V
 
 // HandleVersion prints version information.
 func HandleVersion() {
-	fmt.Println(version.String())
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("version", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runVersionCommand(traceCtx)
+	}))
 }
 
 // HandleCheck runs policy checks on the repository.
 func HandleCheck() {
-	if err := requireGitRepo(); err != nil {
-		log.Error("Git repository check failed", "error", err)
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("check", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runCheckCommand(traceCtx, connection)
+	}))
+}
 
+// HandleEnforce enforces policies and blocks on violations.
+func HandleEnforce() {
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("enforce", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runEnforceCommand(traceCtx, connection)
+	}))
+}
+
+// HandleScan performs a comprehensive repository scan.
+func HandleScan(args []string) {
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("scan", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runScanCommand(traceCtx, connection, args)
+	}))
+}
+
+func runCheckCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig) tracedCommandResult {
+	startedAt := time.Now()
+	gitCheckSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
+	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitCheckSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
+		log.Error("Git repository check failed", "error", err)
+		emitCLIEvent(telemetryConnection, cliEventFromCheck("cli_error", err.Error(), "system_error", 0, time.Since(startedAt)))
+		fmt.Printf("Error: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
+	}
+	traceCtx.HelperExit(gitCheckSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
+
+	cwdSpan := traceCtx.HelperEnter("cli", "os.Getwd", "resolving current directory", nil)
 	cwd, err := os.Getwd()
 	if err != nil {
+		traceCtx.Error("cli", "os.Getwd", err, nil)
+		traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "error", "failed to resolve current directory", nil)
 		log.Error("Failed to get current directory", "error", err)
+		emitCLIEvent(telemetryConnection, cliEventFromCheck("cli_error", "unable to get current directory: "+err.Error(), "system_error", 0, time.Since(startedAt)))
 		fmt.Printf("Error: Unable to get current directory: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "current directory lookup failed"}
 	}
+	traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "ok", "resolved current directory", map[string]string{
+		"repository": filepath.Base(cwd),
+	})
+	traceCtx.SetMetadata("repository", filepath.Base(cwd))
 
 	log.Info("Starting repository check", "repository", filepath.Base(cwd))
 	fmt.Printf("Checking repository: %s\n", filepath.Base(cwd))
+	checkSpan := traceCtx.HelperEnter("policy", "RunAllChecks", "running policy checks", nil)
 	violations := policy.RunAllChecks()
+	traceCtx.HelperExit(checkSpan, "policy", "RunAllChecks", "ok", "policy checks completed", map[string]string{
+		"violation_count": strconv.Itoa(len(violations)),
+	})
 
 	if len(violations) > 0 {
+		traceCtx.Branch("cli", "HandleCheck", "violations_found", map[string]string{
+			"violation_count": strconv.Itoa(len(violations)),
+		})
 		log.Warn("Policy violations found", "count", len(violations))
+		emitCLIEvent(telemetryConnection, cliEventFromCheck("cli_warning", "policy violations detected", "violations_found", len(violations), time.Since(startedAt)))
 		fmt.Println("\nPolicy violations found:")
 		for _, v := range violations {
 			fmt.Printf("  [%s] %s\n", v.PolicyID, v.Message)
 		}
 		fmt.Printf("\nExit code: %d (blocking violations)\n", types.ExitBlockingViolation)
-		os.Exit(types.ExitBlockingViolation)
-	}
-
-	log.Info("No policy violations detected")
-	fmt.Printf("Exit code: %d (no violations)\n", types.ExitSuccess)
-	os.Exit(types.ExitSuccess)
-}
-
-// HandleEnforce enforces policies and blocks on violations.
-func HandleEnforce() {
-	if err := requireGitRepo(); err != nil {
-		log.Error("Git repository check failed", "error", err)
-		fmt.Printf("ENFORCEMENT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		log.Error("Failed to get current directory", "error", err)
-		fmt.Printf("ENFORCEMENT FAILED: Unable to get current directory: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
-
-	log.Info("Starting policy enforcement", "repository", filepath.Base(cwd))
-	fmt.Printf("Enforcing policies on repository: %s\n", filepath.Base(cwd))
-	violations := policy.RunAllChecks()
-
-	if len(violations) > 0 {
-		fmt.Printf("\nENFORCEMENT BLOCKED: Policy violations found:\n")
-		for _, v := range violations {
-			fmt.Printf("  [%s] %s (%s)\n", v.PolicyID, v.Message, v.Severity)
+		return tracedCommandResult{
+			ExitCode:     types.ExitBlockingViolation,
+			TraceStatus:  "violations_found",
+			TraceMessage: "repository check completed with policy violations",
+			Attributes: map[string]string{
+				"repository":      filepath.Base(cwd),
+				"violation_count": strconv.Itoa(len(violations)),
+			},
 		}
-		fmt.Printf("\nEnforcement failed. Fix violations before proceeding.\n")
-		os.Exit(types.ExitBlockingViolation)
 	}
 
-	fmt.Printf("Enforcement passed. No policy violations detected.\n")
-	os.Exit(types.ExitSuccess)
+	traceCtx.Branch("cli", "HandleCheck", "clean_exit", nil)
+	log.Info("No policy violations detected")
+	emitCLIEvent(telemetryConnection, cliEventFromCheck("cli_health", "repository check completed cleanly", "ok", 0, time.Since(startedAt)))
+	fmt.Printf("Exit code: %d (no violations)\n", types.ExitSuccess)
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  "ok",
+		TraceMessage: "repository check completed cleanly",
+		Attributes: map[string]string{
+			"repository": filepath.Base(cwd),
+		},
+	}
 }
 
-// HandleScan performs a comprehensive repository scan.
-func HandleScan(args []string) {
+func runScanCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
+	startedAt := time.Now()
+	parseSpan := traceCtx.HelperEnter("cli", "parseScanArgs", "parsing scan arguments", nil)
 	opts, err := parseScanArgs(args)
 	if err != nil {
+		traceCtx.Error("cli", "parseScanArgs", err, nil)
+		traceCtx.HelperExit(parseSpan, "cli", "parseScanArgs", "error", "scan arguments invalid", nil)
+		emitCLIEvent(telemetryConnection, cliEventFromScan("cli_error", err.Error(), "system_error", "", "", types.ScanResults{}, time.Since(startedAt)))
 		fmt.Printf("SCAN FAILED: %v\n", err)
 		printScanUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "scan arguments invalid"}
 	}
+	traceCtx.HelperExit(parseSpan, "cli", "parseScanArgs", "ok", "scan arguments parsed", nil)
 	if opts.Help {
+		traceCtx.Branch("cli", "HandleScan", "help_requested", nil)
 		printScanUsage()
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "scan usage printed"}
 	}
+	envSpan := traceCtx.HelperEnter("cli", "loadAPIEnvFiles", "loading API environment files", nil)
 	if err := loadAPIEnvFiles(); err != nil {
+		traceCtx.Error("cli", "loadAPIEnvFiles", err, nil)
+		traceCtx.HelperExit(envSpan, "cli", "loadAPIEnvFiles", "error", "API env loading failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventFromScan("cli_error", "unable to load API env file: "+err.Error(), "system_error", "", "", types.ScanResults{}, time.Since(startedAt)))
 		fmt.Printf("SCAN FAILED: unable to load API env file: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "API env loading failed"}
 	}
+	traceCtx.HelperExit(envSpan, "cli", "loadAPIEnvFiles", "ok", "API env files loaded", nil)
+
+	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
 	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventFromScan("cli_error", err.Error(), "system_error", "", "", types.ScanResults{}, time.Since(startedAt)))
 		fmt.Printf("SCAN FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
 	}
+	traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
+
 	if strings.TrimSpace(opts.UploadRunKey) == "" {
+		traceCtx.Branch("cli", "HandleScan", "generate_upload_run_key", nil)
+		keySpan := traceCtx.HelperEnter("cli", "generateAPIKey", "generating upload run key", nil)
 		runKey, err := generateAPIKey()
 		if err != nil {
+			traceCtx.Error("cli", "generateAPIKey", err, nil)
+			traceCtx.HelperExit(keySpan, "cli", "generateAPIKey", "error", "upload run key generation failed", nil)
+			emitCLIEvent(telemetryConnection, cliEventFromScan("cli_error", "unable to create upload run key: "+err.Error(), "system_error", "", "", types.ScanResults{}, time.Since(startedAt)))
 			fmt.Printf("SCAN FAILED: unable to create upload run key: %v\n", err)
-			os.Exit(types.ExitSystemError)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "upload run key generation failed"}
 		}
+		traceCtx.HelperExit(keySpan, "cli", "generateAPIKey", "ok", "upload run key generated", nil)
 		opts.UploadRunKey = runKey
 	}
+	resolveUploadSpan := traceCtx.HelperEnter("cli", "resolveDashboardUploadConfigForScan", "resolving dashboard upload config", nil)
 	connection, err := resolveDashboardUploadConfigForScan(opts)
 	if err != nil {
+		traceCtx.Error("cli", "resolveDashboardUploadConfigForScan", err, nil)
+		traceCtx.HelperExit(resolveUploadSpan, "cli", "resolveDashboardUploadConfigForScan", "error", "dashboard upload config resolution failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventFromScan("cli_error", "unable to load dashboard upload config: "+err.Error(), "system_error", "", "", types.ScanResults{}, time.Since(startedAt)))
 		fmt.Printf("SCAN FAILED: unable to load dashboard upload config: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard upload config resolution failed"}
 	}
+	traceCtx.HelperExit(resolveUploadSpan, "cli", "resolveDashboardUploadConfigForScan", "ok", "dashboard upload config resolved", nil)
 	if !connection.Prompted && !connection.Enabled && !scanUploadConfiguredFromEnv() {
+		traceCtx.Branch("cli", "HandleScan", "dashboard_upload_prompt", nil)
+		promptSpan := traceCtx.HelperEnter("cli", "maybePromptForDashboardUpload", "prompting for dashboard upload", nil)
 		connection, err = maybePromptForDashboardUpload(os.Stdin, os.Stdout)
 		if err != nil && !errors.Is(err, errDashboardUploadPromptSkipped) {
 			fmt.Printf("SCAN FAILED: unable to configure dashboard upload: %v\n", err)
-			os.Exit(types.ExitSystemError)
+			traceCtx.Error("cli", "maybePromptForDashboardUpload", err, nil)
+			traceCtx.HelperExit(promptSpan, "cli", "maybePromptForDashboardUpload", "error", "dashboard upload prompt failed", nil)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard upload prompt failed"}
 		}
+		promptStatus := "ok"
+		promptMessage := "dashboard upload prompt completed"
+		if errors.Is(err, errDashboardUploadPromptSkipped) {
+			promptStatus = "skipped"
+			promptMessage = "dashboard upload prompt skipped"
+		}
+		traceCtx.HelperExit(promptSpan, "cli", "maybePromptForDashboardUpload", promptStatus, promptMessage, nil)
 	}
 	if connection.Prompted && !connection.Enabled {
+		traceCtx.Branch("cli", "HandleScan", "dashboard_upload_disabled", nil)
 		opts.APIBaseURL = ""
 		opts.ProjectID = ""
 		opts.APIKey = ""
 	} else if strings.TrimSpace(connection.APIBaseURL) != "" {
+		traceCtx.Branch("cli", "HandleScan", "dashboard_upload_enabled", map[string]string{
+			"project_id": strings.TrimSpace(connection.ProjectID),
+		})
 		opts.APIBaseURL = strings.TrimSpace(connection.APIBaseURL)
 		if strings.TrimSpace(opts.ProjectID) == "" {
 			opts.ProjectID = strings.TrimSpace(connection.ProjectID)
@@ -159,44 +237,137 @@ func HandleScan(args []string) {
 		opts.APIBaseURL = defaultScanUploadBaseURL()
 	}
 
+	cwdSpan := traceCtx.HelperEnter("cli", "os.Getwd", "resolving current directory", nil)
 	cwd, err := os.Getwd()
 	if err != nil {
+		traceCtx.Error("cli", "os.Getwd", err, nil)
+		traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "error", "current directory resolution failed", nil)
+		emitCLIEvent(connection, cliEventFromScan("cli_error", "unable to get current directory: "+err.Error(), "system_error", strings.TrimSpace(connection.ProjectID), "", types.ScanResults{}, time.Since(startedAt)))
 		fmt.Printf("SCAN FAILED: Unable to get current directory: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "current directory lookup failed"}
 	}
+	traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "ok", "resolved current directory", map[string]string{
+		"repository": filepath.Base(cwd),
+	})
+	traceCtx.SetMetadata("repository", filepath.Base(cwd))
 
 	fmt.Printf("Scanning repository: %s\n", filepath.Base(cwd))
 	fmt.Println()
 
+	scanSpan := traceCtx.HelperEnter("scan", "RunComprehensiveScan", "running comprehensive scan", nil)
 	results := scan.RunComprehensiveScan()
+	traceCtx.HelperExit(scanSpan, "scan", "RunComprehensiveScan", "ok", "comprehensive scan completed", map[string]string{
+		"files_scanned":   strconv.Itoa(results.FilesScanned),
+		"security_issues": strconv.Itoa(results.SecurityIssues),
+		"violation_count": strconv.Itoa(len(results.Violations)),
+	})
 
 	fmt.Println("=== SCAN RESULTS ===")
 	fmt.Printf("Repository: %s\n", filepath.Base(cwd))
 	fmt.Printf("Files scanned: %d\n", results.FilesScanned)
 	fmt.Printf("Security issues found: %d\n", results.SecurityIssues)
 	fmt.Printf("Policy violations: %d\n", len(results.Violations))
+	telemetryProjectID := strings.TrimSpace(opts.ProjectID)
+	telemetryScanID := strings.TrimSpace(opts.ScanID)
+	traceCtx.SetMetadata("project_id", telemetryProjectID)
+	traceCtx.SetMetadata("scan_id", telemetryScanID)
 
 	if opts.APIBaseURL != "" {
+		traceCtx.Branch("cli", "HandleScan", "upload_results", map[string]string{
+			"project_id": telemetryProjectID,
+		})
+		uploadSpan := traceCtx.HelperEnter("cli", "uploadScanResults", "uploading scan results", map[string]string{
+			"project_id": telemetryProjectID,
+		})
 		uploaded, uploadErr := uploadScanResults(opts, results)
 		if uploadErr != nil {
+			traceCtx.Error("cli", "uploadScanResults", uploadErr, map[string]string{
+				"project_id": telemetryProjectID,
+			})
+			traceCtx.HelperExit(uploadSpan, "cli", "uploadScanResults", "error", "scan upload failed", map[string]string{
+				"project_id": telemetryProjectID,
+			})
+			emitCLIEvent(connection, cliEventFromScan("cli_error", "dashboard upload failed: "+uploadErr.Error(), "upload_failed", telemetryProjectID, telemetryScanID, results, time.Since(startedAt)))
+			if shouldResetDashboardSavedConnection(connection, uploadErr) {
+				traceCtx.Branch("cli", "HandleScan", "reset_saved_dashboard_connection", nil)
+				resetSpan := traceCtx.HelperEnter("cli", "resetSavedDashboardConnection", "clearing saved dashboard connection", nil)
+				if resetErr := resetSavedDashboardConnection(); resetErr != nil {
+					traceCtx.Error("cli", "resetSavedDashboardConnection", resetErr, nil)
+					traceCtx.HelperExit(resetSpan, "cli", "resetSavedDashboardConnection", "error", "saved dashboard connection reset failed", nil)
+					fmt.Printf("\n%s\n", formatDashboardUploadFailure(connection, uploadErr))
+					fmt.Printf("SCAN FAILED: unable to clear revoked dashboard connection: %v\n", resetErr)
+					return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard connection reset failed"}
+				}
+				traceCtx.HelperExit(resetSpan, "cli", "resetSavedDashboardConnection", "ok", "saved dashboard connection cleared", nil)
+				fmt.Printf("\nDashboard upload failed: %v\n", uploadErr)
+				fmt.Println("Saved dashboard credentials were cleared.")
+				fmt.Println("Run `baseline scan` again and the dashboard upload prompt will be shown again.")
+				return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "upload_failed", TraceMessage: "dashboard upload failed and saved credentials were cleared"}
+			}
 			fmt.Printf("\n%s\n", formatDashboardUploadFailure(connection, uploadErr))
-			os.Exit(types.ExitSystemError)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "upload_failed", TraceMessage: "dashboard upload failed"}
 		}
+		traceCtx.HelperExit(uploadSpan, "cli", "uploadScanResults", "ok", "scan upload completed", map[string]string{
+			"project_id": uploaded.ProjectID,
+			"scan_id":    uploaded.ScanID,
+		})
+		telemetryProjectID = uploaded.ProjectID
+		telemetryScanID = uploaded.ScanID
+		traceCtx.SetMetadata("project_id", telemetryProjectID)
+		traceCtx.SetMetadata("scan_id", telemetryScanID)
 		fmt.Printf("Dashboard upload: %s (scan=%s, project=%s)\n", uploaded.BaseURL, uploaded.ScanID, uploaded.ProjectID)
 	}
 
 	if len(results.Violations) > 0 {
+		traceCtx.Branch("cli", "HandleScan", "violations_found", map[string]string{
+			"violation_count": strconv.Itoa(len(results.Violations)),
+		})
+		emitCLIEvent(connection, cliEventFromScan("cli_warning", "scan completed with blocking policy violations", "violations_found", telemetryProjectID, telemetryScanID, results, time.Since(startedAt)))
 		fmt.Println("\nPolicy violations:")
 		for _, v := range results.Violations {
 			fmt.Printf("  [%s] %s (%s)\n", v.PolicyID, v.Message, v.Severity)
 		}
 		fmt.Printf("\nExit code: %d (blocking violations)\n", types.ExitBlockingViolation)
-		os.Exit(types.ExitBlockingViolation)
+		return tracedCommandResult{
+			ExitCode:     types.ExitBlockingViolation,
+			TraceStatus:  "violations_found",
+			TraceMessage: "scan completed with blocking policy violations",
+			Attributes: map[string]string{
+				"repository":      filepath.Base(cwd),
+				"project_id":      telemetryProjectID,
+				"scan_id":         telemetryScanID,
+				"files_scanned":   strconv.Itoa(results.FilesScanned),
+				"security_issues": strconv.Itoa(results.SecurityIssues),
+				"violation_count": strconv.Itoa(len(results.Violations)),
+			},
+		}
+	}
+
+	if results.SecurityIssues > 0 {
+		traceCtx.Branch("cli", "HandleScan", "security_findings", map[string]string{
+			"security_issues": strconv.Itoa(results.SecurityIssues),
+		})
+		emitCLIEvent(connection, cliEventFromScan("cli_warning", "scan completed with security findings", "security_findings", telemetryProjectID, telemetryScanID, results, time.Since(startedAt)))
+	} else {
+		traceCtx.Branch("cli", "HandleScan", "clean_exit", nil)
+		emitCLIEvent(connection, cliEventFromScan("cli_health", "scan completed cleanly", "ok", telemetryProjectID, telemetryScanID, results, time.Since(startedAt)))
 	}
 
 	fmt.Println("\nNo critical policy violations detected")
 	fmt.Printf("Exit code: %d (scan completed)\n", types.ExitSuccess)
-	os.Exit(types.ExitSuccess)
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  "ok",
+		TraceMessage: "scan completed",
+		Attributes: map[string]string{
+			"repository":      filepath.Base(cwd),
+			"project_id":      telemetryProjectID,
+			"scan_id":         telemetryScanID,
+			"files_scanned":   strconv.Itoa(results.FilesScanned),
+			"security_issues": strconv.Itoa(results.SecurityIssues),
+			"violation_count": strconv.Itoa(len(results.Violations)),
+		},
+	}
 }
 
 func printScanUsage() {
@@ -215,23 +386,107 @@ func printScanUsage() {
 
 // HandleInit initializes Baseline configuration.
 func HandleInit() {
-	if err := requireGitRepo(); err != nil {
-		fmt.Printf("INIT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("init", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runInitCommand(traceCtx)
+	}))
+}
 
+func runVersionCommand(traceCtx *clitrace.Context) tracedCommandResult {
+	traceCtx.Branch("cli", "version", "print_version", nil)
+	fmt.Println(version.String())
+	return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "ok", TraceMessage: "version printed"}
+}
+
+func runEnforceCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig) tracedCommandResult {
+	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
+	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
+		log.Error("Git repository check failed", "error", err)
+		fmt.Printf("ENFORCEMENT FAILED: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
+	}
+	traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
+
+	cwdSpan := traceCtx.HelperEnter("cli", "os.Getwd", "resolving current directory", nil)
 	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("INIT FAILED: Unable to get current directory: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		traceCtx.Error("cli", "os.Getwd", err, nil)
+		traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "error", "current directory resolution failed", nil)
+		log.Error("Failed to get current directory", "error", err)
+		fmt.Printf("ENFORCEMENT FAILED: Unable to get current directory: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "current directory lookup failed"}
 	}
+	traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "ok", "resolved current directory", map[string]string{"repository": filepath.Base(cwd)})
+	traceCtx.SetMetadata("repository", filepath.Base(cwd))
+
+	log.Info("Starting policy enforcement", "repository", filepath.Base(cwd))
+	fmt.Printf("Enforcing policies on repository: %s\n", filepath.Base(cwd))
+	policySpan := traceCtx.HelperEnter("policy", "RunAllChecks", "running policy checks for enforcement", nil)
+	violations := policy.RunAllChecks()
+	traceCtx.HelperExit(policySpan, "policy", "RunAllChecks", "ok", "policy checks completed", map[string]string{"violation_count": strconv.Itoa(len(violations))})
+
+	if len(violations) > 0 {
+		traceCtx.Branch("enforce", "policy", "violations_found", map[string]string{"violation_count": strconv.Itoa(len(violations))})
+		fmt.Printf("\nENFORCEMENT BLOCKED: Policy violations found:\n")
+		for _, v := range violations {
+			fmt.Printf("  [%s] %s (%s)\n", v.PolicyID, v.Message, v.Severity)
+		}
+		fmt.Printf("\nEnforcement failed. Fix violations before proceeding.\n")
+		_ = telemetryConnection
+		return tracedCommandResult{
+			ExitCode:     types.ExitBlockingViolation,
+			TraceStatus:  "violations_found",
+			TraceMessage: "policy enforcement blocked by violations",
+			Attributes: map[string]string{
+				"repository":      filepath.Base(cwd),
+				"violation_count": strconv.Itoa(len(violations)),
+			},
+		}
+	}
+
+	fmt.Printf("Enforcement passed. No policy violations detected.\n")
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  "ok",
+		TraceMessage: "policy enforcement passed",
+		Attributes: map[string]string{
+			"repository": filepath.Base(cwd),
+		},
+	}
+}
+
+func runInitCommand(traceCtx *clitrace.Context) tracedCommandResult {
+	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
+	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
+		fmt.Printf("INIT FAILED: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
+	}
+	traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
+
+	cwdSpan := traceCtx.HelperEnter("cli", "os.Getwd", "resolving current directory", nil)
+	cwd, err := os.Getwd()
+	if err != nil {
+		traceCtx.Error("cli", "os.Getwd", err, nil)
+		traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "error", "current directory resolution failed", nil)
+		fmt.Printf("INIT FAILED: Unable to get current directory: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "current directory lookup failed"}
+	}
+	traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "ok", "resolved current directory", map[string]string{"repository": filepath.Base(cwd)})
+	traceCtx.SetMetadata("repository", filepath.Base(cwd))
 
 	fmt.Printf("Initializing Baseline in repository: %s\n", filepath.Base(cwd))
-
+	mkdirSpan := traceCtx.HelperEnter("fs", "os.MkdirAll", "creating .baseline directory", nil)
 	if err := os.MkdirAll(".baseline", 0755); err != nil {
+		traceCtx.Error("fs", "os.MkdirAll", err, nil)
+		traceCtx.HelperExit(mkdirSpan, "fs", "os.MkdirAll", "error", "unable to create .baseline directory", nil)
 		fmt.Printf("INIT FAILED: Unable to create .baseline directory: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "unable to create .baseline directory"}
 	}
+	traceCtx.HelperExit(mkdirSpan, "fs", "os.MkdirAll", "ok", ".baseline directory created", nil)
 
 	configContent := `# Baseline Configuration
 # This file configures Baseline policy enforcement
@@ -240,11 +495,14 @@ policy_set = "baseline:prod"
 enforcement_mode = "audit"
 `
 	configFile := ".baseline/config.yaml"
-
+	writeSpan := traceCtx.HelperEnter("fs", "os.WriteFile", "writing baseline config file", nil)
 	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		traceCtx.Error("fs", "os.WriteFile", err, nil)
+		traceCtx.HelperExit(writeSpan, "fs", "os.WriteFile", "error", "unable to create config file", nil)
 		fmt.Printf("INIT FAILED: Unable to create config file: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "unable to create config file"}
 	}
+	traceCtx.HelperExit(writeSpan, "fs", "os.WriteFile", "ok", "baseline config file written", nil)
 
 	fmt.Printf("Created Baseline configuration: %s\n", configFile)
 	fmt.Printf("Policy set: baseline:prod\n")
@@ -253,40 +511,22 @@ enforcement_mode = "audit"
 	fmt.Printf("1. Run 'baseline check' to verify policy compliance\n")
 	fmt.Printf("2. Run 'baseline scan' to analyze repository state\n")
 	fmt.Printf("3. Fix any violations found\n")
-	os.Exit(types.ExitSuccess)
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  "initialized",
+		TraceMessage: "baseline project configuration initialized",
+		Attributes: map[string]string{
+			"repository": filepath.Base(cwd),
+		},
+	}
 }
 
 // HandleReport generates scan results in specified format.
 func HandleReport(args []string) {
-	if err := requireGitRepo(); err != nil {
-		fmt.Printf("REPORT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
-
-	outputFormat, err := parseReportFormat(args)
-	if err != nil {
-		fmt.Printf("REPORT FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
-	}
-
-	results := scan.RunComprehensiveScan()
-
-	switch outputFormat {
-	case "json":
-		if err := report.OutputJSON(results); err != nil {
-			fmt.Printf("REPORT FAILED: %v\n", err)
-			os.Exit(types.ExitSystemError)
-		}
-	case "sarif":
-		if err := report.OutputSARIF(results); err != nil {
-			fmt.Printf("REPORT FAILED: %v\n", err)
-			os.Exit(types.ExitSystemError)
-		}
-	default:
-		report.OutputText(results)
-	}
-
-	os.Exit(types.ExitSuccess)
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("report", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runReportCommand(traceCtx, connection, args)
+	}))
 }
 
 func parseReportFormat(args []string) (string, error) {
@@ -317,52 +557,171 @@ func parseReportFormat(args []string) (string, error) {
 
 // HandleGenerate generates missing infrastructure using AI.
 func HandleGenerate(args []string) {
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("generate", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runGenerateCommand(traceCtx, connection, args)
+	}))
+}
+
+func runReportCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
+	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
+	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "report",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
+		fmt.Printf("REPORT FAILED: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
+	}
+	traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
+
+	formatSpan := traceCtx.HelperEnter("cli", "parseReportFormat", "parsing report format", nil)
+	outputFormat, err := parseReportFormat(args)
+	if err != nil {
+		traceCtx.Error("cli", "parseReportFormat", err, nil)
+		traceCtx.HelperExit(formatSpan, "cli", "parseReportFormat", "error", "report format parsing failed", nil)
+		emitCLIEvent(telemetryConnection, cliEventPayload{
+			EventType: "cli_error",
+			Command:   "report",
+			Message:   err.Error(),
+			Status:    "system_error",
+		})
+		fmt.Printf("REPORT FAILED: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "report format parsing failed"}
+	}
+	traceCtx.HelperExit(formatSpan, "cli", "parseReportFormat", "ok", "report format parsed", map[string]string{"status": outputFormat})
+
+	scanSpan := traceCtx.HelperEnter("scan", "RunComprehensiveScan", "running scan for report output", nil)
+	results := scan.RunComprehensiveScan()
+	traceCtx.HelperExit(scanSpan, "scan", "RunComprehensiveScan", "ok", "scan completed for report output", map[string]string{
+		"files_scanned":   strconv.Itoa(results.FilesScanned),
+		"security_issues": strconv.Itoa(results.SecurityIssues),
+		"violation_count": strconv.Itoa(len(results.Violations)),
+	})
+
+	outputSpan := traceCtx.HelperEnter("report", "render", "writing report output", map[string]string{"status": outputFormat})
+	switch outputFormat {
+	case "json":
+		renderJSONSpan := traceCtx.HelperEnter("report", "OutputJSON", "rendering json report", nil)
+		if err := report.OutputJSON(results); err != nil {
+			traceCtx.Error("report", "OutputJSON", err, nil)
+			traceCtx.HelperExit(renderJSONSpan, "report", "OutputJSON", "error", "json report generation failed", nil)
+			traceCtx.HelperExit(outputSpan, "report", "OutputJSON", "error", "json report generation failed", nil)
+			emitCLIEvent(telemetryConnection, cliEventFromScan("cli_error", err.Error(), "system_error", "", "", results, 0))
+			fmt.Printf("REPORT FAILED: %v\n", err)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "json report generation failed"}
+		}
+		traceCtx.HelperExit(renderJSONSpan, "report", "OutputJSON", "ok", "json report rendered", nil)
+	case "sarif":
+		renderSARIFSpan := traceCtx.HelperEnter("report", "OutputSARIF", "rendering sarif report", nil)
+		if err := report.OutputSARIF(results); err != nil {
+			traceCtx.Error("report", "OutputSARIF", err, nil)
+			traceCtx.HelperExit(renderSARIFSpan, "report", "OutputSARIF", "error", "sarif report generation failed", nil)
+			traceCtx.HelperExit(outputSpan, "report", "OutputSARIF", "error", "sarif report generation failed", nil)
+			emitCLIEvent(telemetryConnection, cliEventFromScan("cli_error", err.Error(), "system_error", "", "", results, 0))
+			fmt.Printf("REPORT FAILED: %v\n", err)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "sarif report generation failed"}
+		}
+		traceCtx.HelperExit(renderSARIFSpan, "report", "OutputSARIF", "ok", "sarif report rendered", nil)
+	default:
+		traceCtx.Branch("report", "render", "text", nil)
+		renderTextSpan := traceCtx.HelperEnter("report", "OutputText", "rendering text report", nil)
+		report.OutputText(results)
+		traceCtx.HelperExit(renderTextSpan, "report", "OutputText", "ok", "text report rendered", nil)
+	}
+	traceCtx.HelperExit(outputSpan, "report", "render", "ok", "report output written", nil)
+
+	emitCLIEvent(telemetryConnection, cliEventFromScan("cli_report_generated", "scan report generated", outputFormat, "", "", results, 0))
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  outputFormat,
+		TraceMessage: "scan report generated",
+		Attributes: map[string]string{
+			"files_scanned":   strconv.Itoa(results.FilesScanned),
+			"security_issues": strconv.Itoa(results.SecurityIssues),
+			"violation_count": strconv.Itoa(len(results.Violations)),
+		},
+	}
+}
+
+func runGenerateCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
 	if hasHelpFlag(args) {
+		traceCtx.Branch("cli", "generate", "help_requested", nil)
 		printGenerateUsage()
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "generate help shown"}
 	}
 	if len(args) > 0 {
+		err := fmt.Errorf("unknown flag %s", args[0])
+		traceCtx.Error("cli", "generate", err, nil)
 		fmt.Printf("GENERATE FAILED: unknown flag %s\n", args[0])
 		printGenerateUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "generate arguments invalid"}
 	}
 
+	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
 	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
 		fmt.Printf("GENERATE FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
 	}
+	traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
 
+	envSpan := traceCtx.HelperEnter("cli", "loadAIEnvFiles", "loading AI env files", nil)
 	if err := loadAIEnvFiles(); err != nil {
+		traceCtx.Error("cli", "loadAIEnvFiles", err, nil)
+		traceCtx.HelperExit(envSpan, "cli", "loadAIEnvFiles", "error", "AI env loading failed", nil)
 		fmt.Printf("GENERATE FAILED: unable to load AI env file: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "AI env loading failed"}
 	}
+	traceCtx.HelperExit(envSpan, "cli", "loadAIEnvFiles", "ok", "AI env files loaded", nil)
 
+	cwdSpan := traceCtx.HelperEnter("cli", "os.Getwd", "resolving current directory", nil)
 	cwd, err := os.Getwd()
 	if err != nil {
+		traceCtx.Error("cli", "os.Getwd", err, nil)
+		traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "error", "current directory resolution failed", nil)
 		fmt.Printf("GENERATE FAILED: Unable to get current directory: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "current directory lookup failed"}
 	}
+	traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "ok", "resolved current directory", map[string]string{"repository": filepath.Base(cwd)})
+	traceCtx.SetMetadata("repository", filepath.Base(cwd))
 
 	fmt.Printf("Generating missing infrastructure for repository: %s\n", filepath.Base(cwd))
-
-	// Initialize AI generator
+	genSpan := traceCtx.HelperEnter("ai", "NewDefaultGenerator", "creating default AI generator", nil)
 	gen := ai.NewDefaultGenerator()
+	traceCtx.HelperExit(genSpan, "ai", "NewDefaultGenerator", "ok", "default AI generator created", nil)
 
-	// Check AI provider availability.
+	availabilitySpan := traceCtx.HelperEnter("ai", "CheckAvailability", "checking AI provider availability", nil)
 	if err := gen.CheckAvailability(); err != nil {
+		traceCtx.Error("ai", "CheckAvailability", err, map[string]string{"repository": filepath.Base(cwd)})
+		traceCtx.HelperExit(availabilitySpan, "ai", "CheckAvailability", "error", "AI provider unavailable", nil)
 		fmt.Printf("GENERATE FAILED: %v\n", err)
 		fmt.Printf("Configure AI provider environment (OLLAMA_* or OPENROUTER_*) and retry\n")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "AI provider unavailable"}
 	}
-
+	traceCtx.HelperExit(availabilitySpan, "ai", "CheckAvailability", "ok", "AI provider available", map[string]string{"status": gen.Provider()})
 	fmt.Printf("AI provider connected: %s\n", gen.Provider())
 
-	// Run policy checks to identify violations
+	policySpan := traceCtx.HelperEnter("policy", "RunAllChecks", "running policy checks for generation", nil)
 	violations := policy.RunAllChecks()
+	traceCtx.HelperExit(policySpan, "policy", "RunAllChecks", "ok", "policy checks completed", map[string]string{"violation_count": strconv.Itoa(len(violations))})
 
 	if len(violations) == 0 {
+		traceCtx.Branch("generate", "policy", "no_op", nil)
 		fmt.Println("No violations found - repository is compliant")
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{
+			ExitCode:     types.ExitSuccess,
+			TraceStatus:  "no_op",
+			TraceMessage: "generate found no missing infrastructure",
+			Attributes: map[string]string{
+				"repository": filepath.Base(cwd),
+			},
+		}
 	}
 
 	fmt.Printf("Found %d violations to fix:\n", len(violations))
@@ -371,8 +730,14 @@ func HandleGenerate(args []string) {
 	}
 	fmt.Println()
 
+	outcomeSpan := traceCtx.HelperEnter("generate", "buildGenerationOutcome", "generating auto-fixable files", map[string]string{"violation_count": strconv.Itoa(len(violations))})
 	outcome := buildGenerationOutcome(violations, func(v types.PolicyViolation) string {
 		return generateFixForViolationWithFile(gen, v)
+	})
+	traceCtx.HelperExit(outcomeSpan, "generate", "buildGenerationOutcome", "ok", "generation outcome computed", map[string]string{
+		"generated_files": strconv.Itoa(len(outcome.GeneratedFiles)),
+		"failed_count":    strconv.Itoa(len(outcome.Failed)),
+		"skipped_count":   strconv.Itoa(len(outcome.Skipped)),
 	})
 
 	fmt.Printf("\nGeneration complete: %d files created\n", len(outcome.GeneratedFiles))
@@ -381,82 +746,151 @@ func HandleGenerate(args []string) {
 	}
 
 	if len(outcome.Failed) > 0 {
+		traceCtx.Branch("generate", "outcome", "generation_failed", map[string]string{"failed_count": strconv.Itoa(len(outcome.Failed))})
 		fmt.Println("\nGeneration failed for auto-fixable violation(s):")
 		for _, v := range outcome.Failed {
 			fmt.Printf("  [%s] %s\n", v.PolicyID, v.Message)
 		}
 		fmt.Println("\nFix AI/provider issues and retry. Generated files (if any) were left in place for review.")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{
+			ExitCode:     types.ExitSystemError,
+			TraceStatus:  "generation_failed",
+			TraceMessage: "generation failed for auto-fixable violations",
+			Attributes: map[string]string{
+				"repository":      filepath.Base(cwd),
+				"violation_count": strconv.Itoa(len(outcome.Failed)),
+			},
+		}
 	}
 
 	if len(outcome.GeneratedFiles) == 0 {
+		traceCtx.Branch("generate", "outcome", "manual_remediation", map[string]string{"violation_count": strconv.Itoa(len(violations))})
 		fmt.Println("No auto-fixable violations were generated. Manual remediation is required.")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{
+			ExitCode:     types.ExitSystemError,
+			TraceStatus:  "manual_remediation",
+			TraceMessage: "no auto-fixable violations were generated",
+			Attributes: map[string]string{
+				"repository":      filepath.Base(cwd),
+				"violation_count": strconv.Itoa(len(violations)),
+			},
+		}
 	}
 
+	traceCtx.Branch("generate", "outcome", "generated", map[string]string{"generated_files": strconv.Itoa(len(outcome.GeneratedFiles))})
 	fmt.Println("\nNext steps:")
 	fmt.Println("1. Review the generated files")
 	fmt.Println("2. Run 'baseline check' to verify compliance")
 	fmt.Println("3. Commit the changes to your repository")
 	fmt.Println("4. Push and create a pull request for review")
-	os.Exit(types.ExitSuccess)
+	return tracedCommandResult{
+		ExitCode:     types.ExitSuccess,
+		TraceStatus:  "generated",
+		TraceMessage: fmt.Sprintf("generated %d file(s)", len(outcome.GeneratedFiles)),
+		Attributes: map[string]string{
+			"repository":      filepath.Base(cwd),
+			"violation_count": strconv.Itoa(len(violations)),
+		},
+	}
 }
 
 // HandlePR creates a pull request with generated scaffolds.
 func HandlePR(args []string) {
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("pr", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runPRCommand(traceCtx, connection, args)
+	}))
+}
+
+// HandleExplain provides explanation for a policy violation.
+func HandleExplain(args []string) {
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("explain", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runExplainCommand(traceCtx, connection, args)
+	}))
+}
+
+// HandleSecurityAdvice generates AI-based security recommendations and saves
+// them to a markdown file. This is advisory only and does not affect enforcement.
+func HandleSecurityAdvice(args []string) {
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand("security-advice", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runSecurityAdviceCommand(traceCtx, connection, args)
+	}))
+}
+
+func runPRCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
 	if hasHelpFlag(args) {
+		traceCtx.Branch("cli", "pr", "help_requested", nil)
 		printPRUsage()
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "pull request help shown"}
 	}
 	if len(args) > 0 {
+		traceCtx.Error("cli", "pr", fmt.Errorf("unknown flag %s", args[0]), nil)
 		fmt.Printf("PR FAILED: unknown flag %s\n", args[0])
 		printPRUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "pull request arguments invalid"}
 	}
 
+	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
 	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
 		fmt.Printf("PR FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
 	}
+	traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
 
+	envSpan := traceCtx.HelperEnter("cli", "loadAIEnvFiles", "loading AI env files", nil)
 	if err := loadAIEnvFiles(); err != nil {
+		traceCtx.Error("cli", "loadAIEnvFiles", err, nil)
+		traceCtx.HelperExit(envSpan, "cli", "loadAIEnvFiles", "error", "AI env loading failed", nil)
 		fmt.Printf("PR FAILED: unable to load AI env file: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "AI env loading failed"}
 	}
+	traceCtx.HelperExit(envSpan, "cli", "loadAIEnvFiles", "ok", "AI env files loaded", nil)
 
-	// Check git remote
+	remoteSpan := traceCtx.HelperEnter("git", "remote get-url origin", "resolving git remote origin", nil)
 	cmd := exec.Command("git", "remote", "get-url", "origin")
 	output, err := cmd.Output()
 	if err != nil {
+		traceCtx.Error("git", "remote get-url origin", err, nil)
+		traceCtx.HelperExit(remoteSpan, "git", "remote get-url origin", "error", "git remote origin lookup failed", nil)
 		fmt.Printf("PR FAILED: No git remote 'origin' found: %v\n", err)
 		fmt.Printf("Please set up a git remote before creating pull requests\n")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git remote origin lookup failed"}
 	}
-
 	remoteURL := strings.TrimSpace(string(output))
+	traceCtx.HelperExit(remoteSpan, "git", "remote get-url origin", "ok", "git remote origin resolved", map[string]string{"status": remoteURL})
 	if !strings.Contains(remoteURL, "github.com") {
+		traceCtx.Branch("pr", "remote", "unsupported_remote", nil)
 		fmt.Printf("PR FAILED: Only GitHub repositories are supported\n")
 		fmt.Printf("Found remote: %s\n", remoteURL)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "unsupported_remote", TraceMessage: "only GitHub repositories are supported"}
 	}
 
-	// Initialize AI generator
+	genSpan := traceCtx.HelperEnter("ai", "NewDefaultGenerator", "creating default AI generator", nil)
 	gen := ai.NewDefaultGenerator()
-
+	traceCtx.HelperExit(genSpan, "ai", "NewDefaultGenerator", "ok", "default AI generator created", nil)
+	availabilitySpan := traceCtx.HelperEnter("ai", "CheckAvailability", "checking AI provider availability", nil)
 	if err := gen.CheckAvailability(); err != nil {
+		traceCtx.Error("ai", "CheckAvailability", err, nil)
+		traceCtx.HelperExit(availabilitySpan, "ai", "CheckAvailability", "error", "AI provider unavailable", nil)
 		fmt.Printf("PR FAILED: %v\n", err)
 		fmt.Printf("Configure AI provider environment (OLLAMA_* or OPENROUTER_*) and retry\n")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "AI provider unavailable"}
 	}
-
+	traceCtx.HelperExit(availabilitySpan, "ai", "CheckAvailability", "ok", "AI provider available", map[string]string{"status": gen.Provider()})
 	fmt.Printf("AI provider connected: %s\n", gen.Provider())
 
+	policySpan := traceCtx.HelperEnter("policy", "RunAllChecks", "running policy checks for pull request generation", nil)
 	violations := policy.RunAllChecks()
-
+	traceCtx.HelperExit(policySpan, "policy", "RunAllChecks", "ok", "policy checks completed", map[string]string{"violation_count": strconv.Itoa(len(violations))})
 	if len(violations) == 0 {
+		traceCtx.Branch("pr", "policy", "no_op", nil)
 		fmt.Println("No violations found - repository is compliant")
 		fmt.Println("No pull request needed")
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "no_op", TraceMessage: "pull request generation skipped because repository is compliant"}
 	}
 
 	fmt.Printf("Found %d violations to fix:\n", len(violations))
@@ -465,87 +899,102 @@ func HandlePR(args []string) {
 	}
 	fmt.Println()
 
-	// Create branch and generate fixes
 	branchName := "baseline/fix-violations"
+	branchSpan := traceCtx.HelperEnter("git", "createOrCheckoutBranch", "creating or checking out remediation branch", nil)
 	if err := createOrCheckoutBranch(branchName); err != nil {
+		traceCtx.Error("git", "createOrCheckoutBranch", err, nil)
+		traceCtx.HelperExit(branchSpan, "git", "createOrCheckoutBranch", "error", "branch preparation failed", nil)
 		fmt.Printf("PR FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "git_failed", TraceMessage: "branch preparation failed"}
 	}
+	traceCtx.HelperExit(branchSpan, "git", "createOrCheckoutBranch", "ok", "remediation branch ready", nil)
 
+	outcomeSpan := traceCtx.HelperEnter("generate", "buildGenerationOutcome", "generating files for pull request", nil)
 	outcome := buildGenerationOutcome(violations, func(v types.PolicyViolation) string {
 		return generateFixForViolationWithFile(gen, v)
 	})
+	traceCtx.HelperExit(outcomeSpan, "generate", "buildGenerationOutcome", "ok", "generation outcome computed", map[string]string{
+		"generated_files": strconv.Itoa(len(outcome.GeneratedFiles)),
+		"failed_count":    strconv.Itoa(len(outcome.Failed)),
+	})
 
 	if len(outcome.Failed) > 0 {
+		traceCtx.Branch("pr", "outcome", "generation_failed", map[string]string{"failed_count": strconv.Itoa(len(outcome.Failed))})
 		fmt.Println("PR FAILED: generation failed for auto-fixable violation(s):")
 		for _, v := range outcome.Failed {
 			fmt.Printf("  [%s] %s\n", v.PolicyID, v.Message)
 		}
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "generation_failed", TraceMessage: "generation failed for auto-fixable violations"}
 	}
-
 	if len(outcome.GeneratedFiles) == 0 {
+		traceCtx.Branch("pr", "outcome", "manual_remediation", nil)
 		fmt.Println("PR FAILED: no auto-fixable files were generated")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "manual_remediation", TraceMessage: "no auto-fixable files were generated"}
 	}
 
 	fmt.Printf("\nGeneration complete: %d files created\n", len(outcome.GeneratedFiles))
-
-	// Stage, commit, and push
+	pushSpan := traceCtx.HelperEnter("git", "commitAndPush", "committing and pushing generated files", nil)
 	if err := commitAndPush(branchName, outcome.GeneratedFiles); err != nil {
+		traceCtx.Error("git", "commitAndPush", err, nil)
+		traceCtx.HelperExit(pushSpan, "git", "commitAndPush", "error", "commit and push failed", nil)
 		fmt.Printf("PR FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "git_failed", TraceMessage: "commit and push failed"}
 	}
+	traceCtx.HelperExit(pushSpan, "git", "commitAndPush", "ok", "generated files committed and pushed", nil)
 
-	// Create PR using GitHub CLI
+	createPRSpan := traceCtx.HelperEnter("github", "gh pr create", "creating GitHub pull request", nil)
 	prBody := report.GeneratePRBody(violations, outcome.GeneratedFiles)
 	cmd = exec.Command("gh", "pr", "create",
 		"--title", "Add missing production infrastructure",
 		"--body", prBody,
 		"--head", branchName)
-
 	if err := cmd.Run(); err != nil {
+		traceCtx.Error("github", "gh pr create", err, nil)
+		traceCtx.HelperExit(createPRSpan, "github", "gh pr create", "error", "GitHub pull request creation failed", nil)
 		fmt.Printf("PR FAILED: unable to create PR automatically: %v\n", err)
 		fmt.Println("Please create a pull request manually:")
 		fmt.Printf("  Branch: %s\n", branchName)
 		fmt.Printf("  Title: Add missing production infrastructure\n")
 		fmt.Println("  Description: See generated files for details")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "manual_followup", TraceMessage: "unable to create pull request automatically"}
 	}
+	traceCtx.HelperExit(createPRSpan, "github", "gh pr create", "ok", "GitHub pull request created", nil)
 
 	fmt.Println("[OK] Pull request created successfully!")
 	fmt.Printf("\nNext steps:\n")
 	fmt.Println("1. Review the pull request")
 	fmt.Println("2. Run tests to ensure everything works")
 	fmt.Println("3. Merge the pull request when ready")
-	os.Exit(types.ExitSuccess)
+	return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "pr_created", TraceMessage: "pull request created successfully"}
 }
 
-// HandleExplain provides explanation for a policy violation.
-func HandleExplain(args []string) {
+func runExplainCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
 	if hasHelpFlag(args) {
+		traceCtx.Branch("cli", "explain", "help_requested", nil)
 		printExplainUsage()
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "explain help shown"}
 	}
-
 	if len(args) < 1 {
+		traceCtx.Error("cli", "explain", fmt.Errorf("policy id is required"), nil)
 		printExplainUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "policy id is required"}
 	}
 
 	policyID := strings.ToUpper(strings.TrimSpace(args[0]))
 	if !isSupportedPolicyID(policyID) {
+		traceCtx.Error("cli", "explain", fmt.Errorf("unknown policy id %s", args[0]), nil)
 		fmt.Printf("EXPLAIN FAILED: unknown policy id %q\n", args[0])
 		fmt.Printf("Supported policy IDs: A1, B1, C1, D1, E1, F1, G1, H1, I1, J1, K1, L1, R1\n")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "unknown policy id"}
 	}
 
 	fmt.Printf("=== POLICY EXPLANATION ===\n")
 	fmt.Printf("Policy ID: %s\n", policyID)
 	fmt.Println()
 
-	// Check current status
+	policySpan := traceCtx.HelperEnter("policy", "RunAllChecks", "running policy checks for explanation", nil)
 	violations := policy.RunAllChecks()
+	traceCtx.HelperExit(policySpan, "policy", "RunAllChecks", "ok", "policy checks completed", map[string]string{"violation_count": strconv.Itoa(len(violations))})
 
 	var foundViolation *types.PolicyViolation
 	for _, v := range violations {
@@ -556,74 +1005,119 @@ func HandleExplain(args []string) {
 	}
 
 	if foundViolation != nil {
+		traceCtx.Branch("explain", "policy", "violation", nil)
 		fmt.Printf("Current Status: VIOLATION\n")
 		fmt.Printf("Message: %s\n", foundViolation.Message)
 		fmt.Printf("Severity: %s\n", foundViolation.Severity)
 		fmt.Println()
-		fmt.Printf("Remediation: %s\n", report.GetRemediationAdvice(policyID))
-	} else {
-		fmt.Printf("Current Status: COMPLIANT\n")
-		fmt.Printf("This policy is currently satisfied.\n")
+		remediationSpan := traceCtx.HelperEnter("report", "GetRemediationAdvice", "resolving remediation advice", map[string]string{"policy_id": policyID})
+		remediation := report.GetRemediationAdvice(policyID)
+		traceCtx.HelperExit(remediationSpan, "report", "GetRemediationAdvice", "ok", "remediation advice resolved", map[string]string{"policy_id": policyID})
+		fmt.Printf("Remediation: %s\n", remediation)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "violation", TraceMessage: "policy explanation generated for active violation"}
 	}
+
+	traceCtx.Branch("explain", "policy", "compliant", nil)
+	fmt.Printf("Current Status: COMPLIANT\n")
+	fmt.Printf("This policy is currently satisfied.\n")
+	_ = telemetryConnection
+	return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "compliant", TraceMessage: "policy explanation generated for compliant policy"}
 }
 
-// HandleSecurityAdvice generates AI-based security recommendations and saves
-// them to a markdown file. This is advisory only and does not affect enforcement.
-func HandleSecurityAdvice(args []string) {
+func runSecurityAdviceCommand(traceCtx *clitrace.Context, telemetryConnection dashboardConnectionConfig, args []string) tracedCommandResult {
 	if hasHelpFlag(args) {
+		traceCtx.Branch("cli", "security-advice", "help_requested", nil)
 		printSecurityAdviceUsage()
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "security advice help shown"}
 	}
 
+	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
 	if err := requireGitRepo(); err != nil {
+		traceCtx.Error("cli", "requireGitRepo", err, nil)
+		traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "error", "git repository check failed", nil)
 		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "git repository check failed"}
 	}
+	traceCtx.HelperExit(gitSpan, "cli", "requireGitRepo", "ok", "git repository check passed", nil)
 
+	envSpan := traceCtx.HelperEnter("cli", "loadAIEnvFiles", "loading AI env files", nil)
 	if err := loadAIEnvFiles(); err != nil {
+		traceCtx.Error("cli", "loadAIEnvFiles", err, nil)
+		traceCtx.HelperExit(envSpan, "cli", "loadAIEnvFiles", "error", "AI env loading failed", nil)
 		fmt.Printf("SECURITY-ADVICE FAILED: unable to load AI env file: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "AI env loading failed"}
 	}
+	traceCtx.HelperExit(envSpan, "cli", "loadAIEnvFiles", "ok", "AI env files loaded", nil)
 
+	parseSpan := traceCtx.HelperEnter("cli", "parseSecurityAdviceArgs", "parsing security advice arguments", nil)
 	outFile, err := parseSecurityAdviceArgs(args)
 	if err != nil {
+		traceCtx.Error("cli", "parseSecurityAdviceArgs", err, nil)
+		traceCtx.HelperExit(parseSpan, "cli", "parseSecurityAdviceArgs", "error", "security advice arguments invalid", nil)
 		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
 		printSecurityAdviceUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "security advice arguments invalid"}
 	}
+	traceCtx.HelperExit(parseSpan, "cli", "parseSecurityAdviceArgs", "ok", "security advice arguments parsed", nil)
 
+	genSpan := traceCtx.HelperEnter("ai", "NewDefaultGenerator", "creating default AI generator", nil)
 	gen := ai.NewDefaultGenerator()
+	traceCtx.HelperExit(genSpan, "ai", "NewDefaultGenerator", "ok", "default AI generator created", nil)
+	availabilitySpan := traceCtx.HelperEnter("ai", "CheckAvailability", "checking AI provider availability", nil)
 	if err := gen.CheckAvailability(); err != nil {
+		traceCtx.Error("ai", "CheckAvailability", err, nil)
+		traceCtx.HelperExit(availabilitySpan, "ai", "CheckAvailability", "error", "AI provider unavailable", nil)
 		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
 		fmt.Printf("Configure AI provider environment (OLLAMA_* or OPENROUTER_*) and retry\n")
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "AI provider unavailable"}
 	}
+	traceCtx.HelperExit(availabilitySpan, "ai", "CheckAvailability", "ok", "AI provider available", map[string]string{"status": gen.Provider()})
 
+	cwdSpan := traceCtx.HelperEnter("cli", "os.Getwd", "resolving current directory", nil)
 	cwd, err := os.Getwd()
 	if err != nil {
+		traceCtx.Error("cli", "os.Getwd", err, nil)
+		traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "error", "current directory resolution failed", nil)
 		fmt.Printf("SECURITY-ADVICE FAILED: Unable to get current directory: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "current directory lookup failed"}
 	}
+	traceCtx.HelperExit(cwdSpan, "cli", "os.Getwd", "ok", "resolved current directory", map[string]string{"repository": filepath.Base(cwd)})
+	traceCtx.SetMetadata("repository", filepath.Base(cwd))
 
+	policySpan := traceCtx.HelperEnter("policy", "RunAllChecks", "running policy checks for security advice", nil)
 	violations := policy.RunAllChecks()
-	context := buildSecurityAdviceContext(filepath.Base(cwd), violations)
+	traceCtx.HelperExit(policySpan, "policy", "RunAllChecks", "ok", "policy checks completed", map[string]string{"violation_count": strconv.Itoa(len(violations))})
 
+	contextSpan := traceCtx.HelperEnter("security", "buildSecurityAdviceContext", "building security advice context", nil)
+	context := buildSecurityAdviceContext(filepath.Base(cwd), violations)
+	traceCtx.HelperExit(contextSpan, "security", "buildSecurityAdviceContext", "ok", "security advice context built", map[string]string{"violation_count": strconv.Itoa(len(violations))})
+	generateSpan := traceCtx.HelperEnter("ai", "GenerateSecurityAdvice", "generating AI security advice", nil)
 	content, err := gen.GenerateSecurityAdvice(context)
 	if err != nil {
+		traceCtx.Error("ai", "GenerateSecurityAdvice", err, nil)
+		traceCtx.HelperExit(generateSpan, "ai", "GenerateSecurityAdvice", "error", "security advice generation failed", nil)
 		fmt.Printf("SECURITY-ADVICE FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "generation_failed", TraceMessage: "security advice generation failed"}
 	}
+	traceCtx.HelperExit(generateSpan, "ai", "GenerateSecurityAdvice", "ok", "security advice generated", nil)
 
+	disclaimerSpan := traceCtx.HelperEnter("security", "ensureSecurityAdviceDisclaimer", "ensuring security advice disclaimer", nil)
 	content = ensureSecurityAdviceDisclaimer(content)
+	traceCtx.HelperExit(disclaimerSpan, "security", "ensureSecurityAdviceDisclaimer", "ok", "security advice disclaimer ensured", nil)
+	writeSpan := traceCtx.HelperEnter("fs", "os.WriteFile", "writing security advice output", nil)
 	if err := os.WriteFile(outFile, []byte(content), 0644); err != nil {
+		traceCtx.Error("fs", "os.WriteFile", err, nil)
+		traceCtx.HelperExit(writeSpan, "fs", "os.WriteFile", "error", "security advice output write failed", nil)
 		fmt.Printf("SECURITY-ADVICE FAILED: unable to write %s: %v\n", outFile, err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "security advice output write failed"}
 	}
+	traceCtx.HelperExit(writeSpan, "fs", "os.WriteFile", "ok", "security advice output written", nil)
 
 	fmt.Printf("AI provider connected: %s\n", gen.Provider())
 	fmt.Printf("Wrote AI security advice to %s\n", outFile)
 	fmt.Println("Note: AI-generated suggestions may be incorrect. Validate recommendations before implementation.")
-	os.Exit(types.ExitSuccess)
+	_ = telemetryConnection
+	return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "written", TraceMessage: "AI security advice written to " + outFile}
 }
 
 func parseSecurityAdviceArgs(args []string) (string, error) {
@@ -701,36 +1195,58 @@ func buildSecurityAdviceContext(repoName string, violations []types.PolicyViolat
 
 // HandleAPI serves the optional Baseline API.
 func HandleAPI(args []string) {
-	if err := loadAPIEnvFiles(); err != nil {
-		fmt.Printf("API FAILED: unable to load API env file: %v\n", err)
-		os.Exit(types.ExitSystemError)
+	subcommand := "api"
+	if len(args) > 0 {
+		subcommand = "api " + strings.TrimSpace(args[0])
 	}
+	connection := resolveCLITelemetryConnection()
+	os.Exit(runTracedCommand(subcommand, connection, func(traceCtx *clitrace.Context) tracedCommandResult {
+		return runAPICommand(traceCtx, subcommand, args)
+	}))
+}
+
+func runAPICommand(traceCtx *clitrace.Context, subcommand string, args []string) tracedCommandResult {
+	envSpan := traceCtx.HelperEnter("cli", "loadAPIEnvFiles", "loading API env files", nil)
+	if err := loadAPIEnvFiles(); err != nil {
+		traceCtx.Error("cli", "loadAPIEnvFiles", err, nil)
+		traceCtx.HelperExit(envSpan, "cli", "loadAPIEnvFiles", "error", "API env loading failed", nil)
+		fmt.Printf("API FAILED: unable to load API env file: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "API env loading failed"}
+	}
+	traceCtx.HelperExit(envSpan, "cli", "loadAPIEnvFiles", "ok", "API env files loaded", nil)
 
 	if len(args) < 1 {
+		traceCtx.Error("cli", "api", fmt.Errorf("api subcommand is required"), nil)
 		printAPIUsage()
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "api subcommand is required"}
 	}
 	if hasHelpFlag(args[:1]) || strings.EqualFold(strings.TrimSpace(args[0]), "help") {
+		traceCtx.Branch("api", subcommand, "help_requested", nil)
 		printAPIUsage()
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "api help shown"}
 	}
 
 	if args[0] == "keygen" {
 		if len(args) > 1 && hasHelpFlag(args[1:]) {
 			printAPIUsage()
-			os.Exit(types.ExitSuccess)
+			return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "api keygen help shown"}
 		}
 		if len(args) > 1 {
+			traceCtx.Error("api", "keygen", fmt.Errorf("unknown flag %s", args[1]), nil)
 			fmt.Printf("API FAILED: unknown flag %s\n", args[1])
-			os.Exit(types.ExitSystemError)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "api keygen arguments invalid"}
 		}
+		keygenSpan := traceCtx.HelperEnter("api", "generateAPIKey", "generating API key", nil)
 		key, err := generateAPIKey()
 		if err != nil {
+			traceCtx.Error("api", "generateAPIKey", err, nil)
+			traceCtx.HelperExit(keygenSpan, "api", "generateAPIKey", "error", "API key generation failed", nil)
 			fmt.Printf("API FAILED: unable to generate API key: %v\n", err)
-			os.Exit(types.ExitSystemError)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "API key generation failed"}
 		}
+		traceCtx.HelperExit(keygenSpan, "api", "generateAPIKey", "ok", "API key generated", nil)
 		fmt.Println(key)
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "ok", TraceMessage: "API key generated"}
 	}
 
 	if args[0] == "verify-prod" {
@@ -739,17 +1255,23 @@ func HandleAPI(args []string) {
 			switch args[i] {
 			case "--help", "-h":
 				printAPIUsage()
-				os.Exit(types.ExitSuccess)
+				return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "api verify-prod help shown"}
 			case "--strict":
 				strict = true
 			default:
+				traceCtx.Error("api", "verify-prod", fmt.Errorf("unknown flag %s", args[i]), nil)
 				fmt.Printf("API FAILED: unknown flag %s\n", args[i])
-				os.Exit(types.ExitSystemError)
+				return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "api verify-prod arguments invalid"}
 			}
 		}
 
+		verifySpan := traceCtx.HelperEnter("api", "verifyAPIProdConfig", "verifying production API configuration", nil)
 		cfg := api.ConfigFromEnv()
 		result := verifyAPIProdConfig(cfg, os.Getenv)
+		traceCtx.HelperExit(verifySpan, "api", "verifyAPIProdConfig", "ok", "production API configuration verified", map[string]string{
+			"error_count":   strconv.Itoa(len(result.Errors)),
+			"warning_count": strconv.Itoa(len(result.Warnings)),
+		})
 		fmt.Println("=== BASELINE API PRODUCTION VERIFICATION ===")
 		fmt.Printf("Address: %s\n", cfg.Addr)
 		fmt.Printf("Database: %s\n", cfg.DBPath)
@@ -773,26 +1295,30 @@ func HandleAPI(args []string) {
 
 		if len(result.Errors) == 0 && len(result.Warnings) == 0 {
 			fmt.Println("PASS: Baseline API config is production-ready.")
-			os.Exit(types.ExitSuccess)
+			return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "ok", TraceMessage: "API production verification passed"}
 		}
 
 		if strict && len(result.Warnings) > 0 {
+			traceCtx.Branch("api", "verify-prod", "strict_warning", nil)
 			fmt.Println("STRICT MODE: warnings are treated as blocking.")
-			os.Exit(types.ExitBlockingViolation)
+			return tracedCommandResult{ExitCode: types.ExitBlockingViolation, TraceStatus: "strict_warning", TraceMessage: "API production verification warnings treated as blocking"}
 		}
 
 		if len(result.Errors) > 0 {
+			traceCtx.Branch("api", "verify-prod", "violations_found", nil)
 			fmt.Println("FAIL: resolve blocking issues before production deployment.")
-			os.Exit(types.ExitBlockingViolation)
+			return tracedCommandResult{ExitCode: types.ExitBlockingViolation, TraceStatus: "violations_found", TraceMessage: "API production verification found blocking issues"}
 		}
 
+		traceCtx.Branch("api", "verify-prod", "warning", nil)
 		fmt.Println("PASS WITH WARNINGS: review and address warnings before production deployment.")
-		os.Exit(types.ExitSuccess)
+		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "warning", TraceMessage: "API production verification passed with warnings"}
 	}
 
 	if args[0] != "serve" {
+		traceCtx.Error("api", "serve", fmt.Errorf("unknown subcommand %s", args[0]), nil)
 		fmt.Printf("API FAILED: unknown subcommand %s\n", args[0])
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "unknown api subcommand"}
 	}
 
 	cfg := api.ConfigFromEnv()
@@ -800,41 +1326,54 @@ func HandleAPI(args []string) {
 		switch args[i] {
 		case "--help", "-h":
 			printAPIUsage()
-			os.Exit(types.ExitSuccess)
+			return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "api serve help shown"}
 		case "--addr":
 			if i+1 >= len(args) {
 				fmt.Println("API FAILED: --addr requires a value")
-				os.Exit(types.ExitSystemError)
+				return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "api serve address requires a value"}
 			}
 			cfg.Addr = args[i+1]
 			i++
 		case "--ai-enabled":
 			cfg.AIEnabled = true
 		default:
+			traceCtx.Error("api", "serve", fmt.Errorf("unknown flag %s", args[i]), nil)
 			fmt.Printf("API FAILED: unknown flag %s\n", args[i])
-			os.Exit(types.ExitSystemError)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "api serve arguments invalid"}
 		}
 	}
 
+	validateSpan := traceCtx.HelperEnter("api", "validateAPIListenAddr", "validating API listen address", nil)
 	if err := validateAPIListenAddr(cfg.Addr); err != nil {
+		traceCtx.Error("api", "validateAPIListenAddr", err, nil)
+		traceCtx.HelperExit(validateSpan, "api", "validateAPIListenAddr", "error", "API listen address validation failed", nil)
 		fmt.Printf("API FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "API listen address validation failed"}
 	}
+	traceCtx.HelperExit(validateSpan, "api", "validateAPIListenAddr", "ok", "API listen address validated", nil)
 
+	storeSpan := traceCtx.HelperEnter("api", "NewStore", "opening persistent store", nil)
 	store, err := api.NewStore(cfg.DBPath)
 	if err != nil {
+		traceCtx.Error("api", "NewStore", err, nil)
+		traceCtx.HelperExit(storeSpan, "api", "NewStore", "error", "persistent store open failed", nil)
 		fmt.Printf("API FAILED: unable to open persistent store: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "persistent store open failed"}
 	}
+	traceCtx.HelperExit(storeSpan, "api", "NewStore", "ok", "persistent store opened", nil)
 	defer func() {
 		_ = store.Close()
 	}()
 
+	serverSpan := traceCtx.HelperEnter("api", "NewServer", "constructing API server", nil)
 	server, err := api.NewServer(cfg, store)
 	if err != nil {
+		traceCtx.Error("api", "NewServer", err, nil)
+		traceCtx.HelperExit(serverSpan, "api", "NewServer", "error", "API server construction failed", nil)
 		fmt.Printf("API FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "API server construction failed"}
 	}
+	traceCtx.HelperExit(serverSpan, "api", "NewServer", "ok", "API server constructed", nil)
 
 	fmt.Printf("Baseline API server listening on %s\n", cfg.Addr)
 	fmt.Printf("Web dashboard available at %s/dashboard\n", dashboardListenURL(cfg.Addr))
@@ -857,13 +1396,18 @@ func HandleAPI(args []string) {
 		}
 	}()
 
+	listenSpan := traceCtx.HelperEnter("api", "ListenAndServe", "starting API server", nil)
 	if err := server.ListenAndServe(); err != nil {
 		if errors.Is(err, http.ErrServerClosed) {
-			os.Exit(types.ExitSuccess)
+			traceCtx.HelperExit(listenSpan, "api", "ListenAndServe", "ok", "API server stopped", nil)
+			return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "stopped", TraceMessage: "API server stopped"}
 		}
+		traceCtx.Error("api", "ListenAndServe", err, nil)
+		traceCtx.HelperExit(listenSpan, "api", "ListenAndServe", "error", "API server failed", nil)
 		fmt.Printf("API FAILED: %v\n", err)
-		os.Exit(types.ExitSystemError)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "API server failed"}
 	}
+	return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "stopped", TraceMessage: "API server stopped"}
 }
 
 func printGenerateUsage() {

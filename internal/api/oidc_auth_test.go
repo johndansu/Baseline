@@ -209,6 +209,155 @@ func TestAuthMeLookupBackfillsPersistedUserForLegacySupabaseSession(t *testing.T
 	}
 }
 
+func TestAuthMeLookupRefreshesPersistedSessionRole(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "auth_me_refresh_role.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	userID, err := store.UpsertOIDCUser("https://issuer.example", "sub-role-refresh", "role-refresh@example.com", "Role Refresh", now)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser returned error: %v", err)
+	}
+	if _, err := store.UpdateUserRoleAndStatus(userID, RoleAdmin, UserStatusActive, now); err != nil {
+		t.Fatalf("UpdateUserRoleAndStatus returned error: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.DashboardSessionEnabled = true
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+
+	token := "session-token-refresh-role"
+	session := dashboardSession{
+		UserID:     userID,
+		Role:       RoleOperator,
+		User:       "Role Refresh",
+		Subject:    "sub-role-refresh",
+		Email:      "role-refresh@example.com",
+		AuthSource: "supabase",
+		ExpiresAt:  now.Add(1 * time.Hour),
+	}
+	if err := store.UpsertAuthSession(token, session, now); err != nil {
+		t.Fatalf("UpsertAuthSession returned error: %v", err)
+	}
+	server.sessionMu.Lock()
+	server.sessions[token] = session
+	server.sessionMu.Unlock()
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/auth/me", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: dashboardSessionCookieName, Value: token})
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	body := string(bodyBytes)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var payload struct {
+		Role Role `json:"role"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		t.Fatalf("unable to parse response: %v body=%s", err, body)
+	}
+	if payload.Role != RoleAdmin {
+		t.Fatalf("expected refreshed admin role, got %+v body=%s", payload, body)
+	}
+}
+
+func TestAuthMeLookupRefreshesPersistedSessionRoleByEmailForLegacySession(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "auth_me_refresh_role_legacy_email.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	userID, err := store.UpsertOIDCUser("https://issuer.example", "sub-role-refresh-email", "role-refresh-email@example.com", "Role Refresh Email", now)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser returned error: %v", err)
+	}
+	if _, err := store.UpdateUserRoleAndStatus(userID, RoleAdmin, UserStatusActive, now); err != nil {
+		t.Fatalf("UpdateUserRoleAndStatus returned error: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.DashboardSessionEnabled = true
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+
+	token := "session-token-refresh-role-legacy-email"
+	session := dashboardSession{
+		Role:       RoleViewer,
+		User:       "Legacy Email Session",
+		Subject:    "sub-role-refresh-email",
+		Email:      "role-refresh-email@example.com",
+		AuthSource: "supabase",
+		ExpiresAt:  now.Add(1 * time.Hour),
+	}
+	if err := store.UpsertAuthSession(token, session, now); err != nil {
+		t.Fatalf("UpsertAuthSession returned error: %v", err)
+	}
+	server.sessionMu.Lock()
+	server.sessions[token] = session
+	server.sessionMu.Unlock()
+
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v1/auth/me", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: dashboardSessionCookieName, Value: token})
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	body := string(bodyBytes)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.StatusCode, body)
+	}
+
+	var payload struct {
+		Role   Role   `json:"role"`
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		t.Fatalf("unable to parse response: %v body=%s", err, body)
+	}
+	if payload.Role != RoleAdmin {
+		t.Fatalf("expected refreshed admin role, got %+v body=%s", payload, body)
+	}
+	if payload.UserID != userID {
+		t.Fatalf("expected legacy session to backfill user_id %q, got %+v body=%s", userID, payload, body)
+	}
+}
+
 func TestOIDCLoginDisabledReturnsForbidden(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.APIKeys = map[string]Role{"admin-key": RoleAdmin}
@@ -506,5 +655,68 @@ func TestSupabaseSessionExchangeCreatesDashboardSession(t *testing.T) {
 	}
 	if !strings.Contains(meBody, `"auth_source":"session"`) || !strings.Contains(meBody, `"email":"person@example.com"`) {
 		t.Fatalf("unexpected auth/me response after exchange: %s", meBody)
+	}
+}
+
+func TestSupabaseSessionExchangeUsesPersistedUserRole(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "supabase_exchange_persisted_role.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	supabase := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/auth/v1/user" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"user_123","email":"person@example.com","email_confirmed_at":"2026-03-08T12:00:00Z","user_metadata":{"full_name":"Person Example"}}`)
+	}))
+	defer supabase.Close()
+
+	now := time.Now().UTC()
+	userID, err := store.UpsertOIDCUser(
+		supabase.URL+"/auth/v1",
+		"user_123",
+		"person@example.com",
+		"Person Example",
+		now,
+	)
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser returned error: %v", err)
+	}
+	if _, err := store.UpdateUserRoleAndStatus(userID, RoleAdmin, UserStatusActive, now); err != nil {
+		t.Fatalf("UpdateUserRoleAndStatus returned error: %v", err)
+	}
+
+	t.Setenv("SUPABASE_URL", supabase.URL)
+	t.Setenv("SUPABASE_ANON_KEY", "public-test-key")
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.OIDCEnabled = true
+	cfg.OIDCIssuerURL = supabase.URL + "/auth/v1"
+	cfg.OIDCClientID = "supabase-client"
+	cfg.OIDCClientSecret = "supabase-secret"
+	cfg.OIDCRedirectURL = "https://app.example.com/v1/auth/oidc/callback"
+	cfg.OIDCDefaultRole = RoleOperator
+
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	resp, body := mustRequest(t, http.DefaultClient, http.MethodPost, ts.URL+"/v1/auth/session/exchange", map[string]any{
+		"access_token": "valid-session-token",
+	}, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating exchanged session, got %d body=%s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, `"role":"admin"`) {
+		t.Fatalf("expected persisted admin role in exchange response, body=%s", body)
 	}
 }

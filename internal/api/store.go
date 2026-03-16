@@ -24,7 +24,7 @@ type persistedAPIKey struct {
 
 const (
 	storeSchemaVersionKey     = "schema_version"
-	currentStoreSchemaVersion = 8
+	currentStoreSchemaVersion = 10
 )
 
 type storeMigration struct {
@@ -127,6 +127,7 @@ func migrateStore(db *sql.DB) error {
 					scan_id TEXT,
 					actor TEXT,
 					request_id TEXT,
+					details TEXT NOT NULL DEFAULT '',
 					created_at TEXT NOT NULL
 				);`,
 				`CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);`,
@@ -243,6 +244,18 @@ func migrateStore(db *sql.DB) error {
 			version: 8,
 			apply: func(tx *sql.Tx) error {
 				return migrateScanFilesScannedTx(tx)
+			},
+		},
+		{
+			version: 9,
+			apply: func(tx *sql.Tx) error {
+				return migrateAuditEventDetailsTx(tx)
+			},
+		},
+		{
+			version: 10,
+			apply: func(tx *sql.Tx) error {
+				return migrateCLITracesTx(tx)
 			},
 		},
 	}
@@ -819,6 +832,67 @@ func migrateScanFilesScannedTx(tx *sql.Tx) error {
 	return err
 }
 
+func migrateAuditEventDetailsTx(tx *sql.Tx) error {
+	if err := ensureColumnWithDefaultTx(tx, "audit_events", "details", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`UPDATE audit_events SET details = '' WHERE details IS NULL`)
+	return err
+}
+
+func migrateCLITracesTx(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS cli_traces (
+		trace_id TEXT PRIMARY KEY,
+		command TEXT NOT NULL,
+		repository TEXT,
+		project_id TEXT,
+		scan_id TEXT,
+		status TEXT,
+		message TEXT,
+		version TEXT,
+		started_at TEXT NOT NULL,
+		finished_at TEXT NOT NULL,
+		duration_ms INTEGER NOT NULL DEFAULT 0,
+		event_count INTEGER NOT NULL DEFAULT 0,
+		files_scanned INTEGER NOT NULL DEFAULT 0,
+		security_issues INTEGER NOT NULL DEFAULT 0,
+		violation_count INTEGER NOT NULL DEFAULT 0,
+		attributes_json TEXT NOT NULL DEFAULT '{}'
+	);`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_cli_traces_started_at ON cli_traces(started_at DESC);`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_cli_traces_command_started_at ON cli_traces(command, started_at DESC);`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_cli_traces_project_started_at ON cli_traces(project_id, started_at DESC);`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS cli_trace_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		trace_id TEXT NOT NULL,
+		span_id TEXT NOT NULL,
+		parent_span_id TEXT,
+		event_type TEXT NOT NULL,
+		component TEXT,
+		function_name TEXT,
+		branch TEXT,
+		status TEXT,
+		message TEXT,
+		attributes_json TEXT NOT NULL DEFAULT '{}',
+		created_at TEXT NOT NULL,
+		FOREIGN KEY(trace_id) REFERENCES cli_traces(trace_id) ON DELETE CASCADE
+	);`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_cli_trace_events_trace_created_at ON cli_trace_events(trace_id, created_at ASC, id ASC);`); err != nil {
+		return err
+	}
+	return nil
+}
+
 func tableHasColumnTx(tx *sql.Tx, tableName, columnName string) (bool, error) {
 	rows, err := tx.Query(fmt.Sprintf(`PRAGMA table_info(%s);`, tableName))
 	if err != nil {
@@ -1077,8 +1151,8 @@ func (s *Store) AppendAuditEvent(event AuditEvent) error {
 }
 
 func insertAuditEventSQL() string {
-	return `INSERT INTO audit_events (event_type, project_id, scan_id, actor, request_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`
+	return `INSERT INTO audit_events (event_type, project_id, scan_id, actor, request_id, details, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`
 }
 
 func auditEventInsertArgs(event AuditEvent) []any {
@@ -1088,6 +1162,7 @@ func auditEventInsertArgs(event AuditEvent) []any {
 		strings.TrimSpace(event.ScanID),
 		strings.TrimSpace(event.Actor),
 		strings.TrimSpace(event.RequestID),
+		strings.TrimSpace(event.Details),
 		event.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
@@ -1101,7 +1176,7 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 		maxRows = 500
 	}
 	rows, err := s.db.Query(
-		`SELECT event_type, project_id, scan_id, actor, request_id, created_at
+		`SELECT event_type, project_id, scan_id, actor, request_id, details, created_at
 		 FROM audit_events
 		 ORDER BY created_at DESC
 		 LIMIT ?`,
@@ -1115,8 +1190,8 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 	out := []AuditEvent{}
 	for rows.Next() {
 		var eventType, createdRaw string
-		var projectID, scanID, actor, requestID sql.NullString
-		if err := rows.Scan(&eventType, &projectID, &scanID, &actor, &requestID, &createdRaw); err != nil {
+		var projectID, scanID, actor, requestID, details sql.NullString
+		if err := rows.Scan(&eventType, &projectID, &scanID, &actor, &requestID, &details, &createdRaw); err != nil {
 			return nil, err
 		}
 		createdAt, err := parseStoredTime(createdRaw)
@@ -1129,6 +1204,7 @@ func (s *Store) LoadAuditEvents(limit int) ([]AuditEvent, error) {
 			ScanID:    strings.TrimSpace(scanID.String),
 			Actor:     strings.TrimSpace(actor.String),
 			RequestID: strings.TrimSpace(requestID.String),
+			Details:   strings.TrimSpace(details.String),
 			CreatedAt: createdAt,
 		})
 	}
@@ -1196,7 +1272,7 @@ func (s *Store) ListAuditEventsByActors(actors []string, limit, offset int, even
 	}
 
 	var queryBuilder strings.Builder
-	queryBuilder.WriteString("SELECT event_type, project_id, scan_id, actor, request_id, created_at FROM audit_events")
+	queryBuilder.WriteString("SELECT event_type, project_id, scan_id, actor, request_id, details, created_at FROM audit_events")
 	queryBuilder.WriteString(where)
 	queryBuilder.WriteString(" ORDER BY created_at DESC LIMIT ? OFFSET ?")
 	query := queryBuilder.String()
@@ -1210,8 +1286,8 @@ func (s *Store) ListAuditEventsByActors(actors []string, limit, offset int, even
 	out := []AuditEvent{}
 	for rows.Next() {
 		var eventType, createdRaw string
-		var projectID, scanID, actor, requestID sql.NullString
-		if err := rows.Scan(&eventType, &projectID, &scanID, &actor, &requestID, &createdRaw); err != nil {
+		var projectID, scanID, actor, requestID, details sql.NullString
+		if err := rows.Scan(&eventType, &projectID, &scanID, &actor, &requestID, &details, &createdRaw); err != nil {
 			return UserListResult{}, nil, err
 		}
 		createdAt, err := parseStoredTime(createdRaw)
@@ -1224,6 +1300,7 @@ func (s *Store) ListAuditEventsByActors(actors []string, limit, offset int, even
 			ScanID:    strings.TrimSpace(scanID.String),
 			Actor:     strings.TrimSpace(actor.String),
 			RequestID: strings.TrimSpace(requestID.String),
+			Details:   strings.TrimSpace(details.String),
 			CreatedAt: createdAt,
 		})
 	}
@@ -1239,6 +1316,292 @@ func (s *Store) ListAuditEventsByActors(actors []string, limit, offset int, even
 		HasMore: hasMore,
 	}
 	return meta, out, nil
+}
+
+func (s *Store) DeleteAuditEventsByPrefixBefore(prefix string, before time.Time) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	normalizedPrefix := strings.ToLower(strings.TrimSpace(prefix))
+	if normalizedPrefix == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`DELETE FROM audit_events
+		 WHERE lower(event_type) LIKE ? AND julianday(created_at) < julianday(?)`,
+		normalizedPrefix+"%",
+		before.UTC().Format(time.RFC3339Nano),
+	)
+	return err
+}
+
+func (s *Store) CreateCLITrace(trace CLITraceDetail) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	traceID := strings.TrimSpace(trace.Summary.TraceID)
+	if traceID == "" {
+		return errors.New("trace id is required")
+	}
+	command := strings.TrimSpace(trace.Summary.Command)
+	if command == "" {
+		return errors.New("trace command is required")
+	}
+	startedAt := trace.Summary.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
+	finishedAt := trace.Summary.FinishedAt
+	if finishedAt.IsZero() {
+		finishedAt = startedAt
+	}
+	attrsJSON, err := json.Marshal(trace.Summary.Attributes)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(
+		`INSERT INTO cli_traces (
+			trace_id, command, repository, project_id, scan_id, status, message, version,
+			started_at, finished_at, duration_ms, event_count, files_scanned, security_issues, violation_count, attributes_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(trace_id) DO UPDATE SET
+			command = excluded.command,
+			repository = excluded.repository,
+			project_id = excluded.project_id,
+			scan_id = excluded.scan_id,
+			status = excluded.status,
+			message = excluded.message,
+			version = excluded.version,
+			started_at = excluded.started_at,
+			finished_at = excluded.finished_at,
+			duration_ms = excluded.duration_ms,
+			event_count = excluded.event_count,
+			files_scanned = excluded.files_scanned,
+			security_issues = excluded.security_issues,
+			violation_count = excluded.violation_count,
+			attributes_json = excluded.attributes_json`,
+		traceID,
+		command,
+		strings.TrimSpace(trace.Summary.Repository),
+		strings.TrimSpace(trace.Summary.ProjectID),
+		strings.TrimSpace(trace.Summary.ScanID),
+		strings.TrimSpace(trace.Summary.Status),
+		strings.TrimSpace(trace.Summary.Message),
+		strings.TrimSpace(trace.Summary.Version),
+		startedAt.UTC().Format(time.RFC3339Nano),
+		finishedAt.UTC().Format(time.RFC3339Nano),
+		trace.Summary.DurationMS,
+		trace.Summary.EventCount,
+		trace.Summary.FilesScanned,
+		trace.Summary.SecurityIssues,
+		trace.Summary.ViolationCount,
+		string(attrsJSON),
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM cli_trace_events WHERE trace_id = ?`, traceID); err != nil {
+		return err
+	}
+	for _, event := range trace.Events {
+		eventAttrsJSON, err := json.Marshal(event.Attributes)
+		if err != nil {
+			return err
+		}
+		createdAt := event.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = startedAt
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO cli_trace_events (
+				trace_id, span_id, parent_span_id, event_type, component, function_name, branch, status, message, attributes_json, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			traceID,
+			strings.TrimSpace(event.SpanID),
+			strings.TrimSpace(event.ParentSpanID),
+			strings.TrimSpace(event.Type),
+			strings.TrimSpace(event.Component),
+			strings.TrimSpace(event.Function),
+			strings.TrimSpace(event.Branch),
+			strings.TrimSpace(event.Status),
+			strings.TrimSpace(event.Message),
+			string(eventAttrsJSON),
+			createdAt.UTC().Format(time.RFC3339Nano),
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ListCLITraces(limit int, command, status, projectID string) ([]CLITraceSummary, error) {
+	if s == nil || s.db == nil {
+		return []CLITraceSummary{}, nil
+	}
+	maxRows := limit
+	if maxRows <= 0 || maxRows > 500 {
+		maxRows = 100
+	}
+	where := []string{}
+	args := []any{}
+	if trimmed := strings.TrimSpace(command); trimmed != "" {
+		where = append(where, "command = ?")
+		args = append(args, trimmed)
+	}
+	if trimmed := strings.TrimSpace(status); trimmed != "" {
+		where = append(where, "status = ?")
+		args = append(args, trimmed)
+	}
+	if trimmed := strings.TrimSpace(projectID); trimmed != "" {
+		where = append(where, "project_id = ?")
+		args = append(args, trimmed)
+	}
+	query := `SELECT trace_id, command, repository, project_id, scan_id, status, message, version,
+		started_at, finished_at, duration_ms, event_count, files_scanned, security_issues, violation_count, attributes_json
+		FROM cli_traces`
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY started_at DESC LIMIT ?"
+	args = append(args, maxRows)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []CLITraceSummary{}
+	for rows.Next() {
+		summary, err := scanCLITraceSummaryRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) GetCLITrace(traceID string) (CLITraceDetail, error) {
+	if s == nil || s.db == nil {
+		return CLITraceDetail{}, sql.ErrNoRows
+	}
+	id := strings.TrimSpace(traceID)
+	if id == "" {
+		return CLITraceDetail{}, errors.New("trace id is required")
+	}
+	row := s.db.QueryRow(
+		`SELECT trace_id, command, repository, project_id, scan_id, status, message, version,
+			started_at, finished_at, duration_ms, event_count, files_scanned, security_issues, violation_count, attributes_json
+		 FROM cli_traces WHERE trace_id = ?`,
+		id,
+	)
+	summary, err := scanCLITraceSummaryRow(row)
+	if err != nil {
+		return CLITraceDetail{}, err
+	}
+	rows, err := s.db.Query(
+		`SELECT id, trace_id, span_id, parent_span_id, event_type, component, function_name, branch, status, message, attributes_json, created_at
+		 FROM cli_trace_events
+		 WHERE trace_id = ?
+		 ORDER BY created_at ASC, id ASC`,
+		id,
+	)
+	if err != nil {
+		return CLITraceDetail{}, err
+	}
+	defer rows.Close()
+	events := []CLITraceEvent{}
+	for rows.Next() {
+		var event CLITraceEvent
+		var parentSpanID, component, functionName, branch, statusText, message, attrsRaw sql.NullString
+		var createdRaw string
+		if err := rows.Scan(&event.ID, &event.TraceID, &event.SpanID, &parentSpanID, &event.Type, &component, &functionName, &branch, &statusText, &message, &attrsRaw, &createdRaw); err != nil {
+			return CLITraceDetail{}, err
+		}
+		createdAt, err := parseStoredTime(createdRaw)
+		if err != nil {
+			return CLITraceDetail{}, err
+		}
+		event.ParentSpanID = strings.TrimSpace(parentSpanID.String)
+		event.Component = strings.TrimSpace(component.String)
+		event.Function = strings.TrimSpace(functionName.String)
+		event.Branch = strings.TrimSpace(branch.String)
+		event.Status = strings.TrimSpace(statusText.String)
+		event.Message = strings.TrimSpace(message.String)
+		event.Attributes = map[string]string{}
+		if strings.TrimSpace(attrsRaw.String) != "" {
+			if err := json.Unmarshal([]byte(attrsRaw.String), &event.Attributes); err != nil {
+				return CLITraceDetail{}, err
+			}
+		}
+		event.CreatedAt = createdAt
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return CLITraceDetail{}, err
+	}
+	return CLITraceDetail{Summary: summary, Events: events}, nil
+}
+
+type cliTraceSummaryScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanCLITraceSummaryRow(scanner cliTraceSummaryScanner) (CLITraceSummary, error) {
+	var summary CLITraceSummary
+	var repository, projectID, scanID, statusText, message, versionText, attrsRaw sql.NullString
+	var startedRaw, finishedRaw string
+	if err := scanner.Scan(
+		&summary.TraceID,
+		&summary.Command,
+		&repository,
+		&projectID,
+		&scanID,
+		&statusText,
+		&message,
+		&versionText,
+		&startedRaw,
+		&finishedRaw,
+		&summary.DurationMS,
+		&summary.EventCount,
+		&summary.FilesScanned,
+		&summary.SecurityIssues,
+		&summary.ViolationCount,
+		&attrsRaw,
+	); err != nil {
+		return CLITraceSummary{}, err
+	}
+	startedAt, err := parseStoredTime(startedRaw)
+	if err != nil {
+		return CLITraceSummary{}, err
+	}
+	finishedAt, err := parseStoredTime(finishedRaw)
+	if err != nil {
+		return CLITraceSummary{}, err
+	}
+	summary.Repository = strings.TrimSpace(repository.String)
+	summary.ProjectID = strings.TrimSpace(projectID.String)
+	summary.ScanID = strings.TrimSpace(scanID.String)
+	summary.Status = strings.TrimSpace(statusText.String)
+	summary.Message = strings.TrimSpace(message.String)
+	summary.Version = strings.TrimSpace(versionText.String)
+	summary.StartedAt = startedAt
+	summary.FinishedAt = finishedAt
+	summary.Attributes = map[string]string{}
+	if strings.TrimSpace(attrsRaw.String) != "" {
+		if err := json.Unmarshal([]byte(attrsRaw.String), &summary.Attributes); err != nil {
+			return CLITraceSummary{}, err
+		}
+	}
+	return summary, nil
 }
 
 func (s *Store) UpsertOIDCUser(provider, subject, email, displayName string, now time.Time) (string, error) {
@@ -1525,6 +1888,31 @@ func (s *Store) GetUserByID(userID string) (UserRecord, bool, error) {
 		 FROM users
 		 WHERE id = ?`,
 		id,
+	)
+	user, err := scanUserRecord(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return UserRecord{}, false, nil
+	}
+	if err != nil {
+		return UserRecord{}, false, err
+	}
+	return user, true, nil
+}
+
+func (s *Store) GetUserByEmail(email string) (UserRecord, bool, error) {
+	if s == nil || s.db == nil {
+		return UserRecord{}, false, nil
+	}
+	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+	if normalizedEmail == "" {
+		return UserRecord{}, false, errors.New("email is required")
+	}
+
+	row := s.db.QueryRow(
+		`SELECT id, display_name, email, role, status, last_login_at, created_at, updated_at
+		 FROM users
+		 WHERE lower(email) = ?`,
+		normalizedEmail,
 	)
 	user, err := scanUserRecord(row)
 	if errors.Is(err, sql.ErrNoRows) {

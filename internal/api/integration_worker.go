@@ -16,6 +16,7 @@ func (s *Server) appendEventLocked(event AuditEvent) {
 	event.ScanID = strings.TrimSpace(event.ScanID)
 	event.Actor = strings.TrimSpace(event.Actor)
 	event.RequestID = strings.TrimSpace(event.RequestID)
+	event.Details = strings.TrimSpace(event.Details)
 	s.prependEventLocked(event)
 	if s.store != nil {
 		_ = s.store.AppendAuditEvent(event)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/baseline/baseline/internal/api"
+	clitrace "github.com/baseline/baseline/internal/cli/trace"
 	"github.com/baseline/baseline/internal/types"
 )
 
@@ -20,7 +21,7 @@ func TestHandleVersion(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	HandleVersion()
+	result := runVersionCommand(clitrace.Start("version"))
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -35,6 +36,9 @@ func TestHandleVersion(t *testing.T) {
 
 	if !strings.HasPrefix(strings.TrimSpace(output), "baseline") {
 		t.Errorf("Expected output to start with 'baseline', got '%s'", output)
+	}
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected version command to succeed, got exit code %d", result.ExitCode)
 	}
 }
 
@@ -90,7 +94,7 @@ func TestHandleExplainWithPolicyID(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	HandleExplain([]string{"G1"})
+	result := runExplainCommand(clitrace.Start("explain"), dashboardConnectionConfig{}, []string{"G1"})
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -106,6 +110,9 @@ func TestHandleExplainWithPolicyID(t *testing.T) {
 	expectedHeader := "=== POLICY EXPLANATION ==="
 	if !strings.Contains(output, expectedHeader) {
 		t.Errorf("Expected output to contain '%s', got '%s'", expectedHeader, output)
+	}
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected explain command to succeed, got exit code %d", result.ExitCode)
 	}
 }
 
