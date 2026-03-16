@@ -45,7 +45,7 @@ func main() {
 	case "scan":
 		cli.HandleScan(os.Args[2:])
 	case "init":
-		cli.HandleInit()
+		cli.HandleInit(os.Args[2:])
 	case "report":
 		cli.HandleReport(os.Args[2:])
 	case "generate":

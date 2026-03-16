@@ -44,6 +44,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	case "/cli-guide", "/cli-guide.html":
 		serveDashboardPublicFile(w, "cli-guide.html", "text/html; charset=utf-8")
 		return
+	case "/cli-login", "/cli-login.html":
+		serveDashboardPublicFile(w, "cli-login.html", "text/html; charset=utf-8")
+		return
 	case "/dashboard", "/dashboard.html":
 		serveDashboardPublicFile(w, "dashboard.html", "text/html; charset=utf-8")
 		return
@@ -116,6 +119,7 @@ func isDashboardPath(path string) bool {
 		"/login", "/login.html", "/register", "/register.html",
 		"/signin", "/signin.html", "/signup", "/signup.html", "/index.html",
 		"/cli-guide", "/cli-guide.html",
+		"/cli-login", "/cli-login.html",
 		"/dashboard", "/dashboard.html",
 		"/styles.css", "/app.js", "/auth.js", "/js/runtime-config.js",
 		"/assets/baseline-logo.png",

@@ -459,8 +459,84 @@ func TestRunInitCommandRequiresGitRepo(t *testing.T) {
 	}
 
 	traceCtx := clitrace.Start("init")
-	result := runInitCommand(traceCtx)
+	result := runInitCommand(traceCtx, nil)
 	if result.ExitCode != types.ExitSystemError {
 		t.Fatalf("expected exit code %d, got %d", types.ExitSystemError, result.ExitCode)
+	}
+}
+
+func TestRunInitCommandHelpDoesNotTouchRepoConfig(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+
+	cfg := baselineLocalConfig{
+		PolicySet:       "custom:policy",
+		EnforcementMode: "block",
+		Dashboard: baselineDashboardConfig{
+			Upload: dashboardUploadConfig{
+				Prompted:   true,
+				Enabled:    true,
+				APIBaseURL: "http://127.0.0.1:8080",
+				ProjectID:  "baseline_repo",
+			},
+		},
+	}
+	if err := saveBaselineLocalConfig(cfg); err != nil {
+		t.Fatalf("saveBaselineLocalConfig: %v", err)
+	}
+
+	traceCtx := clitrace.Start("init")
+	result := runInitCommand(traceCtx, []string{"--help"})
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected help exit code %d, got %d", types.ExitSuccess, result.ExitCode)
+	}
+
+	savedConfig, err := loadBaselineLocalConfig()
+	if err != nil {
+		t.Fatalf("loadBaselineLocalConfig: %v", err)
+	}
+	if savedConfig != cfg {
+		t.Fatalf("expected config to remain unchanged after init help, got %+v", savedConfig)
+	}
+}
+
+func TestRunInitCommandPreservesDashboardUploadConfig(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+
+	cfg := baselineLocalConfig{
+		Dashboard: baselineDashboardConfig{
+			Upload: dashboardUploadConfig{
+				Prompted:   true,
+				Enabled:    true,
+				APIBaseURL: "http://127.0.0.1:8080",
+				ProjectID:  "baseline_repo",
+			},
+		},
+	}
+	if err := saveBaselineLocalConfig(cfg); err != nil {
+		t.Fatalf("saveBaselineLocalConfig: %v", err)
+	}
+
+	traceCtx := clitrace.Start("init")
+	result := runInitCommand(traceCtx, nil)
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected init success, got %d", result.ExitCode)
+	}
+
+	savedConfig, err := loadBaselineLocalConfig()
+	if err != nil {
+		t.Fatalf("loadBaselineLocalConfig: %v", err)
+	}
+	if savedConfig.PolicySet != "baseline:prod" {
+		t.Fatalf("expected policy_set baseline:prod, got %q", savedConfig.PolicySet)
+	}
+	if savedConfig.EnforcementMode != "audit" {
+		t.Fatalf("expected enforcement_mode audit, got %q", savedConfig.EnforcementMode)
+	}
+	if savedConfig.Dashboard.Upload.ProjectID != "baseline_repo" || savedConfig.Dashboard.Upload.APIBaseURL != "http://127.0.0.1:8080" || !savedConfig.Dashboard.Upload.Enabled {
+		t.Fatalf("expected dashboard upload config to be preserved, got %+v", savedConfig.Dashboard.Upload)
 	}
 }

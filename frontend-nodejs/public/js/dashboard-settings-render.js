@@ -18,6 +18,92 @@ export function renderSettingsActionButton(dashboard, label, options = {}, prima
     `;
 }
 
+export function renderCLISessionsList(dashboard, sessions = [], isLoading = false, errorMessage = '') {
+    if (isLoading) {
+        return '<div class="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-500">Loading active CLI sessions...</div>';
+    }
+    if (errorMessage) {
+        return `<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-5 text-sm text-red-700">${dashboard.escapeHtml(errorMessage)}</div>`;
+    }
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+        return '<div class="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-sm text-gray-500">No active CLI sessions are connected right now.</div>';
+    }
+    return `
+        <div class="space-y-3">
+            ${sessions.map((session) => {
+                const sessionID = String(session?.session_id || '').trim();
+                const clientName = dashboard.escapeHtml(session?.client_name || 'CLI client');
+                const clientHost = dashboard.escapeHtml(session?.client_host || 'Unknown host');
+                const userLabel = dashboard.escapeHtml(session?.user || 'Unknown user');
+                const email = dashboard.escapeHtml(session?.email || '');
+                const role = String(session?.role || 'viewer').trim().toLowerCase();
+                const roleBadge = dashboard.roleBadgeClass(role);
+                const lastUsed = session?.last_used_at ? dashboard.formatDate(session.last_used_at) : 'Unknown';
+                const refreshExpiry = session?.refresh_expires_at ? dashboard.formatDate(session.refresh_expires_at) : 'Unknown';
+                const cliVersion = dashboard.escapeHtml(session?.cli_version || 'Unknown version');
+                const lastRepository = dashboard.escapeHtml(session?.last_repository || 'Not yet reported');
+                const lastProjectID = dashboard.escapeHtml(session?.last_project_id || 'Not yet reported');
+                const lastIP = dashboard.escapeHtml(session?.last_ip || 'Unknown IP');
+                const lastCommand = dashboard.escapeHtml(session?.last_command || 'Not yet reported');
+                const lastScanID = dashboard.escapeHtml(session?.last_scan_id || 'Not yet reported');
+                const ownerKey = String(session?.owner_key || '').trim();
+                return `
+                    <div class="rounded-xl border border-gray-200 bg-white px-4 py-4">
+                        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h5 class="text-sm font-semibold text-gray-900">${clientName}</h5>
+                                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${roleBadge}">${dashboard.escapeHtml(role)}</span>
+                                </div>
+                                <p class="mt-1 text-sm text-gray-700">${userLabel}${email ? ` <span class="text-gray-500">(${email})</span>` : ''}</p>
+                                <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                                    <span>Host: ${clientHost}</span>
+                                    <span>IP: ${lastIP}</span>
+                                    <span>CLI: ${cliVersion}</span>
+                                    <span>Last used: ${dashboard.escapeHtml(lastUsed)}</span>
+                                    <span>Refresh expires: ${dashboard.escapeHtml(refreshExpiry)}</span>
+                                </div>
+                                <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                                    <span>Repository: ${lastRepository}</span>
+                                    <span>Project: ${lastProjectID}</span>
+                                    <span>Command: ${lastCommand}</span>
+                                    <span>Scan: ${lastScanID}</span>
+                                </div>
+                            </div>
+                            <div class="flex flex-col gap-2">
+                                <button
+                                    type="button"
+                                    data-cli-session-view="${dashboard.escapeHtml(sessionID)}"
+                                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                >
+                                    View details
+                                </button>
+                                <button
+                                    type="button"
+                                    data-cli-session-revoke="${dashboard.escapeHtml(sessionID)}"
+                                    class="inline-flex items-center justify-center rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                                >
+                                    Revoke
+                                </button>
+                                ${ownerKey ? `
+                                    <button
+                                        type="button"
+                                        data-cli-session-revoke-user="${dashboard.escapeHtml(ownerKey)}"
+                                        data-cli-session-user-label="${userLabel}"
+                                        class="inline-flex items-center justify-center rounded-lg border border-orange-200 px-3 py-2 text-sm font-medium text-orange-700 hover:bg-orange-50"
+                                    >
+                                        Revoke all for user
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
 export function renderSettingsPanel(dashboard) {
     const profileName = dashboard.escapeHtml(dashboard.identity?.displayName || '');
     const email = dashboard.escapeHtml(dashboard.identity?.email || '');
@@ -196,6 +282,31 @@ export function renderSettingsPanel(dashboard) {
         </div>
     `;
 
+    const cliSessionsPanel = `
+        <div class="rounded-xl border border-gray-200 bg-white p-6">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h4 class="text-lg font-semibold text-gray-900">CLI sessions</h4>
+                    <p class="mt-1 text-sm text-gray-700">Review which CLI devices are connected to the dashboard and revoke any session that should stop working.</p>
+                </div>
+                <div class="flex flex-col items-end gap-2">
+                    <button
+                        id="settings-cli-approve-button"
+                        type="button"
+                        class="inline-flex items-center justify-center rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-white hover:bg-orange-700"
+                        style="background-color:#ea580c;color:#ffffff;"
+                    >
+                        Approve CLI login
+                    </button>
+                    <span id="settings-cli-sessions-feedback" class="text-xs text-gray-500"></span>
+                </div>
+            </div>
+            <div id="settings-cli-sessions-list" class="mt-4">
+                ${renderCLISessionsList(dashboard, [], true)}
+            </div>
+        </div>
+    `;
+
     return `
         <div class="w-full p-6">
             <div class="space-y-5 max-w-5xl">
@@ -209,6 +320,7 @@ export function renderSettingsPanel(dashboard) {
                     ${preferenceEditor}
                 </div>
                 ${passwordEditor}
+                ${cliSessionsPanel}
                 ${adminActions}
             </div>
         </div>

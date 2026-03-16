@@ -62,6 +62,13 @@ func TestNewStoreBootstrapsVersionedSchema(t *testing.T) {
 	assertSQLiteColumnExists(t, store.db, "api_keys", "revoked_by_user_id")
 	assertSQLiteColumnExists(t, store.db, "api_keys", "revocation_reason")
 	assertSQLiteColumnExists(t, store.db, "audit_events", "details")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_ip")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "cli_version")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_repository")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_project_id")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_command")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_scan_id")
+	assertSQLiteColumnExists(t, store.db, "cli_traces", "session_id")
 
 	now := time.Now().UTC()
 	apiKey := "fresh-bootstrap-key"
@@ -149,6 +156,13 @@ func TestNewStoreMigratesLegacySchemaAndPreservesData(t *testing.T) {
 	assertSQLiteColumnExists(t, store.db, "api_keys", "revoked_by_user_id")
 	assertSQLiteColumnExists(t, store.db, "api_keys", "revocation_reason")
 	assertSQLiteColumnExists(t, store.db, "audit_events", "details")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_ip")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "cli_version")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_repository")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_project_id")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_command")
+	assertSQLiteColumnExists(t, store.db, "cli_sessions", "last_scan_id")
+	assertSQLiteColumnExists(t, store.db, "cli_traces", "session_id")
 
 	keys, err := store.LoadAPIKeys()
 	if err != nil {

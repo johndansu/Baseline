@@ -33,6 +33,15 @@ func HandleDashboard(args []string) {
 		case "connect":
 			handleDashboardConnect(args[1:])
 			return
+		case "login":
+			handleDashboardLogin(args[1:])
+			return
+		case "logout":
+			handleDashboardLogout(args[1:])
+			return
+		case "whoami":
+			handleDashboardWhoAmI(args[1:])
+			return
 		case "status":
 			handleDashboardStatus(args[1:])
 			return
@@ -357,6 +366,9 @@ func writeDashboardProxyError(w http.ResponseWriter, status int, message string)
 func printDashboardUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  baseline dashboard serve [--addr <host:port>] [--api <url>]")
+	fmt.Println("  baseline dashboard login [--api <url>]")
+	fmt.Println("  baseline dashboard logout")
+	fmt.Println("  baseline dashboard whoami")
 	fmt.Println("  baseline dashboard connect [--api <url>] [--api-key <key>] [--project-id <id>]")
 	fmt.Println("  baseline dashboard status")
 	fmt.Println("  baseline dashboard disconnect")
@@ -364,7 +376,8 @@ func printDashboardUsage() {
 	fmt.Println("Options:")
 	fmt.Println("  --addr <host:port>  Dashboard bind address (default: 127.0.0.1:8091)")
 	fmt.Println("  --api <url>         Baseline API base URL (default: http://127.0.0.1:8080)")
-	fmt.Println("  --api-key <key>     User-owned API key for project dashboard upload")
+	fmt.Println("  --no-open           Do not open the browser automatically during dashboard login")
+	fmt.Println("  --api-key <key>     Fallback API key for project dashboard upload when session login is not available")
 	fmt.Println("  --project-id <id>   Explicit dashboard project ID for connect flow")
 	fmt.Println("  --help, -h          Show this help message")
 	fmt.Println()
@@ -372,10 +385,15 @@ func printDashboardUsage() {
 	fmt.Println("  BASELINE_DASHBOARD_API_URL  Default API URL for dashboard proxy")
 	fmt.Println("  BASELINE_API_ADDR           Used to derive API URL when dashboard URL is not set")
 	fmt.Println()
+	fmt.Println("Recommended:")
+	fmt.Println("  baseline dashboard login --api http://127.0.0.1:8080")
+	fmt.Println("Legacy fallback:")
+	fmt.Println("  baseline dashboard connect --api http://127.0.0.1:8080")
+	fmt.Println()
 	fmt.Println("Example:")
 	fmt.Println("  baseline api serve --addr :8080")
 	fmt.Println("  baseline dashboard serve --addr 127.0.0.1:8091 --api http://127.0.0.1:8080")
-	fmt.Println("  baseline dashboard connect --api http://127.0.0.1:8080")
+	fmt.Println("  baseline dashboard login --api http://127.0.0.1:8080")
 }
 
 func renderDashboardHTML(apiBaseURL string) string {
@@ -665,7 +683,7 @@ const dashboardHTMLTemplate = `<!doctype html>
     </section>
 
     <section class="controls">
-      <input id="apiKeyInput" class="input" type="password" placeholder="Paste Baseline API key (stored in this browser only)">
+      <input id="apiKeyInput" class="input" type="password" placeholder="Paste a fallback API key only if dashboard session auth is unavailable">
       <button id="saveKeyButton" class="btn save" type="button">Save Key</button>
       <button id="refreshButton" class="btn refresh" type="button">Refresh</button>
     </section>
@@ -897,9 +915,9 @@ const dashboardHTMLTemplate = `<!doctype html>
         setMetric("metricBlockingViolations", "-");
         setMetric("metricPolicies", "-");
         setMetric("metricAuditEvents", "-");
-        scansBody.innerHTML = "<tr><td colspan='4'>API key required to load scan history.</td></tr>";
-        eventsBody.innerHTML = "<tr><td colspan='2'>API key required to load audit events.</td></tr>";
-        violationsList.innerHTML = "<li><span>API key required to load violation stats.</span></li>";
+        scansBody.innerHTML = "<tr><td colspan='4'>Sign in with a dashboard session or provide a fallback API key to load scan history.</td></tr>";
+        eventsBody.innerHTML = "<tr><td colspan='2'>Sign in with a dashboard session or provide a fallback API key to load audit events.</td></tr>";
+        violationsList.innerHTML = "<li><span>Sign in with a dashboard session or provide a fallback API key to load violation stats.</span></li>";
       }
 
       async function refreshDashboard() {

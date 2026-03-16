@@ -42,16 +42,28 @@ type baselineSecrets struct {
 }
 
 type baselineDashboardSecrets struct {
-	APIKeys map[string]string `json:"api_keys,omitempty"`
+	APIKeys    map[string]string           `json:"api_keys,omitempty"`
+	CLISession baselineDashboardCLISession `json:"cli_session,omitempty"`
+}
+
+type baselineDashboardCLISession struct {
+	APIBaseURL   string `json:"api_base_url,omitempty"`
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	User         string `json:"user,omitempty"`
+	Email        string `json:"email,omitempty"`
+	Role         string `json:"role,omitempty"`
 }
 
 type dashboardConnectionConfig struct {
-	APIBaseURL string
-	ProjectID  string
-	APIKey     string
-	Enabled    bool
-	Prompted   bool
-	Source     string
+	APIBaseURL   string
+	ProjectID    string
+	APIKey       string
+	AccessToken  string
+	RefreshToken string
+	Enabled      bool
+	Prompted     bool
+	Source       string
 }
 
 type dashboardConnectOptions struct {
@@ -247,6 +259,7 @@ func runDashboardStatusCommand(traceCtx *clitrace.Context, telemetryConnection d
 
 	upload := cfg.Dashboard.Upload
 	apiKey := strings.TrimSpace(secrets.Dashboard.APIKeys[upload.APIKeyRef])
+	cliAccessToken := storedCLIAccessTokenForBaseURL(upload.APIBaseURL)
 	traceCtx.SetMetadata("project_id", strings.TrimSpace(upload.ProjectID))
 
 	fmt.Println("=== DASHBOARD CONNECTION STATUS ===")
@@ -255,17 +268,18 @@ func runDashboardStatusCommand(traceCtx *clitrace.Context, telemetryConnection d
 	fmt.Printf("Enabled: %t\n", upload.Enabled)
 	fmt.Printf("API URL: %s\n", valueOrPlaceholder(upload.APIBaseURL))
 	fmt.Printf("Project ID: %s\n", valueOrPlaceholder(upload.ProjectID))
-	fmt.Printf("API key stored: %t\n", apiKey != "")
+	fmt.Printf("Fallback API key stored: %t\n", apiKey != "")
+	fmt.Printf("CLI session stored: %t\n", cliAccessToken != "")
 
 	status := "not_configured"
 	if !upload.Prompted {
 		fmt.Println("Status: not configured for this project.")
-	} else if upload.Enabled && upload.APIBaseURL != "" && upload.ProjectID != "" && apiKey != "" {
+	} else if upload.Enabled && upload.APIBaseURL != "" && upload.ProjectID != "" && (apiKey != "" || cliAccessToken != "") {
 		status = "connected"
 		fmt.Println("Status: connected.")
 	} else if upload.Enabled {
 		status = "incomplete"
-		fmt.Println("Status: incomplete connection. Run `baseline dashboard connect` to repair it.")
+		fmt.Println("Status: incomplete connection. Run `baseline dashboard login` first, or use `baseline dashboard connect` as a fallback.")
 	} else {
 		status = "disabled"
 		fmt.Println("Status: dashboard upload disabled for this project.")
@@ -628,13 +642,15 @@ func resolveDashboardUploadConfigForScan(opts scanCommandOptions) (dashboardConn
 		if apiKey == "" {
 			apiKey = strings.TrimSpace(os.Getenv("BASELINE_API_KEY"))
 		}
+		accessToken := storedCLIAccessTokenForBaseURL(strings.TrimSpace(opts.APIBaseURL))
 		return dashboardConnectionConfig{
-			APIBaseURL: strings.TrimSpace(opts.APIBaseURL),
-			ProjectID:  strings.TrimSpace(opts.ProjectID),
-			APIKey:     apiKey,
-			Enabled:    true,
-			Prompted:   true,
-			Source:     "flags",
+			APIBaseURL:  strings.TrimSpace(opts.APIBaseURL),
+			ProjectID:   strings.TrimSpace(opts.ProjectID),
+			APIKey:      apiKey,
+			AccessToken: accessToken,
+			Enabled:     true,
+			Prompted:    true,
+			Source:      "flags",
 		}, nil
 	}
 
@@ -645,13 +661,34 @@ func resolveDashboardUploadConfigForScan(opts scanCommandOptions) (dashboardConn
 	upload := cfg.Dashboard.Upload
 	if upload.Prompted {
 		apiKey := loadStoredDashboardAPIKey(upload.APIKeyRef)
+		session := loadStoredDashboardCLISession()
+		accessToken := ""
+		refreshToken := ""
+		if strings.TrimRight(strings.TrimSpace(session.APIBaseURL), "/") == strings.TrimRight(strings.TrimSpace(upload.APIBaseURL), "/") {
+			accessToken = strings.TrimSpace(session.AccessToken)
+			refreshToken = strings.TrimSpace(session.RefreshToken)
+		}
 		return dashboardConnectionConfig{
-			APIBaseURL: strings.TrimSpace(upload.APIBaseURL),
-			ProjectID:  strings.TrimSpace(upload.ProjectID),
-			APIKey:     apiKey,
-			Enabled:    upload.Enabled,
-			Prompted:   upload.Prompted,
-			Source:     "saved",
+			APIBaseURL:   strings.TrimSpace(upload.APIBaseURL),
+			ProjectID:    strings.TrimSpace(upload.ProjectID),
+			APIKey:       apiKey,
+			AccessToken:  accessToken,
+			RefreshToken: refreshToken,
+			Enabled:      upload.Enabled,
+			Prompted:     upload.Prompted,
+			Source:       "saved",
+		}, nil
+	}
+
+	session := loadStoredDashboardCLISession()
+	if strings.TrimSpace(session.APIBaseURL) != "" && strings.TrimSpace(session.AccessToken) != "" {
+		return dashboardConnectionConfig{
+			APIBaseURL:   strings.TrimSpace(session.APIBaseURL),
+			AccessToken:  strings.TrimSpace(session.AccessToken),
+			RefreshToken: strings.TrimSpace(session.RefreshToken),
+			Enabled:      true,
+			Prompted:     false,
+			Source:       "cli_session",
 		}, nil
 	}
 
@@ -894,7 +931,7 @@ func parseBaselineLocalConfig(content []byte) (baselineLocalConfig, error) {
 	if trimmed == "" {
 		return baselineLocalConfig{}, nil
 	}
-	if strings.Contains(trimmed, "=") && !strings.Contains(trimmed, ":") {
+	if looksLikeLegacyBaselineConfig(trimmed) {
 		return parseLegacyBaselineLocalConfig(trimmed), nil
 	}
 	var cfg baselineLocalConfig
@@ -902,6 +939,24 @@ func parseBaselineLocalConfig(content []byte) (baselineLocalConfig, error) {
 		return baselineLocalConfig{}, err
 	}
 	return cfg, nil
+}
+
+func looksLikeLegacyBaselineConfig(content string) bool {
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if idx := strings.Index(line, "="); idx >= 0 {
+			colonIdx := strings.Index(line, ":")
+			return colonIdx == -1 || idx < colonIdx
+		}
+		if strings.Contains(line, ":") {
+			return false
+		}
+	}
+	return false
 }
 
 func parseLegacyBaselineLocalConfig(content string) baselineLocalConfig {
@@ -975,6 +1030,57 @@ func loadStoredDashboardAPIKey(ref string) string {
 	return strings.TrimSpace(secrets.Dashboard.APIKeys[strings.TrimSpace(ref)])
 }
 
+func loadStoredDashboardCLISession() baselineDashboardCLISession {
+	secrets, err := loadBaselineSecrets()
+	if err != nil {
+		return baselineDashboardCLISession{}
+	}
+	return secrets.Dashboard.CLISession
+}
+
+func saveStoredDashboardCLISession(session baselineDashboardCLISession) error {
+	secrets, err := loadBaselineSecrets()
+	if err != nil {
+		return err
+	}
+	secrets.Dashboard.CLISession = session
+	return saveBaselineSecrets(secrets)
+}
+
+func clearStoredDashboardCLISession() error {
+	return saveStoredDashboardCLISession(baselineDashboardCLISession{})
+}
+
+func storedCLIAccessTokenForBaseURL(baseURL string) string {
+	session := loadStoredDashboardCLISession()
+	if strings.TrimSpace(session.AccessToken) == "" {
+		return ""
+	}
+	storedBaseURL := strings.TrimRight(strings.TrimSpace(session.APIBaseURL), "/")
+	if storedBaseURL == "" {
+		return ""
+	}
+	if strings.TrimRight(strings.TrimSpace(baseURL), "/") != storedBaseURL {
+		return ""
+	}
+	return strings.TrimSpace(session.AccessToken)
+}
+
+func authTokenForBaseURL(baseURL, explicitAPIKey string) string {
+	if token := strings.TrimSpace(explicitAPIKey); token != "" {
+		return token
+	}
+	if session, err := refreshedStoredDashboardCLISession(baseURL); err == nil {
+		if strings.TrimSpace(session.AccessToken) != "" {
+			return strings.TrimSpace(session.AccessToken)
+		}
+	}
+	if token := storedCLIAccessTokenForBaseURL(baseURL); token != "" {
+		return token
+	}
+	return strings.TrimSpace(os.Getenv("BASELINE_API_KEY"))
+}
+
 func valueOrPlaceholder(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -986,7 +1092,8 @@ func valueOrPlaceholder(value string) string {
 func printDashboardConnectUsage() {
 	fmt.Println("Usage: baseline dashboard connect [--api <url>] [--api-key <key>] [--project-id <id>]")
 	fmt.Println()
-	fmt.Println("Connect the current project to a Baseline dashboard using a user-owned API key.")
+	fmt.Println("Legacy fallback: connect the current project to a Baseline dashboard using a user-owned API key.")
+	fmt.Println("Recommended for humans: use `baseline dashboard login` so the CLI reuses your dashboard session instead.")
 }
 
 func printDashboardStatusUsage() {
