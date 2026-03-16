@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -32,6 +33,9 @@ func (s *Server) authenticateWithSource(r *http.Request) (Role, string, error) {
 				}
 			}
 			s.authMu.RUnlock()
+			if session, _, ok := s.getCLISessionFromBearerToken(token); ok {
+				return session.Role, cliSessionAuthSource, nil
+			}
 		}
 	}
 	session, err := s.getDashboardSession(r)
@@ -157,6 +161,124 @@ func (s *Server) dashboardAuthMode() string {
 		return "trusted_proxy"
 	}
 	return "session_cookie"
+}
+
+func (s *Server) getCLISessionFromRequest(r *http.Request) (cliSessionRecord, string, error) {
+	authz := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authz == "" {
+		return cliSessionRecord{}, "", errors.New("missing cli session token")
+	}
+	parts := strings.SplitN(authz, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return cliSessionRecord{}, "", errors.New("missing cli session token")
+	}
+	token := strings.TrimSpace(parts[1])
+	if token == "" {
+		return cliSessionRecord{}, "", errors.New("missing cli session token")
+	}
+	session, rawToken, ok := s.getCLISessionFromBearerToken(token)
+	if !ok {
+		return cliSessionRecord{}, "", errors.New("missing or invalid credentials")
+	}
+	return session, rawToken, nil
+}
+
+func (s *Server) getCLISessionFromBearerToken(token string) (cliSessionRecord, string, bool) {
+	if s == nil || s.store == nil {
+		return cliSessionRecord{}, "", false
+	}
+	session, found, err := s.store.LoadCLISessionByAccessToken(token, time.Now().UTC())
+	if err != nil || !found {
+		return cliSessionRecord{}, "", false
+	}
+	session, valid, err := s.syncCLISessionState(session, time.Now().UTC())
+	if err != nil || !valid {
+		return cliSessionRecord{}, "", false
+	}
+	return session, token, true
+}
+
+func (s *Server) noteCLISessionUsage(r *http.Request, session cliSessionRecord, cliVersion, repository, projectID, command, scanID string) {
+	if s == nil || s.store == nil {
+		return
+	}
+	if strings.TrimSpace(session.SessionID) == "" {
+		return
+	}
+	_ = s.store.UpdateCLISessionMetadata(
+		session.SessionID,
+		s.clientAddressForCLISession(r),
+		cliVersion,
+		repository,
+		projectID,
+		command,
+		scanID,
+		time.Now().UTC(),
+	)
+}
+
+func (s *Server) clientAddressForCLISession(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if s.config.TrustProxyHeaders {
+		if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+			first := strings.TrimSpace(strings.Split(forwarded, ",")[0])
+			if first != "" {
+				return first
+			}
+		}
+		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+			return realIP
+		}
+	}
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
+	if err == nil && strings.TrimSpace(host) != "" {
+		return strings.TrimSpace(host)
+	}
+	return strings.TrimSpace(r.RemoteAddr)
+}
+
+func (s *Server) syncCLISessionState(session cliSessionRecord, now time.Time) (cliSessionRecord, bool, error) {
+	if s == nil || s.store == nil {
+		return session, true, nil
+	}
+
+	var (
+		user  UserRecord
+		found bool
+		err   error
+	)
+	if userID := strings.TrimSpace(session.UserID); userID != "" {
+		user, found, err = s.store.GetUserByID(userID)
+	} else if email := strings.ToLower(strings.TrimSpace(session.Email)); email != "" {
+		user, found, err = s.store.GetUserByEmail(email)
+	}
+	if err != nil {
+		return cliSessionRecord{}, false, err
+	}
+	if !found {
+		return session, true, nil
+	}
+	if user.Status == UserStatusSuspended {
+		return cliSessionRecord{}, false, nil
+	}
+	if strings.TrimSpace(user.ID) != "" {
+		session.UserID = strings.TrimSpace(user.ID)
+	}
+	if isValidRole(user.Role) {
+		session.Role = user.Role
+	}
+	if displayName := strings.TrimSpace(user.DisplayName); displayName != "" {
+		session.UserLabel = displayName
+	}
+	if email := strings.ToLower(strings.TrimSpace(user.Email)); email != "" {
+		session.Email = email
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return session, true, nil
 }
 
 func (s *Server) shouldUseSecureSessionCookie(r *http.Request) bool {

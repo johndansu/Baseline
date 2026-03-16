@@ -85,6 +85,11 @@ func (s *Server) handleCLIEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden", "cannot attach CLI event to this project")
 		return
 	}
+	if principal.AuthSource == cliSessionAuthSource {
+		if session, _, err := s.getCLISessionFromRequest(r); err == nil {
+			s.noteCLISessionUsage(r, session, payload.Version, payload.Repository, payload.ProjectID, payload.Command, payload.ScanID)
+		}
+	}
 
 	event := s.newRequestAuditEvent(r, principal.AuthSource, payload.EventType, payload.ProjectID, payload.ScanID)
 	event.Details = formatCLIEventDetails(payload)

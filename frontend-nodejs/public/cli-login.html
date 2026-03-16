@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Approve CLI Login</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #111b2e;
+      --line: #24324a;
+      --text: #eef4ff;
+      --muted: #9bb0c8;
+      --accent: #ea580c;
+      --accent-ink: #fff7ed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: linear-gradient(160deg, #09101b, #13233a);
+      color: var(--text);
+    }
+    .card {
+      width: min(520px, 100%);
+      background: rgba(17, 27, 46, 0.96);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    }
+    h1 { margin: 0 0 10px; font-size: 1.5rem; }
+    p { color: var(--muted); line-height: 1.5; }
+    .code {
+      margin: 16px 0;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: #0a1527;
+      border: 1px solid var(--line);
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-align: center;
+    }
+    .row { display: grid; gap: 10px; }
+    label {
+      display: block;
+      margin: 16px 0 6px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+    input {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #0a1527;
+      color: var(--text);
+      padding: 12px 14px;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    input::placeholder {
+      color: #6f829b;
+      letter-spacing: 0.04em;
+      text-transform: none;
+    }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      background: var(--accent);
+      color: var(--accent-ink);
+    }
+    .subtle {
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--text);
+    }
+    .status {
+      margin-top: 14px;
+      min-height: 24px;
+      color: var(--muted);
+    }
+    .status.ok { color: #86efac; }
+    .status.bad { color: #fca5a5; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Approve CLI Login</h1>
+    <p>Approve this Baseline CLI session from your signed-in dashboard account. If you are not signed in, sign in first and return here.</p>
+    <div id="userCode" class="code">----</div>
+    <label for="userCodeInput">User code</label>
+    <input id="userCodeInput" type="text" placeholder="Paste the code from your terminal, for example ABCD-EFGH" autocomplete="one-time-code" spellcheck="false">
+    <div class="row">
+      <button id="approveButton" type="button">Approve CLI Session</button>
+      <button id="openDashboardButton" class="subtle" type="button">Open Dashboard</button>
+    </div>
+    <div id="status" class="status"></div>
+  </main>
+
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const deviceCode = (params.get('device_code') || '').trim();
+      const initialUserCode = (params.get('user_code') || '').trim();
+      const userCodeBox = document.getElementById('userCode');
+      const userCodeInput = document.getElementById('userCodeInput');
+      const approveButton = document.getElementById('approveButton');
+      const openDashboardButton = document.getElementById('openDashboardButton');
+      const status = document.getElementById('status');
+
+      userCodeInput.value = initialUserCode;
+      userCodeBox.textContent = initialUserCode || 'ENTER CODE BELOW';
+
+      function setStatus(text, mode) {
+        status.textContent = text;
+        status.className = 'status' + (mode ? ' ' + mode : '');
+      }
+
+      function currentUserCode() {
+        return String(userCodeInput.value || '').trim().toUpperCase();
+      }
+
+      function syncCodeDisplay() {
+        const code = currentUserCode();
+        userCodeBox.textContent = code || 'ENTER CODE BELOW';
+      }
+
+      async function approve() {
+        const userCode = currentUserCode();
+        if (!deviceCode && !userCode) {
+          setStatus('Enter the code from the terminal first.', 'bad');
+          return;
+        }
+        approveButton.disabled = true;
+        setStatus('Approving CLI session...', '');
+        try {
+          const response = await fetch('/v1/cli/session/approve', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'X-Baseline-CSRF': '1'
+            },
+            body: JSON.stringify({
+              device_code: deviceCode,
+              user_code: userCode
+            })
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            const message = payload && payload.error && payload.error.message ? payload.error.message : 'Approval failed';
+            setStatus(message, 'bad');
+            approveButton.disabled = false;
+            return;
+          }
+          setStatus('CLI session approved. You can return to the terminal now.', 'ok');
+        } catch (error) {
+          setStatus(error && error.message ? error.message : 'Approval failed', 'bad');
+          approveButton.disabled = false;
+        }
+      }
+
+      userCodeInput.addEventListener('input', syncCodeDisplay);
+      syncCodeDisplay();
+      approveButton.addEventListener('click', approve);
+      openDashboardButton.addEventListener('click', function () {
+        window.location.href = '/dashboard';
+      });
+    })();
+  </script>
+</body>
+</html>

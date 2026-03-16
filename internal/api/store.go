@@ -24,7 +24,7 @@ type persistedAPIKey struct {
 
 const (
 	storeSchemaVersionKey     = "schema_version"
-	currentStoreSchemaVersion = 10
+	currentStoreSchemaVersion = 14
 )
 
 type storeMigration struct {
@@ -256,6 +256,30 @@ func migrateStore(db *sql.DB) error {
 			version: 10,
 			apply: func(tx *sql.Tx) error {
 				return migrateCLITracesTx(tx)
+			},
+		},
+		{
+			version: 11,
+			apply: func(tx *sql.Tx) error {
+				return migrateCLISessionsTx(tx)
+			},
+		},
+		{
+			version: 12,
+			apply: func(tx *sql.Tx) error {
+				return migrateCLISessionMetadataTx(tx)
+			},
+		},
+		{
+			version: 13,
+			apply: func(tx *sql.Tx) error {
+				return migrateCLISessionCommandMetadataTx(tx)
+			},
+		},
+		{
+			version: 14,
+			apply: func(tx *sql.Tx) error {
+				return migrateCLITraceSessionIDTx(tx)
 			},
 		},
 	}
@@ -1368,10 +1392,11 @@ func (s *Store) CreateCLITrace(trace CLITraceDetail) error {
 
 	if _, err := tx.Exec(
 		`INSERT INTO cli_traces (
-			trace_id, command, repository, project_id, scan_id, status, message, version,
+			trace_id, session_id, command, repository, project_id, scan_id, status, message, version,
 			started_at, finished_at, duration_ms, event_count, files_scanned, security_issues, violation_count, attributes_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(trace_id) DO UPDATE SET
+			session_id = excluded.session_id,
 			command = excluded.command,
 			repository = excluded.repository,
 			project_id = excluded.project_id,
@@ -1388,6 +1413,7 @@ func (s *Store) CreateCLITrace(trace CLITraceDetail) error {
 			violation_count = excluded.violation_count,
 			attributes_json = excluded.attributes_json`,
 		traceID,
+		strings.TrimSpace(trace.Summary.SessionID),
 		command,
 		strings.TrimSpace(trace.Summary.Repository),
 		strings.TrimSpace(trace.Summary.ProjectID),
@@ -1462,7 +1488,7 @@ func (s *Store) ListCLITraces(limit int, command, status, projectID string) ([]C
 		where = append(where, "project_id = ?")
 		args = append(args, trimmed)
 	}
-	query := `SELECT trace_id, command, repository, project_id, scan_id, status, message, version,
+	query := `SELECT trace_id, session_id, command, repository, project_id, scan_id, status, message, version,
 		started_at, finished_at, duration_ms, event_count, files_scanned, security_issues, violation_count, attributes_json
 		FROM cli_traces`
 	if len(where) > 0 {
@@ -1471,6 +1497,46 @@ func (s *Store) ListCLITraces(limit int, command, status, projectID string) ([]C
 	query += " ORDER BY started_at DESC LIMIT ?"
 	args = append(args, maxRows)
 	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []CLITraceSummary{}
+	for rows.Next() {
+		summary, err := scanCLITraceSummaryRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) ListCLITracesBySessionID(sessionID string, limit int) ([]CLITraceSummary, error) {
+	if s == nil || s.db == nil {
+		return []CLITraceSummary{}, nil
+	}
+	normalizedID := strings.TrimSpace(sessionID)
+	if normalizedID == "" {
+		return []CLITraceSummary{}, errors.New("session id is required")
+	}
+	maxRows := limit
+	if maxRows <= 0 || maxRows > 100 {
+		maxRows = 10
+	}
+	rows, err := s.db.Query(
+		`SELECT trace_id, session_id, command, repository, project_id, scan_id, status, message, version,
+		        started_at, finished_at, duration_ms, event_count, files_scanned, security_issues, violation_count, attributes_json
+		 FROM cli_traces
+		 WHERE session_id = ?
+		 ORDER BY started_at DESC
+		 LIMIT ?`,
+		normalizedID,
+		maxRows,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1498,7 +1564,7 @@ func (s *Store) GetCLITrace(traceID string) (CLITraceDetail, error) {
 		return CLITraceDetail{}, errors.New("trace id is required")
 	}
 	row := s.db.QueryRow(
-		`SELECT trace_id, command, repository, project_id, scan_id, status, message, version,
+		`SELECT trace_id, session_id, command, repository, project_id, scan_id, status, message, version,
 			started_at, finished_at, duration_ms, event_count, files_scanned, security_issues, violation_count, attributes_json
 		 FROM cli_traces WHERE trace_id = ?`,
 		id,
@@ -1557,10 +1623,11 @@ type cliTraceSummaryScanner interface {
 
 func scanCLITraceSummaryRow(scanner cliTraceSummaryScanner) (CLITraceSummary, error) {
 	var summary CLITraceSummary
-	var repository, projectID, scanID, statusText, message, versionText, attrsRaw sql.NullString
+	var sessionID, repository, projectID, scanID, statusText, message, versionText, attrsRaw sql.NullString
 	var startedRaw, finishedRaw string
 	if err := scanner.Scan(
 		&summary.TraceID,
+		&sessionID,
 		&summary.Command,
 		&repository,
 		&projectID,
@@ -1587,6 +1654,7 @@ func scanCLITraceSummaryRow(scanner cliTraceSummaryScanner) (CLITraceSummary, er
 	if err != nil {
 		return CLITraceSummary{}, err
 	}
+	summary.SessionID = strings.TrimSpace(sessionID.String)
 	summary.Repository = strings.TrimSpace(repository.String)
 	summary.ProjectID = strings.TrimSpace(projectID.String)
 	summary.ScanID = strings.TrimSpace(scanID.String)
@@ -1602,6 +1670,16 @@ func scanCLITraceSummaryRow(scanner cliTraceSummaryScanner) (CLITraceSummary, er
 		}
 	}
 	return summary, nil
+}
+
+func migrateCLITraceSessionIDTx(tx *sql.Tx) error {
+	if err := ensureColumnWithDefaultTx(tx, "cli_traces", "session_id", "TEXT"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_cli_traces_session_started_at ON cli_traces(session_id, started_at DESC);`); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) UpsertOIDCUser(provider, subject, email, displayName string, now time.Time) (string, error) {

@@ -111,7 +111,11 @@ import {
     saveProfileSettings as saveDashboardProfileSettings
 } from './dashboard-settings-actions.js';
 import { bindSettingsControls as bindDashboardSettingsControls } from './dashboard-settings-bind.js';
-import { renderSettingsActionButton as renderDashboardSettingsActionButton, renderSettingsPanel as renderDashboardSettingsPanel } from './dashboard-settings-render.js';
+import {
+    renderCLISessionsList as renderDashboardCLISessionsList,
+    renderSettingsActionButton as renderDashboardSettingsActionButton,
+    renderSettingsPanel as renderDashboardSettingsPanel
+} from './dashboard-settings-render.js';
 
 const BUILTIN_POLICY_CATALOG = [
     { name: 'A1', description: 'Primary branch protection requires pull requests and direct push restrictions.' },
@@ -212,6 +216,14 @@ class BaselineDashboard {
         this.integrationState = {
             events: [],
             jobs: []
+        };
+        this.settingsState = {
+            cliSessions: [],
+            selectedCLISessionID: '',
+            cliSessionDetails: {}
+        };
+        this.cliApprovalState = {
+            userCode: ''
         };
         this.userActivityEventTypeCatalog = [];
         this.userActivityEventTypesPromise = null;
@@ -378,6 +390,7 @@ class BaselineDashboard {
         }
         await this.loadDashboardData();
         this.switchTab(this.currentTab);
+        this.handlePendingCLILoginApproval();
     }
 
     async loadAuthSession() {
@@ -2436,10 +2449,412 @@ class BaselineDashboard {
         if (!settingsTab) return;
         settingsTab.innerHTML = this.renderSettingsPanel();
         this.bindSettingsControls();
+        if (this.isAdmin()) {
+            await this.loadCLISessionsData();
+        }
     }
 
     bindSettingsControls() {
         bindDashboardSettingsControls(this);
+    }
+
+    renderCLISessionsList(isLoading = false, errorMessage = '') {
+        const listNode = document.getElementById('settings-cli-sessions-list');
+        if (!listNode) {
+            return;
+        }
+        listNode.innerHTML = renderDashboardCLISessionsList(this, this.settingsState.cliSessions, isLoading, errorMessage);
+        this.bindSettingsControls();
+    }
+
+    async loadCLISessionsData() {
+        if (!this.isAdmin()) {
+            return;
+        }
+        const feedback = document.getElementById('settings-cli-sessions-feedback');
+        if (feedback) {
+            feedback.textContent = 'Loading...';
+            feedback.className = 'text-xs text-gray-500';
+        }
+        this.renderCLISessionsList(true);
+        try {
+            const payload = await this.apiRequest('/v1/cli/session?limit=100');
+            this.settingsState.cliSessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+            this.renderCLISessionsList(false);
+            if (feedback) {
+                feedback.textContent = `${this.settingsState.cliSessions.length} active`;
+                feedback.className = 'text-xs text-gray-500';
+            }
+        } catch (error) {
+            this.settingsState.cliSessions = [];
+            this.renderCLISessionsList(false, error.message || 'Failed to load CLI sessions.');
+            if (feedback) {
+                feedback.textContent = error.message || 'Failed to load CLI sessions.';
+                feedback.className = 'text-xs text-red-600';
+            }
+        }
+    }
+
+    async revokeCLISession(sessionID) {
+        const normalizedID = String(sessionID || '').trim();
+        if (!normalizedID) {
+            this.showError('Invalid CLI session.');
+            return;
+        }
+        const feedback = document.getElementById('settings-cli-sessions-feedback');
+        if (feedback) {
+            feedback.textContent = 'Revoking...';
+            feedback.className = 'text-xs text-gray-500';
+        }
+        try {
+            await this.apiRequest(`/v1/cli/session/${encodeURIComponent(normalizedID)}`, {
+                method: 'DELETE'
+            });
+            this.settingsState.cliSessions = this.settingsState.cliSessions.filter(
+                (session) => String(session?.session_id || '').trim() !== normalizedID
+            );
+            this.renderCLISessionsList(false);
+            if (feedback) {
+                feedback.textContent = 'Revoked';
+                feedback.className = 'text-xs text-green-700';
+            }
+            this.showSuccess('CLI session revoked.');
+        } catch (error) {
+            if (feedback) {
+                feedback.textContent = error.message || 'Failed to revoke CLI session.';
+                feedback.className = 'text-xs text-red-600';
+            }
+            this.showError(error.message || 'Failed to revoke CLI session.');
+        }
+    }
+
+    async revokeCLISessionsForUser(ownerKey, userLabel = '') {
+        const normalizedOwnerKey = String(ownerKey || '').trim();
+        if (!normalizedOwnerKey) {
+            this.showError('Invalid user for CLI session revoke.');
+            return;
+        }
+        const displayLabel = String(userLabel || '').trim() || normalizedOwnerKey;
+        const confirmed = window.confirm(`Revoke all active CLI sessions for ${displayLabel}?`);
+        if (!confirmed) {
+            return;
+        }
+        const feedback = document.getElementById('settings-cli-sessions-feedback');
+        if (feedback) {
+            feedback.textContent = 'Revoking user sessions...';
+            feedback.className = 'text-xs text-gray-500';
+        }
+        try {
+            const payload = await this.apiRequest(`/v1/cli/session/owner/${encodeURIComponent(normalizedOwnerKey)}`, {
+                method: 'DELETE'
+            });
+            this.settingsState.cliSessions = this.settingsState.cliSessions.filter(
+                (session) => String(session?.owner_key || '').trim() !== normalizedOwnerKey
+            );
+            this.renderCLISessionsList(false);
+            const revokedCount = Number(payload?.revoked_count || 0);
+            if (feedback) {
+                feedback.textContent = revokedCount > 0 ? `Revoked ${revokedCount} session${revokedCount === 1 ? '' : 's'}` : 'Revoked';
+                feedback.className = 'text-xs text-green-700';
+            }
+            this.showSuccess(`Revoked all CLI sessions for ${displayLabel}.`);
+        } catch (error) {
+            if (feedback) {
+                feedback.textContent = error.message || 'Failed to revoke user CLI sessions.';
+                feedback.className = 'text-xs text-red-600';
+            }
+            this.showError(error.message || 'Failed to revoke user CLI sessions.');
+        }
+    }
+
+    renderCLISessionDetailContent(payload, isLoading = false, errorMessage = '') {
+        const content = document.getElementById('cli-session-detail-content');
+        if (!content) {
+            return;
+        }
+        if (isLoading) {
+            content.innerHTML = '<p class="text-sm text-gray-700">Loading CLI session detail...</p>';
+            return;
+        }
+        if (errorMessage) {
+            content.innerHTML = `<p class="text-sm text-red-600">${this.escapeHtml(errorMessage)}</p>`;
+            return;
+        }
+        const session = payload?.session || {};
+        const traces = Array.isArray(payload?.recent_traces) ? payload.recent_traces : [];
+        const anomalyFlags = Array.isArray(payload?.anomaly_flags) ? payload.anomaly_flags : [];
+        const riskSignals = Array.isArray(payload?.risk_signals) ? payload.risk_signals : [];
+        const timeline = Array.isArray(payload?.timeline) ? payload.timeline : [];
+        content.innerHTML = `
+            <div class="space-y-5">
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                    ${this.renderCLISessionDetailStat('Client', session.client_name || 'CLI client')}
+                    ${this.renderCLISessionDetailStat('User', session.user || 'Unknown')}
+                    ${this.renderCLISessionDetailStat('Role', session.role || 'viewer')}
+                    ${this.renderCLISessionDetailStat('Last used', this.formatDate(session.last_used_at))}
+                    ${this.renderCLISessionDetailStat('Repository', session.last_repository || '-')}
+                    ${this.renderCLISessionDetailStat('Project', session.last_project_id || '-')}
+                    ${this.renderCLISessionDetailStat('Command', session.last_command || '-')}
+                    ${this.renderCLISessionDetailStat('Scan', session.last_scan_id || '-')}
+                    ${this.renderCLISessionDetailStat('CLI version', session.cli_version || '-')}
+                    ${this.renderCLISessionDetailStat('IP', session.last_ip || '-')}
+                    ${this.renderCLISessionDetailStat('Host', session.client_host || '-')}
+                    ${this.renderCLISessionDetailStat('Refresh expires', this.formatDate(session.refresh_expires_at))}
+                </div>
+                <div class="rounded-lg border border-gray-200">
+                    <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                        <h4 class="text-sm font-semibold text-gray-900">Recent trace activity</h4>
+                    </div>
+                    ${traces.length ? `
+                        <div class="divide-y divide-gray-200">
+                            ${traces.map((trace) => `
+                                <div class="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-medium text-gray-900">${this.escapeHtml(trace.command || 'command')}</p>
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            ${this.escapeHtml(trace.trace_id || '')} | ${this.escapeHtml(trace.repository || '-')} | ${this.escapeHtml(trace.project_id || '-')} | ${this.formatDate(trace.started_at)}
+                                        </p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-gray-500">${this.escapeHtml(String(trace.event_count ?? 0))} events</span>
+                                        <button type="button" data-cli-trace-view="${this.escapeHtml(trace.trace_id || '')}" class="inline-flex items-center px-3 py-1.5 rounded-lg border border-orange-200 text-orange-700 hover:bg-orange-50 font-medium text-sm">
+                                            View trace
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div class="px-4 py-5 text-sm text-gray-500">No trace activity has been recorded for this CLI session yet.</div>
+                    `}
+                </div>
+                <div class="rounded-lg border border-gray-200">
+                    <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                        <h4 class="text-sm font-semibold text-gray-900">Risk signals</h4>
+                    </div>
+                    ${riskSignals.length ? `
+                        <div class="divide-y divide-gray-200">
+                            ${riskSignals.map((signal) => `
+                                <div class="px-4 py-3 flex flex-col gap-1">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-sm font-medium text-gray-900">${this.escapeHtml(signal?.title || 'Signal')}</p>
+                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${this.cliSessionTimelineStatusClass(signal?.severity)}">${this.escapeHtml(String(signal?.severity || 'info'))}</span>
+                                    </div>
+                                    <p class="text-xs text-gray-500">${this.escapeHtml(signal?.detail || '')}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div class="px-4 py-5 text-sm text-gray-500">No risk signals are active for this CLI session right now.</div>
+                    `}
+                </div>
+                <div class="rounded-lg border border-gray-200">
+                    <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                        <h4 class="text-sm font-semibold text-gray-900">Anomaly flags</h4>
+                    </div>
+                    ${anomalyFlags.length ? `
+                        <div class="divide-y divide-gray-200">
+                            ${anomalyFlags.map((flag) => `
+                                <div class="px-4 py-3 flex flex-col gap-1">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-sm font-medium text-gray-900">${this.escapeHtml(flag?.title || 'Anomaly')}</p>
+                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${this.cliSessionTimelineStatusClass(flag?.severity)}">${this.escapeHtml(String(flag?.severity || 'info'))}</span>
+                                    </div>
+                                    <p class="text-xs text-gray-500">${this.escapeHtml(flag?.detail || '')}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div class="px-4 py-5 text-sm text-gray-500">No anomalous session patterns are active right now.</div>
+                    `}
+                </div>
+                <div class="rounded-lg border border-gray-200">
+                    <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                        <h4 class="text-sm font-semibold text-gray-900">Session timeline</h4>
+                    </div>
+                    ${timeline.length ? `
+                        <div class="divide-y divide-gray-200">
+                            ${timeline.map((item) => {
+                                const statusClass = this.cliSessionTimelineStatusClass(item?.status);
+                                const detail = this.escapeHtml(item?.detail || '');
+                                const at = this.escapeHtml(this.formatDate(item?.at));
+                                const title = this.escapeHtml(item?.title || 'Timeline event');
+                                return `
+                                    <div class="px-4 py-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                        <div class="min-w-0">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <p class="text-sm font-medium text-gray-900">${title}</p>
+                                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}">${this.escapeHtml(String(item?.status || 'info'))}</span>
+                                            </div>
+                                            ${detail ? `<p class="mt-1 text-xs text-gray-500">${detail}</p>` : ''}
+                                        </div>
+                                        <p class="text-xs text-gray-500 whitespace-nowrap">${at}</p>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    ` : `
+                        <div class="px-4 py-5 text-sm text-gray-500">No session timeline entries are available yet.</div>
+                    `}
+                </div>
+            </div>
+        `;
+        document.querySelectorAll('#cli-session-detail-content [data-cli-trace-view]').forEach((button) => {
+            if (button.dataset.bound === '1') {
+                return;
+            }
+            button.dataset.bound = '1';
+            button.addEventListener('click', async () => {
+                const traceID = String(button.dataset.cliTraceView || '').trim();
+                if (traceID) {
+                    await this.openCLITraceDetail(traceID);
+                }
+            });
+        });
+    }
+
+    cliSessionTimelineStatusClass(status) {
+        switch (String(status || '').trim().toLowerCase()) {
+        case 'ok':
+            return 'bg-green-100 text-green-700';
+        case 'warning':
+            return 'bg-yellow-100 text-yellow-800';
+        case 'error':
+            return 'bg-red-100 text-red-700';
+        default:
+            return 'bg-gray-100 text-gray-700';
+        }
+    }
+
+    renderCLISessionDetailStat(label, value) {
+        return `
+            <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">${this.escapeHtml(label)}</p>
+                <p class="mt-1 text-sm font-medium text-gray-900">${this.escapeHtml(value || '-')}</p>
+            </div>
+        `;
+    }
+
+    async openCLISessionDetail(sessionID) {
+        const normalizedID = String(sessionID || '').trim();
+        if (!normalizedID) {
+            this.showError('Invalid CLI session.');
+            return;
+        }
+        this.settingsState.selectedCLISessionID = normalizedID;
+        this.renderCLISessionDetailContent(null, true);
+        openDashboardModal('cliSessionDetailModal');
+        if (this.settingsState.cliSessionDetails[normalizedID]) {
+            this.renderCLISessionDetailContent(this.settingsState.cliSessionDetails[normalizedID], false);
+            return;
+        }
+        try {
+            const payload = await this.apiRequest(`/v1/cli/session/${encodeURIComponent(normalizedID)}`);
+            this.settingsState.cliSessionDetails[normalizedID] = payload;
+            if (this.settingsState.selectedCLISessionID !== normalizedID) {
+                return;
+            }
+            this.renderCLISessionDetailContent(payload, false);
+        } catch (error) {
+            if (this.settingsState.selectedCLISessionID !== normalizedID) {
+                return;
+            }
+            this.renderCLISessionDetailContent(null, false, error.message || 'Failed to load CLI session detail.');
+        }
+    }
+
+    openCLILoginApprovalModal(prefillCode = '') {
+        const input = document.getElementById('cli-login-user-code');
+        const feedback = document.getElementById('cli-login-approval-feedback');
+        this.cliApprovalState.userCode = String(prefillCode || this.cliApprovalState.userCode || '').trim().toUpperCase();
+        if (input) {
+            input.value = this.cliApprovalState.userCode;
+        }
+        if (feedback) {
+            feedback.textContent = '';
+            feedback.className = 'text-xs text-gray-500';
+        }
+        this.syncCLILoginApprovalCode();
+        openDashboardModal('cliLoginApprovalModal');
+    }
+
+    syncCLILoginApprovalCode() {
+        const input = document.getElementById('cli-login-user-code');
+        const badge = document.getElementById('cli-login-user-code-display');
+        const normalized = String(input?.value || this.cliApprovalState.userCode || '').trim().toUpperCase();
+        this.cliApprovalState.userCode = normalized;
+        if (input && input.value !== normalized) {
+            input.value = normalized;
+        }
+        if (badge) {
+            badge.textContent = normalized || 'ENTER CODE BELOW';
+        }
+    }
+
+    async submitCLILoginApproval() {
+        const input = document.getElementById('cli-login-user-code');
+        const feedback = document.getElementById('cli-login-approval-feedback');
+        const submitButton = document.getElementById('cli-login-approval-submit');
+        const userCode = String(input?.value || this.cliApprovalState.userCode || '').trim().toUpperCase();
+        if (!userCode) {
+            if (feedback) {
+                feedback.textContent = 'Enter the code from the terminal first.';
+                feedback.className = 'text-xs text-red-600';
+            }
+            return;
+        }
+        if (submitButton) {
+            submitButton.disabled = true;
+        }
+        if (feedback) {
+            feedback.textContent = 'Approving CLI login...';
+            feedback.className = 'text-xs text-gray-500';
+        }
+        try {
+            await this.apiRequest('/v1/cli/session/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_code: userCode })
+            });
+            if (feedback) {
+                feedback.textContent = 'CLI session approved. The terminal can continue now.';
+                feedback.className = 'text-xs text-green-700';
+            }
+            this.showSuccess('CLI login approved.');
+            this.cliApprovalState.userCode = userCode;
+            window.setTimeout(() => {
+                closeDashboardModal('cliLoginApprovalModal');
+            }, 600);
+        } catch (error) {
+            if (feedback) {
+                feedback.textContent = error.message || 'Failed to approve CLI login.';
+                feedback.className = 'text-xs text-red-600';
+            }
+            this.showError(error.message || 'Failed to approve CLI login.');
+        } finally {
+            if (submitButton) {
+                submitButton.disabled = false;
+            }
+        }
+    }
+
+    handlePendingCLILoginApproval() {
+        const params = new URLSearchParams(window.location.search || '');
+        const requested = String(params.get('approve_cli_login') || '').trim();
+        const userCode = String(params.get('user_code') || '').trim().toUpperCase();
+        if (!requested && !userCode) {
+            return;
+        }
+        this.currentTab = 'settings';
+        this.switchTab('settings');
+        window.setTimeout(() => {
+            this.openCLILoginApprovalModal(userCode);
+        }, 50);
+        params.delete('approve_cli_login');
+        params.delete('user_code');
+        const nextQuery = params.toString();
+        const nextURL = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
+        window.history.replaceState({}, document.title, nextURL);
     }
 
     async saveProfileSettings() {

@@ -33,7 +33,12 @@ internal/api/*.go.*
 .gocache/
 .baseline/*.log
 .baseline/*.pid
+.baseline/config.yaml
 .baseline/secrets.json
+baseline_api.db
+baseline_api.out
+baseline_api.err
+frontend-nodejs/test-results/
 
 # AI and development artifacts
 baseline_ai_failure_assistance.txt

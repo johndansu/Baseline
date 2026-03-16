@@ -95,10 +95,18 @@ func (s *Server) handleCLITraceCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "numeric fields must be zero or greater")
 		return
 	}
+	sessionID := ""
+	if principal.AuthSource == cliSessionAuthSource {
+		if session, _, err := s.getCLISessionFromRequest(r); err == nil {
+			sessionID = strings.TrimSpace(session.SessionID)
+			s.noteCLISessionUsage(r, session, req.Version, req.Repository, req.ProjectID, req.Command, req.ScanID)
+		}
+	}
 
 	trace := CLITraceDetail{
 		Summary: CLITraceSummary{
 			TraceID:        req.TraceID,
+			SessionID:      sessionID,
 			Command:        req.Command,
 			Repository:     req.Repository,
 			ProjectID:      req.ProjectID,

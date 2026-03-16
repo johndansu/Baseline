@@ -371,24 +371,25 @@ func runScanCommand(traceCtx *clitrace.Context, telemetryConnection dashboardCon
 }
 
 func printScanUsage() {
-	fmt.Println("Usage: baseline scan [--api <url>] [--project-id <id>] [--api-key <key>] [--scan-id <id>] [--commit-sha <sha>]")
+	fmt.Println("Usage: baseline scan [--api <url>] [--project-id <id>] [--api-key <credential>] [--scan-id <id>] [--commit-sha <sha>]")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  --api         Upload scan results to a Baseline API after the local scan completes")
 	fmt.Println("  --project-id  Explicit target project ID for dashboard upload")
-	fmt.Println("  --api-key     API key used for project lookup and scan upload (defaults to BASELINE_API_KEY)")
+	fmt.Println("  --api-key     Fallback API key for project lookup and scan upload when no dashboard session is available")
 	fmt.Println("  --scan-id     Optional explicit scan ID for the uploaded scan record")
 	fmt.Println("  --commit-sha  Optional commit SHA override for the uploaded scan record")
 	fmt.Println()
 	fmt.Println("If --project-id is omitted, Baseline tries to resolve the project from the current git remote or repository name.")
-	fmt.Println("If --api is omitted, Baseline auto-uploads when BASELINE_API_ADDR and BASELINE_API_KEY are configured.")
+	fmt.Println("Recommended: run `baseline dashboard login --api <url>` once, then let Baseline reuse that CLI session automatically.")
+	fmt.Println("Fallback: if no CLI session exists, Baseline can still auto-upload when BASELINE_API_ADDR and BASELINE_API_KEY are configured.")
 }
 
 // HandleInit initializes Baseline configuration.
-func HandleInit() {
+func HandleInit(args []string) {
 	connection := resolveCLITelemetryConnection()
 	os.Exit(runTracedCommand("init", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
-		return runInitCommand(traceCtx)
+		return runInitCommand(traceCtx, args)
 	}))
 }
 
@@ -457,7 +458,29 @@ func runEnforceCommand(traceCtx *clitrace.Context, telemetryConnection dashboard
 	}
 }
 
-func runInitCommand(traceCtx *clitrace.Context) tracedCommandResult {
+func runInitCommand(traceCtx *clitrace.Context, args []string) tracedCommandResult {
+	if hasHelpFlag(args) {
+		traceCtx.Branch("cli", "init", "help_requested", nil)
+		printInitUsage()
+		return tracedCommandResult{
+			ExitCode:     types.ExitSuccess,
+			TraceStatus:  "help",
+			TraceMessage: "init help shown",
+		}
+	}
+
+	if len(args) > 0 {
+		err := fmt.Errorf("unknown flag %s", args[0])
+		traceCtx.Error("cli", "init", err, nil)
+		fmt.Printf("INIT FAILED: %v\n\n", err)
+		printInitUsage()
+		return tracedCommandResult{
+			ExitCode:     types.ExitSystemError,
+			TraceStatus:  "system_error",
+			TraceMessage: "init arguments invalid",
+		}
+	}
+
 	gitSpan := traceCtx.HelperEnter("cli", "requireGitRepo", "checking git repository", nil)
 	if err := requireGitRepo(); err != nil {
 		traceCtx.Error("cli", "requireGitRepo", err, nil)
@@ -488,21 +511,28 @@ func runInitCommand(traceCtx *clitrace.Context) tracedCommandResult {
 	}
 	traceCtx.HelperExit(mkdirSpan, "fs", "os.MkdirAll", "ok", ".baseline directory created", nil)
 
-	configContent := `# Baseline Configuration
-# This file configures Baseline policy enforcement
-
-policy_set = "baseline:prod"
-enforcement_mode = "audit"
-`
 	configFile := ".baseline/config.yaml"
-	writeSpan := traceCtx.HelperEnter("fs", "os.WriteFile", "writing baseline config file", nil)
-	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
-		traceCtx.Error("fs", "os.WriteFile", err, nil)
-		traceCtx.HelperExit(writeSpan, "fs", "os.WriteFile", "error", "unable to create config file", nil)
-		fmt.Printf("INIT FAILED: Unable to create config file: %v\n", err)
-		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "unable to create config file"}
+	loadSpan := traceCtx.HelperEnter("cli", "loadBaselineLocalConfig", "loading existing baseline config", nil)
+	cfg, err := loadBaselineLocalConfig()
+	if err != nil {
+		traceCtx.Error("cli", "loadBaselineLocalConfig", err, nil)
+		traceCtx.HelperExit(loadSpan, "cli", "loadBaselineLocalConfig", "error", "unable to load baseline config", nil)
+		fmt.Printf("INIT FAILED: Unable to load existing config: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "unable to load baseline config"}
 	}
-	traceCtx.HelperExit(writeSpan, "fs", "os.WriteFile", "ok", "baseline config file written", nil)
+	traceCtx.HelperExit(loadSpan, "cli", "loadBaselineLocalConfig", "ok", "baseline config loaded", nil)
+
+	cfg.PolicySet = "baseline:prod"
+	cfg.EnforcementMode = "audit"
+
+	saveSpan := traceCtx.HelperEnter("cli", "saveBaselineLocalConfig", "saving baseline config", nil)
+	if err := saveBaselineLocalConfig(cfg); err != nil {
+		traceCtx.Error("cli", "saveBaselineLocalConfig", err, nil)
+		traceCtx.HelperExit(saveSpan, "cli", "saveBaselineLocalConfig", "error", "unable to save baseline config", nil)
+		fmt.Printf("INIT FAILED: Unable to save config file: %v\n", err)
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "unable to save baseline config"}
+	}
+	traceCtx.HelperExit(saveSpan, "cli", "saveBaselineLocalConfig", "ok", "baseline config saved", nil)
 
 	fmt.Printf("Created Baseline configuration: %s\n", configFile)
 	fmt.Printf("Policy set: baseline:prod\n")
@@ -519,6 +549,13 @@ enforcement_mode = "audit"
 			"repository": filepath.Base(cwd),
 		},
 	}
+}
+
+func printInitUsage() {
+	fmt.Println("Usage: baseline init")
+	fmt.Println()
+	fmt.Println("Initializes Baseline configuration for the current git repository.")
+	fmt.Println("Existing dashboard upload settings are preserved.")
 }
 
 // HandleReport generates scan results in specified format.
@@ -1438,33 +1475,60 @@ func printAPIUsage() {
 	fmt.Println("       baseline api keygen")
 	fmt.Println("       baseline api verify-prod [--strict]")
 	fmt.Println("Environment:")
-	fmt.Println("  BASELINE_API_KEY=<key> or BASELINE_API_KEYS=<key:role,key:role>")
-	fmt.Println("  BASELINE_API_REQUIRE_HTTPS=false")
-	fmt.Println("  BASELINE_API_SELF_SERVICE_ENABLED=true")
-	fmt.Println("  BASELINE_API_ENROLLMENT_TOKENS=<token:role,token:role>")
-	fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_TTL_MINUTES=1440")
-	fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_MAX_USES=1")
-	fmt.Println("  BASELINE_API_ADDR=:8080")
-	fmt.Println("  BASELINE_API_DB_PATH=baseline_api.db")
-	fmt.Println("  BASELINE_API_TIMEOUT_MS=5000")
-	fmt.Println("  BASELINE_API_MAX_BODY_BYTES=1048576")
-	fmt.Println("  BASELINE_API_SHUTDOWN_TIMEOUT_MS=10000")
-	fmt.Println("  BASELINE_API_CORS_ALLOWED_ORIGINS=https://dashboard.example.com")
-	fmt.Println("  BASELINE_API_TRUST_PROXY_HEADERS=false")
-	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ENABLED=true")
-	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ROLE=viewer")
-	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_TTL_MINUTES=720")
-	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE=false")
-	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED=false")
-	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER=X-Forwarded-User")
-	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER=X-Forwarded-Role")
-	fmt.Println("  BASELINE_API_GITHUB_WEBHOOK_SECRET=<secret>")
-	fmt.Println("  BASELINE_API_GITLAB_WEBHOOK_TOKEN=<token>")
-	fmt.Println("  BASELINE_API_GITHUB_TOKEN=<token>")
-	fmt.Println("  BASELINE_API_GITHUB_API_URL=https://api.github.com")
-	fmt.Println("  BASELINE_API_GITLAB_TOKEN=<token>")
-	fmt.Println("  BASELINE_API_GITLAB_API_URL=https://gitlab.com/api/v4")
-	fmt.Println("  BASELINE_API_AI_ENABLED=false")
+	fmt.Println("  BASELINE_API_KEY or BASELINE_API_KEYS")
+	fmt.Println("    Fallback admin/service credentials for API access.")
+	fmt.Println("  BASELINE_API_REQUIRE_HTTPS")
+	fmt.Println("    Require HTTPS for non-loopback production access.")
+	fmt.Println("  BASELINE_API_SELF_SERVICE_ENABLED")
+	fmt.Println("    Allow self-service enrollment when enabled.")
+	fmt.Println("  BASELINE_API_ENROLLMENT_TOKENS")
+	fmt.Println("    Enrollment mappings for self-service onboarding.")
+	fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_TTL_MINUTES")
+	fmt.Println("    Enrollment token lifetime in minutes.")
+	fmt.Println("  BASELINE_API_ENROLLMENT_TOKEN_MAX_USES")
+	fmt.Println("    Maximum uses per enrollment token.")
+	fmt.Println("  BASELINE_API_ADDR")
+	fmt.Println("    API listen address.")
+	fmt.Println("  BASELINE_API_DB_PATH")
+	fmt.Println("    Persistent database path.")
+	fmt.Println("  BASELINE_API_TIMEOUT_MS")
+	fmt.Println("    Request timeout in milliseconds.")
+	fmt.Println("  BASELINE_API_MAX_BODY_BYTES")
+	fmt.Println("    Maximum request body size.")
+	fmt.Println("  BASELINE_API_SHUTDOWN_TIMEOUT_MS")
+	fmt.Println("    Graceful shutdown timeout in milliseconds.")
+	fmt.Println("  BASELINE_API_CORS_ALLOWED_ORIGINS")
+	fmt.Println("    Allowed browser origins for dashboard access.")
+	fmt.Println("  BASELINE_API_TRUST_PROXY_HEADERS")
+	fmt.Println("    Trust forwarded proxy headers when running behind a proxy.")
+	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ENABLED")
+	fmt.Println("    Enable dashboard session auth.")
+	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_ROLE")
+	fmt.Println("    Default dashboard role for local session mode.")
+	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_TTL_MINUTES")
+	fmt.Println("    Dashboard session lifetime in minutes.")
+	fmt.Println("  BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE")
+	fmt.Println("    Mark dashboard session cookies as secure.")
+	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ENABLED")
+	fmt.Println("    Enable external auth proxy mode.")
+	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_USER_HEADER")
+	fmt.Println("    Header name for proxied user identity.")
+	fmt.Println("  BASELINE_API_DASHBOARD_AUTH_PROXY_ROLE_HEADER")
+	fmt.Println("    Header name for proxied user role.")
+	fmt.Println("  BASELINE_API_GITHUB_WEBHOOK_SECRET")
+	fmt.Println("    GitHub webhook signing secret.")
+	fmt.Println("  BASELINE_API_GITLAB_WEBHOOK_TOKEN")
+	fmt.Println("    GitLab webhook token.")
+	fmt.Println("  BASELINE_API_GITHUB_TOKEN")
+	fmt.Println("    GitHub access token.")
+	fmt.Println("  BASELINE_API_GITHUB_API_URL")
+	fmt.Println("    GitHub API base URL.")
+	fmt.Println("  BASELINE_API_GITLAB_TOKEN")
+	fmt.Println("    GitLab access token.")
+	fmt.Println("  BASELINE_API_GITLAB_API_URL")
+	fmt.Println("    GitLab API base URL.")
+	fmt.Println("  BASELINE_API_AI_ENABLED")
+	fmt.Println("    Enable AI features for the API.")
 	fmt.Println("Config file auto-load order: BASELINE_API_ENV_FILE, .env.production, .env, api.env")
 }
 
