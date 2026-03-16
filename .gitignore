@@ -63,9 +63,7 @@ backups/
 *.md
 *.txt
 !README.md
-!README.REMAINING.md
 !BACKEND.IMPLEMENTATION.PLAN.md
-!SECURITY.CHECKLIST.STATUS.md
 !CHANGELOG.md
 !command.md
 !frontend/README.md
