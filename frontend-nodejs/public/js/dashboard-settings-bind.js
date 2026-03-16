@@ -1,4 +1,12 @@
 export function bindSettingsControls(dashboard) {
+    const cliApproveButton = document.getElementById('settings-cli-approve-button');
+    if (cliApproveButton && cliApproveButton.dataset.bound !== '1') {
+        cliApproveButton.dataset.bound = '1';
+        cliApproveButton.addEventListener('click', () => {
+            dashboard.openCLILoginApprovalModal();
+        });
+    }
+
     const profileSaveButton = document.getElementById('settings-profile-save');
     if (profileSaveButton && profileSaveButton.dataset.bound !== '1') {
         profileSaveButton.dataset.bound = '1';
@@ -56,4 +64,73 @@ export function bindSettingsControls(dashboard) {
             }
         });
     });
+
+    document.querySelectorAll('[data-cli-session-revoke]').forEach((button) => {
+        if (button.dataset.bound === '1') {
+            return;
+        }
+        button.dataset.bound = '1';
+        button.addEventListener('click', async () => {
+            const sessionID = String(button.dataset.cliSessionRevoke || '').trim();
+            if (!sessionID) {
+                return;
+            }
+            button.disabled = true;
+            try {
+                await dashboard.revokeCLISession(sessionID);
+            } finally {
+                button.disabled = false;
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-cli-session-view]').forEach((button) => {
+        if (button.dataset.bound === '1') {
+            return;
+        }
+        button.dataset.bound = '1';
+        button.addEventListener('click', async () => {
+            const sessionID = String(button.dataset.cliSessionView || '').trim();
+            if (!sessionID) {
+                return;
+            }
+            await dashboard.openCLISessionDetail(sessionID);
+        });
+    });
+
+    document.querySelectorAll('[data-cli-session-revoke-user]').forEach((button) => {
+        if (button.dataset.bound === '1') {
+            return;
+        }
+        button.dataset.bound = '1';
+        button.addEventListener('click', async () => {
+            const userID = String(button.dataset.cliSessionRevokeUser || '').trim();
+            const userLabel = String(button.dataset.cliSessionUserLabel || '').trim();
+            if (!userID) {
+                return;
+            }
+            button.disabled = true;
+            try {
+                await dashboard.revokeCLISessionsForUser(userID, userLabel);
+            } finally {
+                button.disabled = false;
+            }
+        });
+    });
+
+    const cliApprovalSubmitButton = document.getElementById('cli-login-approval-submit');
+    if (cliApprovalSubmitButton && cliApprovalSubmitButton.dataset.bound !== '1') {
+        cliApprovalSubmitButton.dataset.bound = '1';
+        cliApprovalSubmitButton.addEventListener('click', async () => {
+            await dashboard.submitCLILoginApproval();
+        });
+    }
+
+    const cliApprovalInput = document.getElementById('cli-login-user-code');
+    if (cliApprovalInput && cliApprovalInput.dataset.bound !== '1') {
+        cliApprovalInput.dataset.bound = '1';
+        cliApprovalInput.addEventListener('input', () => {
+            dashboard.syncCLILoginApprovalCode();
+        });
+    }
 }

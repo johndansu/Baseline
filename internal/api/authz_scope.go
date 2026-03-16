@@ -56,6 +56,15 @@ func (s *Server) requestPrincipal(r *http.Request) (authPrincipal, error) {
 		if principal.OwnerID == "" {
 			principal.OwnerID = s.apiKeyOwnerIDFromRequest(r)
 		}
+	case cliSessionAuthSource:
+		session, _, err := s.getCLISessionFromRequest(r)
+		if err != nil {
+			return authPrincipal{}, errors.New("missing or invalid credentials")
+		}
+		principal.OwnerID = cliSessionOwnerID(session)
+		principal.UserID = strings.TrimSpace(session.UserID)
+		principal.Subject = strings.TrimSpace(session.Subject)
+		principal.Email = strings.ToLower(strings.TrimSpace(session.Email))
 	}
 	return principal, nil
 }
@@ -92,6 +101,22 @@ func sessionOwnerID(session dashboardSession) string {
 		return "user:" + strings.ToLower(v)
 	}
 	return "session:unknown"
+}
+
+func cliSessionOwnerID(session cliSessionRecord) string {
+	if v := strings.TrimSpace(session.UserID); v != "" {
+		return "user:" + strings.ToLower(v)
+	}
+	if v := strings.TrimSpace(session.Subject); v != "" {
+		return "sub:" + strings.ToLower(v)
+	}
+	if v := strings.TrimSpace(session.Email); v != "" {
+		return "email:" + strings.ToLower(v)
+	}
+	if v := strings.TrimSpace(session.UserLabel); v != "" {
+		return "user:" + strings.ToLower(v)
+	}
+	return "cli_session:unknown"
 }
 
 func (s *Server) apiKeyOwnerIDFromRequest(r *http.Request) string {

@@ -90,6 +90,9 @@ func resolveCLITelemetryConnection() dashboardConnectionConfig {
 	if connection.APIBaseURL == "" {
 		return dashboardConnectionConfig{}
 	}
+	if strings.TrimSpace(connection.AccessToken) != "" {
+		return connection
+	}
 	if strings.TrimSpace(connection.APIKey) == "" {
 		connection.APIKey = strings.TrimSpace(os.Getenv("BASELINE_API_KEY"))
 	}
@@ -99,11 +102,27 @@ func resolveCLITelemetryConnection() dashboardConnectionConfig {
 	return connection
 }
 
-func emitCLIEvent(connection dashboardConnectionConfig, event cliEventPayload) {
+func refreshCLIUploadConnection(connection dashboardConnectionConfig) dashboardConnectionConfig {
+	refreshed := connection
+	refreshed.APIBaseURL = strings.TrimSpace(refreshed.APIBaseURL)
+	if refreshed.APIBaseURL == "" {
+		return refreshed
+	}
+	if token := storedCLIAccessTokenForBaseURL(refreshed.APIBaseURL); strings.TrimSpace(token) != "" {
+		refreshed.AccessToken = strings.TrimSpace(token)
+	}
+	return refreshed
+}
+
+func emitCLIEvent(connection dashboardConnectionConfig, event cliEventPayload) bool {
+	connection = refreshCLIUploadConnection(connection)
 	baseURL := strings.TrimRight(strings.TrimSpace(connection.APIBaseURL), "/")
-	apiKey := strings.TrimSpace(connection.APIKey)
-	if baseURL == "" || apiKey == "" {
-		return
+	authToken := strings.TrimSpace(connection.AccessToken)
+	if authToken == "" {
+		authToken = strings.TrimSpace(connection.APIKey)
+	}
+	if baseURL == "" || authToken == "" {
+		return false
 	}
 	if strings.TrimSpace(event.ProjectID) == "" {
 		event.ProjectID = strings.TrimSpace(connection.ProjectID)
@@ -117,50 +136,56 @@ func emitCLIEvent(connection dashboardConnectionConfig, event cliEventPayload) {
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.Command = strings.TrimSpace(event.Command)
 	if event.EventType == "" || event.Command == "" {
-		return
+		return false
 	}
 
 	body, err := json.Marshal(event)
 	if err != nil {
-		return
+		return false
 	}
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/v1/cli/events", bytes.NewReader(body))
 	if err != nil {
-		return
+		return false
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+authToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return
+		return false
 	}
 	defer resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
-func emitCLITrace(connection dashboardConnectionConfig, payload cliTracePayload) {
+func emitCLITrace(connection dashboardConnectionConfig, payload cliTracePayload) bool {
+	connection = refreshCLIUploadConnection(connection)
 	baseURL := strings.TrimRight(strings.TrimSpace(connection.APIBaseURL), "/")
-	apiKey := strings.TrimSpace(connection.APIKey)
-	if baseURL == "" || apiKey == "" {
-		return
+	authToken := strings.TrimSpace(connection.AccessToken)
+	if authToken == "" {
+		authToken = strings.TrimSpace(connection.APIKey)
+	}
+	if baseURL == "" || authToken == "" {
+		return false
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return
+		return false
 	}
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/v1/cli/traces", bytes.NewReader(body))
 	if err != nil {
-		return
+		return false
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+authToken)
 	req.Header.Set("Content-Type", "application/json")
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return
+		return false
 	}
 	defer resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
 func startCLICommandTelemetry(command, projectID, scanID string) cliTelemetryContext {
@@ -230,7 +255,8 @@ func cliEventFromCheck(eventType, message, status string, violationCount int, du
 	}
 }
 
-func emitCLITraceEvents(connection dashboardConnectionConfig, command string, metadata map[string]string, events []clitrace.Event) {
+func emitCLITraceEvents(connection dashboardConnectionConfig, command string, metadata map[string]string, events []clitrace.Event) bool {
+	posted := false
 	for _, event := range events {
 		payload := cliEventPayload{
 			EventType:    strings.TrimSpace(event.Type),
@@ -246,8 +272,11 @@ func emitCLITraceEvents(connection dashboardConnectionConfig, command string, me
 		}
 		mergeCLITraceEventFields(&payload, metadata)
 		mergeCLITraceEventFields(&payload, event.Attributes)
-		emitCLIEvent(connection, payload)
+		if emitCLIEvent(connection, payload) {
+			posted = true
+		}
 	}
+	return posted
 }
 
 func mergeCLITraceEventFields(payload *cliEventPayload, attrs map[string]string) {

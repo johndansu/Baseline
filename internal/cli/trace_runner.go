@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -30,8 +31,9 @@ func runTracedCommand(command string, connection dashboardConnectionConfig, fn f
 			traceCtx.Complete("panic", "command panicked", map[string]string{
 				"duration_ms": strconv.FormatInt(traceCtxElapsedMilliseconds(traceCtx), 10),
 			})
-			emitCLITraceEvents(connection, command, traceCtx.Metadata(), traceCtx.Events())
-			emitCLITrace(connection, buildCLITracePayload(command, traceCtx))
+			eventsPosted := emitCLITraceEvents(connection, command, traceCtx.Metadata(), traceCtx.Events())
+			tracePosted := emitCLITrace(connection, buildCLITracePayload(command, traceCtx))
+			warnIfTraceUploadSkipped(command, eventsPosted || tracePosted)
 			panic(recovered)
 		}
 		if !traceCtx.Completed() {
@@ -39,8 +41,9 @@ func runTracedCommand(command string, connection dashboardConnectionConfig, fn f
 				"duration_ms": strconv.FormatInt(traceCtxElapsedMilliseconds(traceCtx), 10),
 			})
 		}
-		emitCLITraceEvents(connection, command, traceCtx.Metadata(), traceCtx.Events())
-		emitCLITrace(connection, buildCLITracePayload(command, traceCtx))
+		eventsPosted := emitCLITraceEvents(connection, command, traceCtx.Metadata(), traceCtx.Events())
+		tracePosted := emitCLITrace(connection, buildCLITracePayload(command, traceCtx))
+		warnIfTraceUploadSkipped(command, eventsPosted || tracePosted)
 	}()
 
 	result := fn(traceCtx)
@@ -49,6 +52,13 @@ func runTracedCommand(command string, connection dashboardConnectionConfig, fn f
 	attrs["duration_ms"] = strconv.FormatInt(traceCtxElapsedMilliseconds(traceCtx), 10)
 	traceCtx.Complete(result.TraceStatus, result.TraceMessage, attrs)
 	return exitCode
+}
+
+func warnIfTraceUploadSkipped(command string, uploaded bool) {
+	if uploaded {
+		return
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "Trace upload skipped for %q: no active dashboard session/config for this repository. Run `baseline dashboard login --api http://127.0.0.1:8080`.\n", command)
 }
 
 func traceCtxElapsedMilliseconds(ctx *clitrace.Context) int64 {

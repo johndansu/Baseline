@@ -123,17 +123,17 @@ export function renderCLITraceDetailContent(dashboard, trace, isLoading = false,
     const title = `${String(summary.command || 'command').trim() || 'command'} trace`;
 
     content.innerHTML = `
-        <div class="space-y-5">
-            <div class="flex items-start justify-between gap-4">
+        <div class="space-y-3">
+            <div class="flex items-start justify-between gap-3">
                 <div>
-                    <h3 class="text-lg font-semibold text-gray-900">${dashboard.escapeHtml(title)}</h3>
+                    <h3 class="text-base font-semibold text-gray-900">${dashboard.escapeHtml(title)}</h3>
                     <p class="mt-1 text-sm text-gray-700">${dashboard.escapeHtml(summary.message || 'Detailed execution trace')}</p>
                 </div>
-                <button type="button" id="cli-trace-detail-export" class="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium" style="background-color:#ea580c;color:#ffffff;">
+                <button type="button" id="cli-trace-detail-export" class="px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium shrink-0" style="background-color:#ea580c;color:#ffffff;">
                     Export Trace
                 </button>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 ${renderDetailStat(dashboard, 'Trace ID', summary.trace_id)}
                 ${renderDetailStat(dashboard, 'Status', summary.status || 'unknown')}
                 ${renderDetailStat(dashboard, 'Started', dashboard.formatDate(summary.started_at))}
@@ -144,10 +144,12 @@ export function renderCLITraceDetailContent(dashboard, trace, isLoading = false,
                 ${renderDetailStat(dashboard, 'Events', String(summary.event_count ?? events.length))}
             </div>
             <div class="rounded-lg border border-gray-200">
-                <div class="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                <div class="px-3 py-2.5 border-b border-gray-200 bg-gray-50">
                     <h4 class="text-sm font-semibold text-gray-900">Event Timeline</h4>
                 </div>
-                ${renderTraceEvents(dashboard, events)}
+                <div class="max-h-[32vh] overflow-y-auto">
+                    ${renderTraceEvents(dashboard, events)}
+                </div>
             </div>
         </div>
     `;
@@ -584,7 +586,7 @@ function classifyQuickStatus(status) {
 
 function renderDetailStat(dashboard, label, value) {
     return `
-        <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+        <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
             <p class="text-[11px] font-medium uppercase tracking-wide text-gray-500">${dashboard.escapeHtml(label)}</p>
             <p class="mt-1 text-sm font-medium text-gray-900 break-words">${dashboard.escapeHtml(String(value || '-'))}</p>
         </div>
@@ -603,7 +605,7 @@ function renderTraceEvents(dashboard, events) {
     return `
         <div class="divide-y divide-gray-200">
             ${events.map((event) => `
-                <div class="p-4 space-y-2">
+                <div class="p-2.5 space-y-2">
                     <div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                         <div class="space-y-1">
                             <div class="flex flex-wrap items-center gap-2">

@@ -238,6 +238,28 @@ func (s *Server) writeAuthMeResponse(w http.ResponseWriter, r *http.Request, rol
 			}
 			resp["expires_at"] = session.ExpiresAt
 		}
+	} else if authSource == cliSessionAuthSource {
+		if session, _, err := s.getCLISessionFromRequest(r); err == nil {
+			resp["user"] = session.UserLabel
+			resp["display_name"] = session.UserLabel
+			if session.UserID != "" {
+				resp["user_id"] = session.UserID
+			}
+			if session.Subject != "" {
+				resp["subject"] = session.Subject
+			}
+			if session.Email != "" {
+				resp["email"] = session.Email
+			}
+			if session.ClientName != "" {
+				resp["client_name"] = session.ClientName
+			}
+			if session.ClientHost != "" {
+				resp["client_host"] = session.ClientHost
+			}
+			resp["identity_source"] = cliSessionAuthSource
+			resp["expires_at"] = session.AccessExpiresAt
+		}
 	} else if authSource == "api_key" {
 		resp["user"] = "api_key"
 	}

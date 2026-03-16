@@ -17,12 +17,12 @@ import (
 )
 
 type scanCommandOptions struct {
-	Help       bool
-	APIBaseURL string
-	ProjectID  string
-	APIKey     string
-	ScanID     string
-	CommitSHA  string
+	Help         bool
+	APIBaseURL   string
+	ProjectID    string
+	APIKey       string
+	ScanID       string
+	CommitSHA    string
 	UploadRunKey string
 }
 
@@ -108,12 +108,9 @@ func uploadScanResults(opts scanCommandOptions, results types.ScanResults) (uplo
 		return uploadedScanDetails{}, fmt.Errorf("invalid API URL: %w", err)
 	}
 
-	apiKey := strings.TrimSpace(opts.APIKey)
-	if apiKey == "" {
-		apiKey = strings.TrimSpace(os.Getenv("BASELINE_API_KEY"))
-	}
-	if apiKey == "" {
-		return uploadedScanDetails{}, fmt.Errorf("API upload requires --api-key or BASELINE_API_KEY")
+	authToken := authTokenForBaseURL(baseURL, opts.APIKey)
+	if authToken == "" {
+		return uploadedScanDetails{}, fmt.Errorf("API upload requires `baseline dashboard login`, `--api-key`, or BASELINE_API_KEY")
 	}
 
 	commitSHA := strings.TrimSpace(opts.CommitSHA)
@@ -124,7 +121,7 @@ func uploadScanResults(opts scanCommandOptions, results types.ScanResults) (uplo
 	client := &http.Client{Timeout: 15 * time.Second}
 	projectID := strings.TrimSpace(opts.ProjectID)
 	if projectID == "" {
-		resolved, err := resolveProjectIDForUpload(client, baseURL, apiKey)
+		resolved, err := resolveProjectIDForUpload(client, baseURL, authToken)
 		if err != nil {
 			return uploadedScanDetails{}, err
 		}
@@ -160,7 +157,7 @@ func uploadScanResults(opts scanCommandOptions, results types.ScanResults) (uplo
 	if err != nil {
 		return uploadedScanDetails{}, fmt.Errorf("build upload request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+authToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", scanUploadIdempotencyKey(payload, strings.TrimSpace(opts.UploadRunKey)))
 
@@ -219,8 +216,8 @@ func scanUploadIdempotencyKey(payload api.CreateScanRequest, runKey string) stri
 	return fmt.Sprintf("scan-upload:%s:%s", normalizedRunKey, scanID)
 }
 
-func resolveProjectIDForUpload(client *http.Client, baseURL, apiKey string) (string, error) {
-	projects, err := fetchUploadProjects(client, baseURL, apiKey)
+func resolveProjectIDForUpload(client *http.Client, baseURL, authToken string) (string, error) {
+	projects, err := fetchUploadProjects(client, baseURL, authToken)
 	if err != nil {
 		return "", err
 	}
@@ -240,12 +237,12 @@ func resolveProjectIDForUpload(client *http.Client, baseURL, apiKey string) (str
 	return matched.ID, nil
 }
 
-func fetchUploadProjects(client *http.Client, baseURL, apiKey string) ([]api.Project, error) {
+func fetchUploadProjects(client *http.Client, baseURL, authToken string) ([]api.Project, error) {
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/v1/projects", nil)
 	if err != nil {
 		return nil, fmt.Errorf("build project lookup request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+authToken)
 
 	resp, err := client.Do(req)
 	if err != nil {

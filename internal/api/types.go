@@ -275,6 +275,7 @@ type CLITraceEvent struct {
 // CLITraceSummary is the persisted model for one traced CLI command run.
 type CLITraceSummary struct {
 	TraceID        string            `json:"trace_id"`
+	SessionID      string            `json:"session_id,omitempty"`
 	Command        string            `json:"command"`
 	Repository     string            `json:"repository,omitempty"`
 	ProjectID      string            `json:"project_id,omitempty"`

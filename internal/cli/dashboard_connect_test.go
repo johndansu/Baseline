@@ -385,6 +385,26 @@ func TestRunDashboardDisconnectCommandClearsSavedConnection(t *testing.T) {
 	}
 }
 
+func TestParseBaselineLocalConfigSupportsLegacyValuesContainingColon(t *testing.T) {
+	content := []byte(`# Baseline Configuration
+# This file configures Baseline policy enforcement
+
+policy_set = "baseline:prod"
+enforcement_mode = "audit"
+`)
+
+	cfg, err := parseBaselineLocalConfig(content)
+	if err != nil {
+		t.Fatalf("parseBaselineLocalConfig: %v", err)
+	}
+	if cfg.PolicySet != "baseline:prod" {
+		t.Fatalf("expected policy_set baseline:prod, got %q", cfg.PolicySet)
+	}
+	if cfg.EnforcementMode != "audit" {
+		t.Fatalf("expected enforcement_mode audit, got %q", cfg.EnforcementMode)
+	}
+}
+
 func setupTempGitRepo(t *testing.T, remoteURL string) string {
 	t.Helper()
 

@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -56,9 +59,9 @@ func TestRunTracedCommandFlushesTraceOnPanic(t *testing.T) {
 	}
 
 	var (
-		mu              sync.Mutex
-		tracePosts      []traceEnvelope
-		eventPostCount  int
+		mu             sync.Mutex
+		tracePosts     []traceEnvelope
+		eventPostCount int
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -117,4 +120,37 @@ func TestRunTracedCommandFlushesTraceOnPanic(t *testing.T) {
 		traceCtx.SetMetadata("repository", "Baseline")
 		panic("boom")
 	})
+}
+
+func TestRunTracedCommandWarnsWhenTraceUploadSkipped(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	os.Stderr = w
+	defer func() {
+		os.Stderr = oldStderr
+	}()
+
+	result := runTracedCommand("version", dashboardConnectionConfig{}, func(traceCtx *clitrace.Context) tracedCommandResult {
+		traceCtx.SetMetadata("repository", "Baseline")
+		return tracedCommandResult{
+			ExitCode:     0,
+			TraceStatus:  "ok",
+			TraceMessage: "version completed",
+		}
+	})
+
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	output := buf.String()
+
+	if result != 0 {
+		t.Fatalf("expected success exit code, got %d", result)
+	}
+	if !strings.Contains(output, "Trace upload skipped") {
+		t.Fatalf("expected skipped trace warning, got %q", output)
+	}
 }
