@@ -35,6 +35,7 @@ internal/api/*.go.*
 .baseline/*.pid
 .baseline/config.yaml
 .baseline/secrets.json
+baseline_api.db
 baseline_api.out
 baseline_api.err
 frontend-nodejs/test-results/
