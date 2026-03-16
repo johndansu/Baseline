@@ -1,9 +1,0 @@
-policy_set: baseline:prod
-enforcement_mode: audit
-dashboard:
-  upload:
-    prompted: true
-    enabled: true
-    api_base_url: http://127.0.0.1:8080
-    project_id: baseline_repo
-    api_key_ref: default
