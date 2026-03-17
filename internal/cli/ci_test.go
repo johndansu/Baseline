@@ -115,8 +115,140 @@ func TestRunCISetupCommandCreatesGitHubWorkflow(t *testing.T) {
 	}
 }
 
+func TestRunCISetupCommandAddsNodeChecksToGitHubWorkflow(t *testing.T) {
+	repoDir := initTempGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "package.json"), []byte(`{"name":"demo","scripts":{"test":"echo ok"}}`), 0644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "package-lock.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatalf("write package-lock.json: %v", err)
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	result := runCISetupCommand(clitrace.Start("ci"), []string{"--provider", "github"})
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected success, got %d", result.ExitCode)
+	}
+
+	content, err := os.ReadFile(filepath.Join(repoDir, ".github", "workflows", "baseline.yml"))
+	if err != nil {
+		t.Fatalf("read workflow: %v", err)
+	}
+	workflow := string(content)
+	if !strings.Contains(workflow, "uses: actions/setup-node@v4") {
+		t.Fatalf("expected Node setup action, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "run: npm ci") {
+		t.Fatalf("expected npm ci step, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "run: npm run test") {
+		t.Fatalf("expected npm run test step, got:\n%s", workflow)
+	}
+}
+
+func TestRunCISetupCommandAddsNextJSChecksToGitHubWorkflow(t *testing.T) {
+	repoDir := initTempGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "package.json"), []byte(`{
+  "name":"next-demo",
+  "scripts":{
+    "lint":"next lint",
+    "build":"next build",
+    "test":"jest"
+  },
+  "dependencies":{"next":"15.0.0","react":"19.0.0","react-dom":"19.0.0"}
+}`), 0644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "package-lock.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatalf("write package-lock.json: %v", err)
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	result := runCISetupCommand(clitrace.Start("ci"), []string{"--provider", "github"})
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected success, got %d", result.ExitCode)
+	}
+
+	content, err := os.ReadFile(filepath.Join(repoDir, ".github", "workflows", "baseline.yml"))
+	if err != nil {
+		t.Fatalf("read workflow: %v", err)
+	}
+	workflow := string(content)
+	if !strings.Contains(workflow, "run: npm run lint") {
+		t.Fatalf("expected Next.js lint step, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "run: npm run build") {
+		t.Fatalf("expected Next.js build step, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "run: npm run test") {
+		t.Fatalf("expected Next.js test step, got:\n%s", workflow)
+	}
+}
+
+func TestRunCISetupCommandAddsNestChecksToGitHubWorkflow(t *testing.T) {
+	repoDir := initTempGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "package.json"), []byte(`{
+  "name":"nest-demo",
+  "scripts":{
+    "build":"nest build",
+    "test":"jest"
+  },
+  "dependencies":{"@nestjs/core":"11.0.0"}
+}`), 0644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "package-lock.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatalf("write package-lock.json: %v", err)
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	result := runCISetupCommand(clitrace.Start("ci"), []string{"--provider", "github"})
+	if result.ExitCode != types.ExitSuccess {
+		t.Fatalf("expected success, got %d", result.ExitCode)
+	}
+
+	content, err := os.ReadFile(filepath.Join(repoDir, ".github", "workflows", "baseline.yml"))
+	if err != nil {
+		t.Fatalf("read workflow: %v", err)
+	}
+	workflow := string(content)
+	if !strings.Contains(workflow, "run: npm run build") {
+		t.Fatalf("expected NestJS build step, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "run: npm run test") {
+		t.Fatalf("expected NestJS test step, got:\n%s", workflow)
+	}
+}
+
 func TestRunCISetupCommandCreatesGitLabWorkflow(t *testing.T) {
 	repoDir := initTempGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "requirements.txt"), []byte("pytest\n"), 0644); err != nil {
+		t.Fatalf("write requirements.txt: %v", err)
+	}
 	oldWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -142,6 +274,15 @@ func TestRunCISetupCommandCreatesGitLabWorkflow(t *testing.T) {
 	if !strings.Contains(workflow, "go install github.com/baseline/baseline/cmd/baseline@latest") {
 		t.Fatalf("expected generic install step in workflow, got:\n%s", workflow)
 	}
+	if !strings.Contains(workflow, "apt-get update && apt-get install -y") || !strings.Contains(workflow, "python3") {
+		t.Fatalf("expected Python setup in gitlab workflow, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "python -m pip install -r requirements.txt pytest") {
+		t.Fatalf("expected Python dependency install step, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "pytest") {
+		t.Fatalf("expected pytest step, got:\n%s", workflow)
+	}
 	if !strings.Contains(workflow, "- baseline enforce") {
 		t.Fatalf("expected enforce command in workflow, got:\n%s", workflow)
 	}
@@ -149,6 +290,9 @@ func TestRunCISetupCommandCreatesGitLabWorkflow(t *testing.T) {
 
 func TestRunCISetupCommandCreatesAzureWorkflow(t *testing.T) {
 	repoDir := initTempGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repoDir, "app.csproj"), []byte("<Project Sdk=\"Microsoft.NET.Sdk\"></Project>"), 0644); err != nil {
+		t.Fatalf("write csproj: %v", err)
+	}
 	oldWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -173,6 +317,12 @@ func TestRunCISetupCommandCreatesAzureWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(workflow, "go install github.com/baseline/baseline/cmd/baseline@latest") {
 		t.Fatalf("expected generic install step in workflow, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "task: UseDotNet@2") {
+		t.Fatalf("expected .NET setup task in workflow, got:\n%s", workflow)
+	}
+	if !strings.Contains(workflow, "script: dotnet test") {
+		t.Fatalf("expected dotnet test step in workflow, got:\n%s", workflow)
 	}
 	if !strings.Contains(workflow, "script: baseline check") {
 		t.Fatalf("expected check command in workflow, got:\n%s", workflow)
