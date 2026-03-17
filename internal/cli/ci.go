@@ -24,6 +24,14 @@ type ciProviderSpec struct {
 	Content      string
 }
 
+type ciProjectProfile struct {
+	Kind            string
+	GoVersion       string
+	InstallStepName string
+	InstallStep     string
+	RunCommand      string
+}
+
 // HandleCI manages CI workflow scaffolding commands.
 func HandleCI(args []string) {
 	connection := resolveCLITelemetryConnection()
@@ -114,7 +122,7 @@ func runCISetupCommand(traceCtx *clitrace.Context, args []string) tracedCommandR
 	})
 	traceCtx.SetMetadata("repository", filepath.Base(cwd))
 
-	spec, err := buildCIProviderSpec(opts)
+	spec, err := buildCIProviderSpec(opts, cwd)
 	if err != nil {
 		fmt.Printf("CI SETUP FAILED: %v\n", err)
 		return tracedCommandResult{
@@ -240,36 +248,67 @@ func normalizeCIProvider(raw string) string {
 	}
 }
 
-func buildCIProviderSpec(opts ciSetupOptions) (ciProviderSpec, error) {
-	command := "baseline " + opts.Mode
+func detectCIProjectProfile(cwd string) ciProjectProfile {
+	profile := ciProjectProfile{
+		Kind:            "generic",
+		GoVersion:       "1.26.1",
+		InstallStepName: "Install Baseline CLI",
+		InstallStep:     "go install github.com/baseline/baseline/cmd/baseline@latest",
+		RunCommand:      "baseline",
+	}
+
+	goModPath := filepath.Join(cwd, "go.mod")
+	cmdMainPath := filepath.Join(cwd, "cmd", "baseline", "main.go")
+	if _, err := os.Stat(goModPath); err == nil {
+		if _, err := os.Stat(cmdMainPath); err == nil {
+			if content, err := os.ReadFile(goModPath); err == nil && strings.Contains(string(content), "module github.com/baseline/baseline") {
+				profile.Kind = "baseline_source"
+				profile.GoVersion = "go.mod"
+				profile.InstallStepName = "Build Baseline CLI"
+				profile.InstallStep = "go build -o baseline ./cmd/baseline"
+				profile.RunCommand = "./baseline"
+			}
+		}
+	}
+
+	return profile
+}
+
+func buildCIProviderSpec(opts ciSetupOptions, cwd string) (ciProviderSpec, error) {
+	profile := detectCIProjectProfile(cwd)
+	command := profile.RunCommand + " " + opts.Mode
 	switch opts.Provider {
 	case "github":
 		return ciProviderSpec{
 			Provider:     "github",
 			DisplayName:  "GitHub Actions",
 			WorkflowPath: filepath.Join(".github", "workflows", "baseline.yml"),
-			Content:      renderGitHubActionsWorkflow(command),
+			Content:      renderGitHubActionsWorkflow(command, profile),
 		}, nil
 	case "gitlab":
 		return ciProviderSpec{
 			Provider:     "gitlab",
 			DisplayName:  "GitLab CI",
 			WorkflowPath: ".gitlab-ci.yml",
-			Content:      renderGitLabCIWorkflow(command),
+			Content:      renderGitLabCIWorkflow(command, profile),
 		}, nil
 	case "azure":
 		return ciProviderSpec{
 			Provider:     "azure",
 			DisplayName:  "Azure Pipelines",
 			WorkflowPath: "azure-pipelines.yml",
-			Content:      renderAzurePipelineWorkflow(command),
+			Content:      renderAzurePipelineWorkflow(command, profile),
 		}, nil
 	default:
 		return ciProviderSpec{}, fmt.Errorf("unsupported provider %q", opts.Provider)
 	}
 }
 
-func renderGitHubActionsWorkflow(command string) string {
+func renderGitHubActionsWorkflow(command string, profile ciProjectProfile) string {
+	goSetup := "          go-version: '1.26.1'"
+	if profile.GoVersion == "go.mod" {
+		goSetup = "          go-version-file: go.mod"
+	}
 	return fmt.Sprintf(`name: Baseline
 
 on:
@@ -290,33 +329,37 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+%s
 
-      - name: Build Baseline CLI
-        run: go build -o baseline ./cmd/baseline
+      - name: %s
+        run: %s
 
       - name: Run Baseline
-        run: ./%s
-`, command)
+        run: %s
+`, goSetup, profile.InstallStepName, profile.InstallStep, command)
 }
 
-func renderGitLabCIWorkflow(command string) string {
+func renderGitLabCIWorkflow(command string, profile ciProjectProfile) string {
 	return fmt.Sprintf(`stages:
   - baseline
 
 baseline:
   stage: baseline
-  image: golang:1.24
+  image: golang:1.26
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
-    - go build -o baseline ./cmd/baseline
-    - ./%s
-`, command)
+    - %s
+    - %s
+`, profile.InstallStep, command)
 }
 
-func renderAzurePipelineWorkflow(command string) string {
+func renderAzurePipelineWorkflow(command string, profile ciProjectProfile) string {
+	goVersion := "1.26.1"
+	if profile.GoVersion == "go.mod" {
+		goVersion = "1.26.1"
+	}
 	return fmt.Sprintf(`trigger:
   branches:
     include:
@@ -335,14 +378,14 @@ steps:
 
   - task: GoTool@0
     inputs:
-      version: '1.24'
+      version: '%s'
 
-  - script: go build -o baseline ./cmd/baseline
-    displayName: Build Baseline CLI
+  - script: %s
+    displayName: %s
 
-  - script: ./%s
+  - script: %s
     displayName: Run Baseline
-`, command)
+`, goVersion, profile.InstallStep, profile.InstallStepName, command)
 }
 
 func printCIUsage() {

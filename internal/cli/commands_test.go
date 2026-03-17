@@ -241,7 +241,7 @@ func TestMaybeOfferCISetupWithReaderCreatesWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gitlab workflow: %v", err)
 	}
-	if !strings.Contains(string(content), "./baseline check") {
+	if !strings.Contains(string(content), "baseline check") {
 		t.Fatalf("expected check workflow, got:\n%s", string(content))
 	}
 }
