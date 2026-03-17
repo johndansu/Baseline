@@ -94,6 +94,23 @@ Supported now:
 go build -o baseline.exe ./cmd/baseline
 ```
 
+## Release Packaging
+
+Generate versioned release artifacts and checksums locally:
+
+```powershell
+.\scripts\package-release.ps1
+```
+
+```bash
+bash ./scripts/package-release.sh
+```
+
+Artifacts are written under `.artifacts/release/<timestamp>` and include:
+- platform-specific Baseline binaries
+- `SHA256SUMS`
+- build metadata
+
 ## Quick Start
 
 ### 1) CLI-only usage (no API)
