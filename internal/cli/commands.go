@@ -537,10 +537,38 @@ func runInitCommand(traceCtx *clitrace.Context, args []string) tracedCommandResu
 	fmt.Printf("Created Baseline configuration: %s\n", configFile)
 	fmt.Printf("Policy set: baseline:prod\n")
 	fmt.Printf("Enforcement mode: audit\n")
+
+	ciPromptSpan := traceCtx.HelperEnter("cli", "maybeOfferCISetup", "offering CI workflow setup", nil)
+	ciConfigured, ciProvider, ciErr := maybeOfferCISetupWithReader(traceCtx, bufio.NewReader(os.Stdin), os.Stdout, interactiveTerminalCheck(os.Stdin, os.Stdout))
+	if ciErr != nil {
+		traceCtx.Error("cli", "maybeOfferCISetup", ciErr, nil)
+		traceCtx.HelperExit(ciPromptSpan, "cli", "maybeOfferCISetup", "error", "CI workflow setup offer failed", nil)
+		fmt.Printf("CI setup skipped: %v\n", ciErr)
+	} else {
+		attrs := map[string]string{}
+		status := "skipped"
+		message := "CI workflow setup skipped"
+		if ciConfigured {
+			status = "ok"
+			message = "CI workflow setup completed"
+			if ciProvider != "" {
+				attrs["provider"] = ciProvider
+			}
+		}
+		traceCtx.HelperExit(ciPromptSpan, "cli", "maybeOfferCISetup", status, message, attrs)
+	}
+
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("1. Run 'baseline check' to verify policy compliance\n")
-	fmt.Printf("2. Run 'baseline scan' to analyze repository state\n")
-	fmt.Printf("3. Fix any violations found\n")
+	if ciConfigured {
+		fmt.Printf("2. Commit the generated CI workflow to activate Baseline in your pipeline\n")
+		fmt.Printf("3. Run 'baseline scan' to analyze repository state\n")
+		fmt.Printf("4. Fix any violations found\n")
+	} else {
+		fmt.Printf("2. Run 'baseline scan' to analyze repository state\n")
+		fmt.Printf("3. Fix any violations found\n")
+		fmt.Printf("4. Optional: run 'baseline ci setup --provider github|gitlab|azure' to add CI enforcement\n")
+	}
 	return tracedCommandResult{
 		ExitCode:     types.ExitSuccess,
 		TraceStatus:  "initialized",
@@ -556,6 +584,62 @@ func printInitUsage() {
 	fmt.Println()
 	fmt.Println("Initializes Baseline configuration for the current git repository.")
 	fmt.Println("Existing dashboard upload settings are preserved.")
+	fmt.Println("When run interactively, Baseline can also scaffold a CI workflow for enforcement.")
+}
+
+func maybeOfferCISetupWithReader(traceCtx *clitrace.Context, reader *bufio.Reader, stdout *os.File, interactive bool) (bool, string, error) {
+	if !interactive || reader == nil || stdout == nil {
+		return false, "", nil
+	}
+	if path := detectExistingCIWorkflow(); path != "" {
+		fmt.Fprintf(stdout, "CI workflow already present: %s\n", path)
+		return false, "", nil
+	}
+
+	answer, err := promptForInput(reader, stdout, "Create a CI workflow for Baseline now? [y/N]: ")
+	if err != nil {
+		return false, "", err
+	}
+	if !strings.EqualFold(strings.TrimSpace(answer), "y") && !strings.EqualFold(strings.TrimSpace(answer), "yes") {
+		return false, "", nil
+	}
+
+	providerAnswer, err := promptForInput(reader, stdout, "CI provider [github/gitlab/azure] (default github): ")
+	if err != nil {
+		return false, "", err
+	}
+	provider := normalizeCIProvider(providerAnswer)
+	if provider == "" {
+		provider = "github"
+	}
+
+	modeAnswer, err := promptForInput(reader, stdout, "Pipeline mode [enforce/check] (default enforce): ")
+	if err != nil {
+		return false, "", err
+	}
+	mode := strings.ToLower(strings.TrimSpace(modeAnswer))
+	if mode == "" {
+		mode = "enforce"
+	}
+
+	result := runCISetupCommand(traceCtx, []string{"--provider", provider, "--mode", mode})
+	if result.ExitCode != types.ExitSuccess {
+		return false, provider, fmt.Errorf("unable to scaffold %s CI workflow", provider)
+	}
+	return true, provider, nil
+}
+
+func detectExistingCIWorkflow() string {
+	for _, path := range []string{
+		filepath.Join(".github", "workflows", "baseline.yml"),
+		".gitlab-ci.yml",
+		"azure-pipelines.yml",
+	} {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // HandleReport generates scan results in specified format.

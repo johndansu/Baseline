@@ -56,6 +56,8 @@ func main() {
 		cli.HandleExplain(os.Args[2:])
 	case "api":
 		cli.HandleAPI(os.Args[2:])
+	case "ci":
+		cli.HandleCI(os.Args[2:])
 	case "security-advice":
 		cli.HandleSecurityAdvice(os.Args[2:])
 	case "dashboard":
@@ -84,6 +86,7 @@ func printUsage() {
 	fmt.Println("  pr         Create pull requests with AI-generated scaffolds")
 	fmt.Println("  explain    Get explanation for policy violations")
 	fmt.Println("  api        Serve Baseline API endpoints")
+	fmt.Println("  ci         Generate CI workflow scaffolding")
 	fmt.Println("  security-advice  Generate AI security recommendations beyond built-in policies")
 	fmt.Println("  dashboard  Launch local web dashboard for Baseline API")
 	fmt.Println()
