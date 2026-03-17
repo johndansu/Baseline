@@ -25,6 +25,9 @@ func TestCLIEntrypointsUseTracedRunner(t *testing.T) {
 			"HandleSecurityAdvice": false,
 			"HandleAPI":            false,
 		},
+		filepath.Clean("ci.go"): {
+			"HandleCI": false,
+		},
 		filepath.Clean("dashboard.go"): {
 			"HandleDashboard": false,
 		},
