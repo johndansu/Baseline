@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"os"
 	"os/exec"
@@ -204,6 +205,83 @@ func TestHandleReportArgs(t *testing.T) {
 				t.Fatalf("expected format %q, got %q", tt.expected, format)
 			}
 		})
+	}
+}
+
+func TestMaybeOfferCISetupWithReaderCreatesWorkflow(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	stdoutFile, err := os.CreateTemp(t.TempDir(), "baseline-init-output-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp stdout: %v", err)
+	}
+	defer stdoutFile.Close()
+
+	input := bufio.NewReader(strings.NewReader("y\ngitlab\ncheck\n"))
+	configured, provider, err := maybeOfferCISetupWithReader(clitrace.Start("init"), input, stdoutFile, true)
+	if err != nil {
+		t.Fatalf("maybeOfferCISetupWithReader returned error: %v", err)
+	}
+	if !configured {
+		t.Fatal("expected CI setup to run")
+	}
+	if provider != "gitlab" {
+		t.Fatalf("expected provider gitlab, got %q", provider)
+	}
+
+	content, err := os.ReadFile(filepath.Join(repoDir, ".gitlab-ci.yml"))
+	if err != nil {
+		t.Fatalf("read gitlab workflow: %v", err)
+	}
+	if !strings.Contains(string(content), "./baseline check") {
+		t.Fatalf("expected check workflow, got:\n%s", string(content))
+	}
+}
+
+func TestMaybeOfferCISetupWithReaderSkipsWhenDeclined(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	stdoutFile, err := os.CreateTemp(t.TempDir(), "baseline-init-output-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp stdout: %v", err)
+	}
+	defer stdoutFile.Close()
+
+	input := bufio.NewReader(strings.NewReader("n\n"))
+	configured, provider, err := maybeOfferCISetupWithReader(clitrace.Start("init"), input, stdoutFile, true)
+	if err != nil {
+		t.Fatalf("maybeOfferCISetupWithReader returned error: %v", err)
+	}
+	if configured {
+		t.Fatal("expected CI setup to be skipped")
+	}
+	if provider != "" {
+		t.Fatalf("expected empty provider, got %q", provider)
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, ".github", "workflows", "baseline.yml")); !os.IsNotExist(err) {
+		t.Fatalf("expected no GitHub workflow, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, ".gitlab-ci.yml")); !os.IsNotExist(err) {
+		t.Fatalf("expected no GitLab workflow, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "azure-pipelines.yml")); !os.IsNotExist(err) {
+		t.Fatalf("expected no Azure workflow, stat err=%v", err)
 	}
 }
 
