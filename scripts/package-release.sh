@@ -27,6 +27,9 @@ resolve_git_value() {
 TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
 RUN_DIR="${OUTPUT_ROOT}/${TIMESTAMP}"
 mkdir -p "${RUN_DIR}"
+BINARIES_DIR="${RUN_DIR}/binaries"
+ARCHIVES_DIR="${RUN_DIR}/archives"
+mkdir -p "${BINARIES_DIR}" "${ARCHIVES_DIR}"
 
 if [[ -z "${VERSION}" ]]; then
   VERSION="$(resolve_git_value "git describe --tags --always --dirty" "dev")"
@@ -42,9 +45,17 @@ BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "workspace=$(pwd)"
   echo "go_version=$(go version)"
 } > "${RUN_DIR}/metadata.txt"
+{
+  echo "Baseline release artifacts"
+  echo "version=${VERSION}"
+  echo "commit=${GIT_COMMIT}"
+  echo "build_date=${BUILD_DATE}"
+} > "${RUN_DIR}/RELEASE_INFO.txt"
 
-checksum_file="${RUN_DIR}/SHA256SUMS"
-: > "${checksum_file}"
+binary_checksum_file="${RUN_DIR}/SHA256SUMS.binaries"
+archive_checksum_file="${RUN_DIR}/SHA256SUMS.archives"
+: > "${binary_checksum_file}"
+: > "${archive_checksum_file}"
 
 for target in "${TARGETS[@]}"; do
   IFS=/ read -r goos goarch <<< "${target}"
@@ -53,7 +64,8 @@ for target in "${TARGETS[@]}"; do
     suffix=".exe"
   fi
   binary_name="baseline_${VERSION}_${goos}_${goarch}${suffix}"
-  destination="${RUN_DIR}/${binary_name}"
+  destination="${BINARIES_DIR}/${binary_name}"
+  stage_dir="${RUN_DIR}/stage_${goos}_${goarch}"
 
   echo
   echo "==> Building ${target}"
@@ -62,9 +74,31 @@ for target in "${TARGETS[@]}"; do
       -ldflags "-s -w -X github.com/baseline/baseline/internal/version.Version=${VERSION} -X github.com/baseline/baseline/internal/version.GitCommit=${GIT_COMMIT} -X github.com/baseline/baseline/internal/version.BuildDate=${BUILD_DATE}" \
       -o "${destination}" ./cmd/baseline
 
-  sha256sum "${destination}" | awk -v name="${binary_name}" '{print $1 "  " name}' >> "${checksum_file}"
+  sha256sum "${destination}" | awk -v name="${binary_name}" '{print $1 "  " name}' >> "${binary_checksum_file}"
+
+  rm -rf "${stage_dir}"
+  mkdir -p "${stage_dir}"
+  cp "${destination}" "${stage_dir}/${binary_name}"
+  cp "${RUN_DIR}/RELEASE_INFO.txt" "${stage_dir}/RELEASE_INFO.txt"
+
+  if [[ "${goos}" == "windows" ]]; then
+    archive_name="baseline_${VERSION}_${goos}_${goarch}.zip"
+    archive_path="${ARCHIVES_DIR}/${archive_name}"
+    (
+      cd "${stage_dir}"
+      zip -q -r "${archive_path}" .
+    )
+  else
+    archive_name="baseline_${VERSION}_${goos}_${goarch}.tar.gz"
+    archive_path="${ARCHIVES_DIR}/${archive_name}"
+    tar -C "${stage_dir}" -czf "${archive_path}" .
+  fi
+
+  sha256sum "${archive_path}" | awk -v name="${archive_name}" '{print $1 "  " name}' >> "${archive_checksum_file}"
+  rm -rf "${stage_dir}"
 done
 
 echo
 echo "Release artifacts written to: ${RUN_DIR}"
-echo "Checksums written to: ${checksum_file}"
+echo "Binary checksums written to: ${binary_checksum_file}"
+echo "Archive checksums written to: ${archive_checksum_file}"

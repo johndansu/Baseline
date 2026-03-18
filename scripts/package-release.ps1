@@ -64,6 +64,10 @@ function Build-Binary {
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $runDir = Join-Path $OutputRoot $timestamp
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+$binariesDir = Join-Path $runDir "binaries"
+$archivesDir = Join-Path $runDir "archives"
+New-Item -ItemType Directory -Path $binariesDir -Force | Out-Null
+New-Item -ItemType Directory -Path $archivesDir -Force | Out-Null
 
 $resolvedVersion = if ([string]::IsNullOrWhiteSpace($Version)) {
     Resolve-GitValue -Command "git describe --tags --always --dirty" -Fallback "dev"
@@ -82,8 +86,15 @@ $metadata = @(
     "go_version=$(& go version)"
 )
 Set-Content -Path (Join-Path $runDir "metadata.txt") -Value $metadata
+Set-Content -Path (Join-Path $runDir "RELEASE_INFO.txt") -Value @(
+    "Baseline release artifacts",
+    "version=$resolvedVersion",
+    "commit=$gitCommit",
+    "build_date=$buildDate"
+)
 
-$checksums = New-Object System.Collections.Generic.List[string]
+$binaryChecksums = New-Object System.Collections.Generic.List[string]
+$archiveChecksums = New-Object System.Collections.Generic.List[string]
 
 foreach ($target in $Targets) {
     $parts = $target.Split("/")
@@ -91,18 +102,49 @@ foreach ($target in $Targets) {
     $goarch = $parts[1]
     $suffix = if ($goos -eq "windows") { ".exe" } else { "" }
     $binaryName = "baseline_${resolvedVersion}_${goos}_${goarch}${suffix}"
-    $destination = Join-Path $runDir $binaryName
+    $destination = Join-Path $binariesDir $binaryName
+    $stageDir = Join-Path $runDir ("stage_" + $goos + "_" + $goarch)
 
     Write-Host ""
     Write-Host "==> Building $target"
     Build-Binary -Target $target -Destination $destination -VersionValue $resolvedVersion -CommitValue $gitCommit -BuildDateValue $buildDate
 
     $hash = (Get-FileHash -Path $destination -Algorithm SHA256).Hash.ToLowerInvariant()
-    $checksums.Add("$hash  $binaryName")
+    $binaryChecksums.Add("$hash  $binaryName")
+
+    if (Test-Path $stageDir) {
+        Remove-Item -Recurse -Force $stageDir
+    }
+    New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+    Copy-Item $destination (Join-Path $stageDir $binaryName)
+    Copy-Item (Join-Path $runDir "RELEASE_INFO.txt") (Join-Path $stageDir "RELEASE_INFO.txt")
+
+    if ($goos -eq "windows") {
+        $archiveName = "baseline_${resolvedVersion}_${goos}_${goarch}.zip"
+        $archivePath = Join-Path $archivesDir $archiveName
+        if (Test-Path $archivePath) {
+            Remove-Item -Force $archivePath
+        }
+        Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $archivePath -CompressionLevel Optimal
+    } else {
+        $archiveName = "baseline_${resolvedVersion}_${goos}_${goarch}.tar.gz"
+        $archivePath = Join-Path $archivesDir $archiveName
+        & tar -C $stageDir -czf $archivePath .
+        if ($LASTEXITCODE -ne 0) {
+            throw "archive creation failed for $target"
+        }
+    }
+
+    $archiveHash = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $archiveChecksums.Add("$archiveHash  $archiveName")
+
+    Remove-Item -Recurse -Force $stageDir
 }
 
-Set-Content -Path (Join-Path $runDir "SHA256SUMS") -Value $checksums
+Set-Content -Path (Join-Path $runDir "SHA256SUMS.binaries") -Value $binaryChecksums
+Set-Content -Path (Join-Path $runDir "SHA256SUMS.archives") -Value $archiveChecksums
 
 Write-Host ""
 Write-Host "Release artifacts written to: $runDir"
-Write-Host "Checksums written to: $(Join-Path $runDir 'SHA256SUMS')"
+Write-Host "Binary checksums written to: $(Join-Path $runDir 'SHA256SUMS.binaries')"
+Write-Host "Archive checksums written to: $(Join-Path $runDir 'SHA256SUMS.archives')"
