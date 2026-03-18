@@ -107,9 +107,11 @@ bash ./scripts/package-release.sh
 ```
 
 Artifacts are written under `.artifacts/release/<timestamp>` and include:
-- platform-specific Baseline binaries
-- `SHA256SUMS`
-- build metadata
+- raw platform-specific binaries under `binaries/`
+- distributable archives under `archives/`
+- `SHA256SUMS.binaries`
+- `SHA256SUMS.archives`
+- build metadata and release info
 
 ## Quick Start
 
