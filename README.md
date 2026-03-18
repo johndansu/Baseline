@@ -113,6 +113,58 @@ Artifacts are written under `.artifacts/release/<timestamp>` and include:
 - `SHA256SUMS.archives`
 - build metadata and release info
 
+Release automation:
+- GitHub releases publish the packaged archives plus checksum files
+- GitHub Actions `workflow_dispatch` can generate the same signed release bundle without publishing a release
+
+## Install From Packaged Releases
+
+The recommended production install path is to use a packaged release archive, not an ad hoc local build.
+
+1. Download the archive for your platform from the GitHub release assets.
+2. Download `SHA256SUMS.archives`.
+3. Verify the archive checksum.
+4. Extract the archive and put `baseline` on your `PATH`.
+
+Example archive names:
+- `baseline_v1.2.3_windows_amd64.zip`
+- `baseline_v1.2.3_linux_amd64.tar.gz`
+- `baseline_v1.2.3_darwin_arm64.tar.gz`
+
+### Verify Checksums
+
+Linux/macOS:
+
+```bash
+sha256sum -c SHA256SUMS.archives --ignore-missing
+```
+
+Windows PowerShell:
+
+```powershell
+$hash = (Get-FileHash .\baseline_v1.2.3_windows_amd64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+Select-String -Path .\SHA256SUMS.archives -Pattern $hash
+```
+
+### Extract And Install
+
+Linux/macOS:
+
+```bash
+tar -xzf baseline_v1.2.3_linux_amd64.tar.gz
+chmod +x baseline
+sudo mv baseline /usr/local/bin/baseline
+baseline version
+```
+
+Windows PowerShell:
+
+```powershell
+Expand-Archive .\baseline_v1.2.3_windows_amd64.zip -DestinationPath .\baseline-install
+$env:Path = "$PWD\baseline-install;$env:Path"
+.\baseline-install\baseline.exe version
+```
+
 ## Quick Start
 
 ### 1) CLI-only usage (no API)
