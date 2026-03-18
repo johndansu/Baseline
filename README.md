@@ -165,6 +165,55 @@ $env:Path = "$PWD\baseline-install;$env:Path"
 .\baseline-install\baseline.exe version
 ```
 
+## Maintainer Release Runbook
+
+Use this flow when you want to validate or publish a Baseline CLI release.
+
+### 1) Validate release packaging without publishing
+
+Use the GitHub Actions manual trigger:
+
+1. Open `Actions` -> `CI/CD Pipeline`.
+2. Click `Run workflow`.
+3. Optionally set `release_version`.
+4. Download the `baseline-release-bundle-<run_number>` artifact after the run completes.
+
+This path packages the release bundle, signs the packaged archives and checksum files, and uploads the output as a workflow artifact without creating a GitHub release.
+
+### 2) Publish an actual release
+
+1. Make sure the branch you want to release from is green.
+2. Create and push a version tag:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+3. Publish a GitHub release for that tag.
+
+When the release is published, the `CI/CD Pipeline` release job will:
+- package the CLI archives with the tagged version
+- generate `SHA256SUMS.binaries` and `SHA256SUMS.archives`
+- sign the archives and checksum files with keyless cosign
+- attach the packaged artifacts, checksums, signatures, certificates, and metadata to the GitHub release
+
+### 3) Verify the release assets
+
+Check that the release includes:
+- platform archives under `archives/`
+- `SHA256SUMS.binaries`
+- `SHA256SUMS.archives`
+- `metadata.txt`
+- `RELEASE_INFO.txt`
+- `.sig` and `.pem` files for the archives and checksum files
+
+### 4) Sanity-check one install path
+
+Before announcing a release, verify at least one clean install path from the packaged archives:
+- Windows: download `.zip`, verify checksum, run `baseline.exe version`
+- Linux/macOS: download `.tar.gz`, verify checksum, run `baseline version`
+
 ## Quick Start
 
 ### 1) CLI-only usage (no API)
