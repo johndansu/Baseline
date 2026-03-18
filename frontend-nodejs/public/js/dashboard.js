@@ -1512,6 +1512,7 @@ class BaselineDashboard {
         }
         this.pendingKeyRevokeID = normalizedID;
         openDashboardModal('revokeKeyModal');
+        this.prepareRevokeKeyModal();
     }
 
     prepareRevokeKeyModal() {

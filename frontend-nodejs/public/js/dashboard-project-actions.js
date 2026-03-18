@@ -20,7 +20,7 @@ export function bindProjectActionButtons(dashboard, root = document) {
                 return;
             }
             if (action === 'assign-owner') {
-                dashboard.openProjectOwnerModal(projectID);
+                await dashboard.openProjectOwnerModal(projectID);
             }
         });
     });

@@ -166,4 +166,5 @@ export function openEditProjectModal(dashboard, projectID) {
     if (typeof window.openModal === 'function') {
         window.openModal('addProjectModal');
     }
+    prepareAddProjectModal(dashboard);
 }

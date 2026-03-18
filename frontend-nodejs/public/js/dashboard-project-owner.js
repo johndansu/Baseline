@@ -146,7 +146,7 @@ export async function claimProject(dashboard, projectID) {
     }
 }
 
-export function openProjectOwnerModal(dashboard, projectID) {
+export async function openProjectOwnerModal(dashboard, projectID) {
     if (!dashboard.isAdmin()) {
         dashboard.showError('Admin access is required.');
         return;
@@ -160,6 +160,7 @@ export function openProjectOwnerModal(dashboard, projectID) {
     if (typeof window.openModal === 'function') {
         window.openModal('projectOwnerModal');
     }
+    await prepareProjectOwnerModal(dashboard);
 }
 
 export function currentPrincipalOwnerID(dashboard) {
