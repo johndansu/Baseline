@@ -262,6 +262,32 @@ Recommended verification helpers:
 - Linux/macOS: `bash ./scripts/verify-release.sh <run-dir>`
 - Windows PowerShell: `.\scripts\verify-release.ps1 -RunDir <run-dir>`
 
+### 5) Run a clean-install smoke check
+
+Use the install smoke scripts to simulate a fresh extraction and basic binary startup from a packaged archive.
+
+Linux/macOS:
+
+```bash
+bash ./scripts/smoke-install-release.sh .artifacts/release/20260318_120000
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\smoke-install-release.ps1 -RunDir .artifacts\release\20260318_120000
+```
+
+These smoke checks:
+- verify the release bundle first
+- extract the platform archive into a temp directory
+- run:
+  - `baseline version`
+  - `baseline --help`
+  - `baseline ci setup --help`
+
+That gives maintainers one repeatable “fresh install works” check before announcing a release.
+
 ## Quick Start
 
 ### 1) CLI-only usage (no API)
