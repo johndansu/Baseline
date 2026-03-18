@@ -8,6 +8,28 @@ export function openModal(modalID) {
     document.body.classList.add('overflow-hidden');
 }
 
+function prepareDashboardModal(modalID) {
+    if (typeof window === 'undefined') {
+        return;
+    }
+    const dashboard = window.baselineDashboard;
+    if (!dashboard) {
+        return;
+    }
+    const modalPreparers = {
+        addProjectModal: 'prepareAddProjectModal',
+        generateKeyModal: 'prepareGenerateKeyModal',
+        revokeKeyModal: 'prepareRevokeKeyModal',
+        runScanModal: 'prepareRunScanModal',
+        projectOwnerModal: 'prepareProjectOwnerModal'
+    };
+    const methodName = modalPreparers[String(modalID || '').trim()];
+    if (!methodName || typeof dashboard[methodName] !== 'function') {
+        return;
+    }
+    return dashboard[methodName]();
+}
+
 export function closeModal(modalID) {
     const modal = document.getElementById(String(modalID || '').trim());
     if (!modal) {
@@ -31,13 +53,20 @@ export function bindModalTriggerButtons(root = document) {
             return;
         }
         button.dataset.bound = '1';
-        button.addEventListener('click', (event) => {
+        button.addEventListener('click', async (event) => {
             event.preventDefault();
             const modalID = String(button.dataset.openModal || '').trim();
             if (!modalID) {
                 return;
             }
             openModal(modalID);
+            try {
+                await prepareDashboardModal(modalID);
+            } catch (error) {
+                if (typeof window !== 'undefined' && window.baselineDashboard?.showError) {
+                    window.baselineDashboard.showError(error?.message || 'Failed to prepare modal.');
+                }
+            }
         });
     });
 
