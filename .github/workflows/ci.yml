@@ -212,26 +212,37 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [test, security-scan, release-gates, api-smoke]
     if: github.event_name == 'release' && github.event.action == 'published'
     permissions:
       contents: write
       id-token: write
     steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4.1.8
-        with:
-          path: dist
-          merge-multiple: true
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
 
-      - name: Generate SHA256 checksums
+      - name: Setup Go
+        uses: actions/setup-go@v5.0.2
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Package release artifacts
+        id: package
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          sha256sum \
-            dist/baseline-linux-amd64 \
-            dist/baseline-windows-amd64.exe \
-            dist/baseline-darwin-amd64 \
-            > dist/SHA256SUMS
+          bash ./scripts/package-release.sh .artifacts/release
+          run_dir="$(find .artifacts/release -mindepth 1 -maxdepth 1 -type d | sort | tail -n1)"
+          if [[ -z "${run_dir}" ]]; then
+            echo "release packaging did not produce an output directory" >&2
+            exit 1
+          fi
+          echo "run_dir=${run_dir}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3.7.0
@@ -240,10 +251,9 @@ jobs:
         run: |
           set -euo pipefail
           for file in \
-            dist/baseline-linux-amd64 \
-            dist/baseline-windows-amd64.exe \
-            dist/baseline-darwin-amd64 \
-            dist/SHA256SUMS
+            "${{ steps.package.outputs.run_dir }}/archives/"* \
+            "${{ steps.package.outputs.run_dir }}/SHA256SUMS.binaries" \
+            "${{ steps.package.outputs.run_dir }}/SHA256SUMS.archives"
           do
             cosign sign-blob --yes \
               --output-signature "${file}.sig" \
@@ -255,17 +265,16 @@ jobs:
         uses: softprops/action-gh-release@v2.0.8
         with:
           files: |
-            dist/baseline-linux-amd64
-            dist/baseline-windows-amd64.exe
-            dist/baseline-darwin-amd64
-            dist/SHA256SUMS
-            dist/baseline-linux-amd64.sig
-            dist/baseline-linux-amd64.pem
-            dist/baseline-windows-amd64.exe.sig
-            dist/baseline-windows-amd64.exe.pem
-            dist/baseline-darwin-amd64.sig
-            dist/baseline-darwin-amd64.pem
-            dist/SHA256SUMS.sig
-            dist/SHA256SUMS.pem
+            ${{ steps.package.outputs.run_dir }}/archives/*
+            ${{ steps.package.outputs.run_dir }}/SHA256SUMS.binaries
+            ${{ steps.package.outputs.run_dir }}/SHA256SUMS.archives
+            ${{ steps.package.outputs.run_dir }}/metadata.txt
+            ${{ steps.package.outputs.run_dir }}/RELEASE_INFO.txt
+            ${{ steps.package.outputs.run_dir }}/archives/*.sig
+            ${{ steps.package.outputs.run_dir }}/archives/*.pem
+            ${{ steps.package.outputs.run_dir }}/SHA256SUMS.binaries.sig
+            ${{ steps.package.outputs.run_dir }}/SHA256SUMS.binaries.pem
+            ${{ steps.package.outputs.run_dir }}/SHA256SUMS.archives.sig
+            ${{ steps.package.outputs.run_dir }}/SHA256SUMS.archives.pem
           draft: false
           prerelease: false
