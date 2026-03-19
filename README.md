@@ -146,6 +146,44 @@ $hash = (Get-FileHash .\baseline_v1.2.3_windows_amd64.zip -Algorithm SHA256).Has
 Select-String -Path .\SHA256SUMS.archives -Pattern $hash
 ```
 
+### Verify Release Bundles With Scripts
+
+If you downloaded a packaged release bundle or generated one locally, use the verification scripts:
+
+Linux/macOS:
+
+```bash
+bash ./scripts/verify-release.sh .artifacts/release/20260318_120000
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\verify-release.ps1 -RunDir .artifacts\release\20260318_120000
+```
+
+These scripts:
+- verify `SHA256SUMS.binaries`
+- verify `SHA256SUMS.archives`
+- verify cosign signatures too when `.sig` and `.pem` files are present
+
+### Verify Keyless Signatures Manually
+
+Published release assets are signed with GitHub Actions keyless cosign.
+
+Example manual verification:
+
+```bash
+cosign verify-blob \
+  --certificate baseline_v1.2.3_linux_amd64.tar.gz.pem \
+  --signature baseline_v1.2.3_linux_amd64.tar.gz.sig \
+  --certificate-identity-regexp "https://github.com/johndansu/Baseline/.github/workflows/ci.yml@refs/(heads/.+|tags/.+)" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  baseline_v1.2.3_linux_amd64.tar.gz
+```
+
+If you are verifying assets from a fork or different workflow path, override the identity pattern accordingly.
+
 ### Extract And Install
 
 Linux/macOS:
@@ -180,6 +218,12 @@ Use the GitHub Actions manual trigger:
 
 This path packages the release bundle, signs the packaged archives and checksum files, and uploads the output as a workflow artifact without creating a GitHub release.
 
+You can verify the downloaded artifact locally with:
+
+```bash
+bash ./scripts/verify-release.sh <artifact-run-dir>
+```
+
 ### 2) Publish an actual release
 
 1. Make sure the branch you want to release from is green.
@@ -213,6 +257,36 @@ Check that the release includes:
 Before announcing a release, verify at least one clean install path from the packaged archives:
 - Windows: download `.zip`, verify checksum, run `baseline.exe version`
 - Linux/macOS: download `.tar.gz`, verify checksum, run `baseline version`
+
+Recommended verification helpers:
+- Linux/macOS: `bash ./scripts/verify-release.sh <run-dir>`
+- Windows PowerShell: `.\scripts\verify-release.ps1 -RunDir <run-dir>`
+
+### 5) Run a clean-install smoke check
+
+Use the install smoke scripts to simulate a fresh extraction and basic binary startup from a packaged archive.
+
+Linux/macOS:
+
+```bash
+bash ./scripts/smoke-install-release.sh .artifacts/release/20260318_120000
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\smoke-install-release.ps1 -RunDir .artifacts\release\20260318_120000
+```
+
+These smoke checks:
+- verify the release bundle first
+- extract the platform archive into a temp directory
+- run:
+  - `baseline version`
+  - `baseline --help`
+  - `baseline ci setup --help`
+
+That gives maintainers one repeatable “fresh install works” check before announcing a release.
 
 ## Quick Start
 
