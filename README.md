@@ -128,6 +128,121 @@ Useful overrides:
   - PowerShell: `.\scripts\test-postgres-store.ps1 -TestPattern '^TestPostgresStoreProject'`
   - Bash: `TEST_PATTERN='^TestPostgresStoreProject' bash ./scripts/test-postgres-store.sh`
 
+## Staging Cutover Runbook
+
+Use this flow when you want to move an existing SQLite-backed Baseline environment onto Postgres in a staging or pre-production deployment.
+
+### 1) Validate the target Postgres environment
+
+Set the runtime driver and DSN in the target environment:
+
+```env
+BASELINE_API_DB_DRIVER=postgres
+BASELINE_API_DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/baseline?sslmode=disable
+```
+
+Then verify the rest of the production/staging configuration:
+
+```bash
+baseline api verify-prod --strict
+```
+
+### 2) Migrate the SQLite data into Postgres
+
+Run the migration command against a copy of the SQLite database, not the only live copy:
+
+```powershell
+baseline api migrate-postgres --sqlite-path .\baseline_api.db --database-url "postgres://USER:PASSWORD@HOST:5432/baseline?sslmode=disable" --reset-target
+```
+
+```bash
+baseline api migrate-postgres --sqlite-path ./baseline_api.db --database-url "postgres://USER:PASSWORD@HOST:5432/baseline?sslmode=disable" --reset-target
+```
+
+What this does:
+- opens the SQLite source database
+- opens and bootstraps the Postgres target
+- migrates:
+  - API keys
+  - audit events
+  - integration jobs
+  - projects and scans
+  - users, identities, and auth sessions
+  - CLI auth requests, sessions, traces, and trace events
+- prints a per-table row-count report at the end
+
+Use `--reset-target` only when you want the target Postgres tables truncated before import.
+
+### 3) Start the API against Postgres
+
+Once migration succeeds, start the API with the Postgres runtime config:
+
+```bash
+baseline api serve --addr 0.0.0.0:8080
+```
+
+Expected environment:
+
+```env
+BASELINE_API_DB_DRIVER=postgres
+BASELINE_API_DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/baseline?sslmode=disable
+```
+
+### 4) Smoke the cutover
+
+After the API is up on Postgres, verify the main operator flows:
+
+1. `GET /healthz`
+2. sign in at `/signin.html`
+3. open `/dashboard`
+4. confirm projects and scans render
+5. confirm existing API keys still load
+6. run `baseline dashboard login --api <staging-url>`
+7. run a CLI command such as `baseline version` or `baseline scan`
+8. confirm the session and trace appear in the dashboard
+
+To automate the public cutover checks:
+
+```powershell
+.\scripts\postgres-cutover-smoke.ps1 -BaseURL https://staging.example.com
+```
+
+```bash
+bash ./scripts/postgres-cutover-smoke.sh https://staging.example.com
+```
+
+To include authenticated dashboard/API checks too, pass an admin API key and optionally the migrated project or scan IDs you expect to see:
+
+```powershell
+.\scripts\postgres-cutover-smoke.ps1 -BaseURL https://staging.example.com -AdminKey "<admin-key>" -ProjectID proj_123 -ScanID scan_456
+```
+
+```bash
+bash ./scripts/postgres-cutover-smoke.sh https://staging.example.com "<admin-key>" proj_123 scan_456
+```
+
+The cutover smoke scripts verify:
+- `/healthz`
+- `/signin.html`
+- `/dashboard`
+- and, when an admin key is provided:
+  - `/v1/auth/me`
+  - `/v1/dashboard`
+  - `/v1/dashboard/capabilities`
+  - `/v1/projects`
+  - `/v1/scans`
+
+### 5) Rollback plan
+
+If staging validation fails:
+
+1. stop the Postgres-backed API
+2. switch the environment back to:
+   - `BASELINE_API_DB_DRIVER=sqlite`
+   - `BASELINE_API_DB_PATH=<previous path>`
+3. restart the API on SQLite
+4. keep the migrated Postgres database for inspection instead of mutating it further
+
 ## Release Packaging
 
 Generate versioned release artifacts and checksums locally:
