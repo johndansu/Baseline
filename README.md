@@ -94,6 +94,40 @@ Supported now:
 go build -o baseline.exe ./cmd/baseline
 ```
 
+## Postgres Store Test Runbook
+
+Run the focused Postgres-backed store tests against a disposable local container:
+
+Windows PowerShell:
+
+```powershell
+.\scripts\test-postgres-store.ps1
+```
+
+Linux/macOS:
+
+```bash
+bash ./scripts/test-postgres-store.sh
+```
+
+What these scripts do:
+- start a disposable `postgres:16-alpine` container
+- wait for `pg_isready`
+- set `BASELINE_TEST_POSTGRES_URL`
+- run `go test ./internal/api -run '^TestPostgresStore' -count=1`
+- remove the container afterward by default
+
+Useful overrides:
+- keep the DB around for inspection:
+  - PowerShell: `.\scripts\test-postgres-store.ps1 -KeepContainer`
+  - Bash: `KEEP_CONTAINER=1 bash ./scripts/test-postgres-store.sh`
+- choose a different host port:
+  - PowerShell: `.\scripts\test-postgres-store.ps1 -Port 55433`
+  - Bash: `PORT=55433 bash ./scripts/test-postgres-store.sh`
+- target a narrower test pattern:
+  - PowerShell: `.\scripts\test-postgres-store.ps1 -TestPattern '^TestPostgresStoreProject'`
+  - Bash: `TEST_PATTERN='^TestPostgresStoreProject' bash ./scripts/test-postgres-store.sh`
+
 ## Release Packaging
 
 Generate versioned release artifacts and checksums locally:

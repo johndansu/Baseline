@@ -153,3 +153,16 @@ func TestConfigFromEnvDashboardRolloutStageInvalidFallsBack(t *testing.T) {
 		t.Fatalf("expected invalid stage to fall back to full, got %q", cfg.DashboardRolloutStage)
 	}
 }
+
+func TestConfigFromEnvDatabaseDriverAndURL(t *testing.T) {
+	t.Setenv("BASELINE_API_DB_DRIVER", "postgres")
+	t.Setenv("BASELINE_API_DATABASE_URL", "postgres://baseline:secret@db.example.com:5432/baseline?sslmode=require")
+
+	cfg := ConfigFromEnv()
+	if cfg.DBDriver != DBDriverPostgres {
+		t.Fatalf("expected DB driver postgres, got %q", cfg.DBDriver)
+	}
+	if cfg.DatabaseURL != "postgres://baseline:secret@db.example.com:5432/baseline?sslmode=require" {
+		t.Fatalf("expected database URL to load, got %q", cfg.DatabaseURL)
+	}
+}
