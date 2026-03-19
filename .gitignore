@@ -57,6 +57,7 @@ backups/
 .env
 .env.local
 .env.production
+.env.production.example
 .env.staging
 
 # Ignore markdown/text docs by default; keep only useful docs.
