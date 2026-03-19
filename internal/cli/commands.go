@@ -1395,7 +1395,12 @@ func runAPICommand(traceCtx *clitrace.Context, subcommand string, args []string)
 		})
 		fmt.Println("=== BASELINE API PRODUCTION VERIFICATION ===")
 		fmt.Printf("Address: %s\n", cfg.Addr)
-		fmt.Printf("Database: %s\n", cfg.DBPath)
+		fmt.Printf("Database driver: %s\n", cfg.DBDriver)
+		if strings.TrimSpace(cfg.DatabaseURL) != "" {
+			fmt.Println("Database target: configured via BASELINE_API_DATABASE_URL")
+		} else {
+			fmt.Printf("Database path: %s\n", cfg.DBPath)
+		}
 		fmt.Println()
 
 		if len(result.Errors) > 0 {
@@ -1474,7 +1479,7 @@ func runAPICommand(traceCtx *clitrace.Context, subcommand string, args []string)
 	traceCtx.HelperExit(validateSpan, "api", "validateAPIListenAddr", "ok", "API listen address validated", nil)
 
 	storeSpan := traceCtx.HelperEnter("api", "NewStore", "opening persistent store", nil)
-	store, err := api.NewStore(cfg.DBPath)
+	store, err := api.NewPersistentStoreFromConfig(cfg)
 	if err != nil {
 		traceCtx.Error("api", "NewStore", err, nil)
 		traceCtx.HelperExit(storeSpan, "api", "NewStore", "error", "persistent store open failed", nil)
@@ -1573,8 +1578,12 @@ func printAPIUsage() {
 	fmt.Println("    Maximum uses per enrollment token.")
 	fmt.Println("  BASELINE_API_ADDR")
 	fmt.Println("    API listen address.")
+	fmt.Println("  BASELINE_API_DB_DRIVER")
+	fmt.Println("    Persistent store driver (sqlite or postgres).")
 	fmt.Println("  BASELINE_API_DB_PATH")
-	fmt.Println("    Persistent database path.")
+	fmt.Println("    Persistent SQLite database path.")
+	fmt.Println("  BASELINE_API_DATABASE_URL")
+	fmt.Println("    Persistent Postgres database URL.")
 	fmt.Println("  BASELINE_API_TIMEOUT_MS")
 	fmt.Println("    Request timeout in milliseconds.")
 	fmt.Println("  BASELINE_API_MAX_BODY_BYTES")
@@ -1760,8 +1769,25 @@ func verifyAPIProdConfig(cfg api.Config, getenv func(string) string) prodVerifyR
 		Warnings: []string{},
 	}
 
-	if strings.TrimSpace(cfg.DBPath) == "" || cfg.DBPath == ":memory:" {
-		result.Errors = append(result.Errors, "BASELINE_API_DB_PATH must point to a persistent file path (not :memory:).")
+	switch api.NormalizeDBDriverForConfig(cfg.DBDriver) {
+	case api.DBDriverSQLite:
+		if strings.TrimSpace(cfg.DBPath) == "" || cfg.DBPath == ":memory:" {
+			result.Errors = append(result.Errors, "BASELINE_API_DB_PATH must point to a persistent file path (not :memory:).")
+		}
+	case api.DBDriverPostgres:
+		dbURL := strings.TrimSpace(cfg.DatabaseURL)
+		if dbURL == "" {
+			result.Errors = append(result.Errors, "BASELINE_API_DATABASE_URL must be set when BASELINE_API_DB_DRIVER=postgres.")
+		} else {
+			parsed, err := url.Parse(dbURL)
+			if err != nil || strings.TrimSpace(parsed.Scheme) == "" || strings.TrimSpace(parsed.Host) == "" {
+				result.Errors = append(result.Errors, "BASELINE_API_DATABASE_URL must be a valid absolute Postgres URL.")
+			} else if !strings.EqualFold(parsed.Scheme, "postgres") && !strings.EqualFold(parsed.Scheme, "postgresql") {
+				result.Errors = append(result.Errors, "BASELINE_API_DATABASE_URL must use postgres:// or postgresql://.")
+			}
+		}
+	default:
+		result.Errors = append(result.Errors, "BASELINE_API_DB_DRIVER must be sqlite or postgres.")
 	}
 
 	if cfg.ReadTimeout <= 0 || cfg.WriteTimeout <= 0 || cfg.IdleTimeout <= 0 {

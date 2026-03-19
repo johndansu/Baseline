@@ -33,7 +33,7 @@ const sensitiveActionRevokeAPIKey = "revoke_api_key"
 type Server struct {
 	config     Config
 	httpServer *http.Server
-	store      *Store
+	store      PersistentStore
 	client     *http.Client
 
 	authMu    sync.RWMutex
@@ -51,8 +51,8 @@ type Server struct {
 
 	dashboardMetricsMu sync.Mutex
 	dashboardMetrics   map[string]*dashboardEndpointMetrics
-	streamMu          sync.Mutex
-	streamSubscribers map[chan struct{}]struct{}
+	streamMu           sync.Mutex
+	streamSubscribers  map[chan struct{}]struct{}
 
 	sensitiveMu          sync.Mutex
 	sensitiveReauth      map[string]sensitiveActionGrant
@@ -77,7 +77,7 @@ type Server struct {
 }
 
 // NewServer creates a new API server.
-func NewServer(config Config, store *Store) (*Server, error) {
+func NewServer(config Config, store PersistentStore) (*Server, error) {
 	if !isValidRole(config.DashboardSessionRole) {
 		config.DashboardSessionRole = RoleViewer
 	}

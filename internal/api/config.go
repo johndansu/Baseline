@@ -20,7 +20,9 @@ const (
 // Config stores API runtime configuration.
 type Config struct {
 	Addr                         string
+	DBDriver                     string
 	DBPath                       string
+	DatabaseURL                  string
 	APIKeys                      map[string]Role
 	RequireHTTPS                 bool
 	SelfServiceEnabled           bool
@@ -73,7 +75,9 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Addr:                         ":8080",
+		DBDriver:                     "sqlite",
 		DBPath:                       "baseline_api.db",
+		DatabaseURL:                  "",
 		APIKeys:                      map[string]Role{},
 		RequireHTTPS:                 false,
 		SelfServiceEnabled:           false,
@@ -130,8 +134,14 @@ func ConfigFromEnv() Config {
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_ADDR")); v != "" {
 		cfg.Addr = v
 	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DB_DRIVER")); v != "" {
+		cfg.DBDriver = strings.ToLower(v)
+	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DB_PATH")); v != "" {
 		cfg.DBPath = v
+	}
+	if v := strings.TrimSpace(os.Getenv("BASELINE_API_DATABASE_URL")); v != "" {
+		cfg.DatabaseURL = v
 	}
 	if v := strings.TrimSpace(os.Getenv("BASELINE_API_KEY")); v != "" {
 		cfg.APIKeys[v] = RoleAdmin

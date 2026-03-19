@@ -452,6 +452,51 @@ func TestVerifyAPIProdConfigWarnings(t *testing.T) {
 	}
 }
 
+func TestVerifyAPIProdConfigPostgresPass(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.Addr = "api.example.com:443"
+	cfg.DBDriver = api.DBDriverPostgres
+	cfg.DatabaseURL = "postgres://baseline:secret@db.example.com:5432/baseline?sslmode=require"
+	cfg.RequireHTTPS = true
+	cfg.TrustProxyHeaders = true
+	cfg.APIKeys = map[string]api.Role{
+		"admin-key": api.RoleAdmin,
+	}
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.MaxBodyBytes = 1 << 20
+	cfg.ShutdownTimeout = 10 * time.Second
+	cfg.ReadTimeout = 5 * time.Second
+	cfg.WriteTimeout = 5 * time.Second
+	cfg.IdleTimeout = 30 * time.Second
+
+	result := verifyAPIProdConfig(cfg, func(_ string) string { return "" })
+	if len(result.Errors) != 0 {
+		t.Fatalf("expected no errors, got %v", result.Errors)
+	}
+}
+
+func TestVerifyAPIProdConfigRejectsUnknownDBDriver(t *testing.T) {
+	cfg := api.DefaultConfig()
+	cfg.DBDriver = "mongo"
+	cfg.APIKeys = map[string]api.Role{
+		"admin-key": api.RoleAdmin,
+	}
+	cfg.CORSAllowedOrigins = []string{"https://dashboard.example.com"}
+	cfg.MaxBodyBytes = 1 << 20
+	cfg.ShutdownTimeout = 10 * time.Second
+	cfg.ReadTimeout = 5 * time.Second
+	cfg.WriteTimeout = 5 * time.Second
+	cfg.IdleTimeout = 30 * time.Second
+
+	result := verifyAPIProdConfig(cfg, func(_ string) string { return "" })
+	if len(result.Errors) == 0 {
+		t.Fatal("expected blocking error for unsupported DB driver")
+	}
+	if !strings.Contains(strings.Join(result.Errors, "\n"), "BASELINE_API_DB_DRIVER") {
+		t.Fatalf("expected DB driver validation error, got %v", result.Errors)
+	}
+}
+
 func TestVerifyAPIProdConfigRequiresHTTPSAndSecureSessionCookies(t *testing.T) {
 	cfg := api.DefaultConfig()
 	cfg.Addr = "0.0.0.0:8080"
