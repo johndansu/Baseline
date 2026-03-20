@@ -41,5 +41,5 @@ USER baseline
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD ./baseline version || exit 1
 
-# Run the binary
-CMD ["./baseline"]
+# Run the API server using Render's assigned PORT
+CMD ./baseline api serve --addr 0.0.0.0:${PORT:-10000}
