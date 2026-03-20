@@ -243,14 +243,17 @@ If staging validation fails:
 3. restart the API on SQLite
 4. keep the migrated Postgres database for inspection instead of mutating it further
 
-## Render HA Deployment
+## Free-First Deployment
 
-This repo now includes a Render Blueprint at `render.yaml` for the production shape we want:
+This repo now includes a free-first Render Blueprint at `render.yaml`:
 
-- one Docker-based web service for the Baseline API and dashboard
-- one Render Postgres database
-- high availability standby enabled for the database
-- internal database wiring via `fromDatabase.connectionString`
+- one Docker-based web service for the Baseline API and dashboard on Render `free`
+- external Postgres connection supplied via `BASELINE_API_DATABASE_URL`
+- intended pairing:
+  - Render Free web service
+  - Neon Free Postgres
+  - Supabase Free auth
+  - Vercel Hobby frontend
 
 What the Blueprint configures for you:
 - Postgres as the primary runtime store
@@ -260,6 +263,7 @@ What the Blueprint configures for you:
 - generated API key hash secret
 
 What you still need to provide in Render during the initial Blueprint setup:
+- `BASELINE_API_DATABASE_URL`
 - `BASELINE_API_KEY`
 - `BASELINE_API_CORS_ALLOWED_ORIGINS`
 - `SUPABASE_URL`
@@ -272,17 +276,38 @@ What you still need to provide in Render during the initial Blueprint setup:
 
 Recommended first deployment flow:
 1. create the Render Blueprint from `render.yaml`
-2. let Render provision the `baseline-api` web service and `baseline-db`
-3. use the generated `.onrender.com` hostname for the CORS and Supabase redirect values
-4. deploy once
-5. run the cutover smoke against the Render URL
-6. connect the CLI with:
+2. create a free Neon Postgres database and copy its connection string
+3. paste that Neon connection string into `BASELINE_API_DATABASE_URL` in Render
+4. use the generated `.onrender.com` hostname for the CORS and Supabase redirect values
+5. deploy once
+6. run the cutover smoke against the Render URL
+7. connect the CLI with:
    - `baseline dashboard login --api https://<your-service>.onrender.com`
 
 Important note:
-- this Blueprint targets the HA Postgres architecture
+- this Blueprint is intentionally free-first
 - it does not perform the SQLite to Postgres data migration for you
 - run `baseline api migrate-postgres ...` first if you are moving an existing environment
+- Render Free web services spin down after idle time and are not meant for production
+- use UptimeRobot against `/healthz` if you want to reduce cold starts during early testing
+- when the app is making money, the clean upgrade path is:
+  - Render Free -> paid Render web service
+  - Neon Free -> Neon Launch
+  - Vercel Hobby -> Vercel Pro if the app becomes commercial
+
+### Why Neon instead of free Render Postgres
+
+Neon Free is the better fit for an early free launch because:
+
+- no credit card required
+- no 30-day forced expiry
+- scales to zero when idle
+
+Free Render Postgres is much weaker for this stage because:
+
+- only one free database per workspace
+- expires after 30 days
+- no backups
 
 ## Vercel Static Frontend Deployment
 
