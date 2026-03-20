@@ -44,6 +44,7 @@ frontend-nodejs/test-results/
 baseline_ai_failure_assistance.txt
 baseline_master_documentation_pack.md
 policy_assist.md
+skills-lock.json
 
 # Backup files (keep local only)
 backups/

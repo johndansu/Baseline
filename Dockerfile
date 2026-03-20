@@ -1,13 +1,13 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
 # Copy go mod files first for better caching
-COPY go.mod ./
+COPY go.mod go.sum ./
 
-# Download dependencies (if any)
-RUN go mod download || true
+# Download dependencies
+RUN go mod download
 
 # Copy source code
 COPY . .
