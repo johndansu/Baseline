@@ -30,9 +30,10 @@ WORKDIR /app
 
 # Copy the binary from builder stage
 COPY --from=builder /app/baseline .
+COPY --from=builder /app/frontend-nodejs/public ./frontend-nodejs/public
 
 # Change ownership to non-root user
-RUN chown baseline:baseline baseline
+RUN chown -R baseline:baseline /app
 
 # Switch to non-root user
 USER baseline
