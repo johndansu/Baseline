@@ -243,6 +243,108 @@ If staging validation fails:
 3. restart the API on SQLite
 4. keep the migrated Postgres database for inspection instead of mutating it further
 
+## Render HA Deployment
+
+This repo now includes a Render Blueprint at `render.yaml` for the production shape we want:
+
+- one Docker-based web service for the Baseline API and dashboard
+- one Render Postgres database
+- high availability standby enabled for the database
+- internal database wiring via `fromDatabase.connectionString`
+
+What the Blueprint configures for you:
+- Postgres as the primary runtime store
+- `/healthz` as the zero-downtime health check path
+- proxy-aware HTTPS settings
+- dashboard session auth enabled
+- generated API key hash secret
+
+What you still need to provide in Render during the initial Blueprint setup:
+- `BASELINE_API_KEY`
+- `BASELINE_API_CORS_ALLOWED_ORIGINS`
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_AUTH_REDIRECT_TO`
+- `BASELINE_API_SUPABASE_URL`
+- `BASELINE_API_SUPABASE_CLIENT_ID`
+- `BASELINE_API_SUPABASE_CLIENT_SECRET`
+- `BASELINE_API_SUPABASE_CALLBACK_URL`
+
+Recommended first deployment flow:
+1. create the Render Blueprint from `render.yaml`
+2. let Render provision the `baseline-api` web service and `baseline-db`
+3. use the generated `.onrender.com` hostname for the CORS and Supabase redirect values
+4. deploy once
+5. run the cutover smoke against the Render URL
+6. connect the CLI with:
+   - `baseline dashboard login --api https://<your-service>.onrender.com`
+
+Important note:
+- this Blueprint targets the HA Postgres architecture
+- it does not perform the SQLite to Postgres data migration for you
+- run `baseline api migrate-postgres ...` first if you are moving an existing environment
+
+## Vercel Static Frontend Deployment
+
+If you want the public frontend on Vercel, use `frontend-nodejs` as a static deployment target.
+
+What this gives you well:
+- landing page
+- sign-in page
+- sign-up page
+- CLI guide and other static assets
+
+Repo support now included:
+- `frontend-nodejs/vercel.json`
+- `frontend-nodejs/public/js/runtime-config.js`
+- Vite build-time injection for:
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+  - `SUPABASE_AUTH_REDIRECT_TO`
+  - `BASELINE_API_ORIGIN`
+
+Recommended Vercel project settings:
+1. Root Directory: `frontend-nodejs`
+2. Build Command: `npm run build:prod`
+3. Output Directory: `dist`
+
+Required Vercel environment variables:
+
+```env
+SUPABASE_URL=https://<your-supabase-project>.supabase.co
+SUPABASE_ANON_KEY=<your-supabase-anon-key>
+SUPABASE_AUTH_REDIRECT_TO=https://<your-vercel-app>.vercel.app/signin.html?return_to=%2Fdashboard
+BASELINE_API_ORIGIN=https://<your-api-host>
+```
+
+Important limitation:
+- the public static frontend is straightforward on Vercel
+- the dashboard expects same-origin `/v1/*` API behavior for the best auth/session experience
+
+This repo now includes a Vercel proxy path for that:
+- `frontend-nodejs/api/proxy/[...path].js`
+- `frontend-nodejs/vercel.json` rewrites `/v1/*`, `/healthz`, `/readyz`, `/livez`, and `/metrics`
+
+That means the stronger split is now:
+- Vercel for the static frontend and same-origin proxy surface
+- Baseline API hosted on Render or another server host behind `BASELINE_API_ORIGIN`
+
+Required additional Vercel environment variable for dashboard proxying:
+
+```env
+BASELINE_API_ORIGIN=https://<your-api-host>
+```
+
+Recommended callback/redirect values when the dashboard itself is served from Vercel:
+
+```env
+SUPABASE_AUTH_REDIRECT_TO=https://<your-vercel-app>.vercel.app/signin.html?return_to=%2Fdashboard
+BASELINE_API_SUPABASE_CALLBACK_URL=https://<your-vercel-app>.vercel.app/v1/auth/oidc/callback
+BASELINE_API_CORS_ALLOWED_ORIGINS=https://<your-vercel-app>.vercel.app
+```
+
+With this proxy shape, the browser talks to the Vercel origin, and Vercel forwards the `/v1/*` requests to the Baseline API host. That keeps the dashboard session-cookie flow on one browser origin instead of relying on cross-site cookies.
+
 ## Release Packaging
 
 Generate versioned release artifacts and checksums locally:
