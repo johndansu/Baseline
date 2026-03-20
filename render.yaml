@@ -8,7 +8,6 @@ services:
     plan: free
     autoDeployTrigger: checksPass
     healthCheckPath: /healthz
-    maxShutdownDelaySeconds: 120
     envVars:
       - key: BASELINE_API_DB_DRIVER
         value: postgres
