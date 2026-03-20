@@ -2,6 +2,7 @@ package api
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -374,6 +375,180 @@ func TestPostgresStoreIntegrationJobFlow(t *testing.T) {
 	}
 	if len(events) != 0 {
 		t.Fatalf("expected prefixed audit events to be deleted, got %d", len(events))
+	}
+}
+
+func TestPostgresStoreMigrationFromSQLite(t *testing.T) {
+	target := newPostgresStoreForTest(t)
+
+	sourcePath := filepath.Join(t.TempDir(), "baseline-source.db")
+	source, err := NewSQLiteStore(sourcePath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore returned error: %v", err)
+	}
+	defer func() { _ = source.Close() }()
+	source.SetAPIKeyHashSecret("postgres-test-secret")
+
+	now := time.Now().UTC()
+	if err := source.UpsertProject(Project{
+		ID:            "proj_migrate",
+		Name:          "Migrated Project",
+		RepositoryURL: "https://github.com/acme/migrate",
+		DefaultBranch: "main",
+		PolicySet:     "baseline:prod",
+		OwnerID:       "user:owner-1",
+	}, now); err != nil {
+		t.Fatalf("source UpsertProject returned error: %v", err)
+	}
+	if err := source.UpsertScan(ScanSummary{
+		ID:           "scan_migrate",
+		ProjectID:    "proj_migrate",
+		CommitSHA:    "abc123",
+		FilesScanned: 12,
+		Status:       "warn",
+		Violations: []ScanViolation{
+			{PolicyID: "G1", Severity: "high", Message: "missing workflow"},
+		},
+		CreatedAt: now,
+		OwnerID:   "user:owner-1",
+	}); err != nil {
+		t.Fatalf("source UpsertScan returned error: %v", err)
+	}
+	if _, err := source.UpsertOIDCUser("supabase", "subject-migrate", "migrate@example.com", "Migrate User", now); err != nil {
+		t.Fatalf("source UpsertOIDCUser returned error: %v", err)
+	}
+	if err := source.UpsertAuthSession("dashboard-token", dashboardSession{
+		UserID:     "usr_migrate",
+		Role:       RoleAdmin,
+		User:       "Migrate User",
+		Subject:    "subject-migrate",
+		Email:      "migrate@example.com",
+		AuthSource: "session",
+		ExpiresAt:  now.Add(2 * time.Hour),
+	}, now); err != nil {
+		t.Fatalf("source UpsertAuthSession returned error: %v", err)
+	}
+	if err := source.CreateCLIAuthRequest("device-migrate", "WXYZ-ABCD", "Baseline CLI", "workstation", now.Add(10*time.Minute), now); err != nil {
+		t.Fatalf("source CreateCLIAuthRequest returned error: %v", err)
+	}
+	if err := source.CreateCLISession("access-migrate", "refresh-migrate", cliSessionRecord{
+		SessionID:        "cli_migrate",
+		UserID:           "usr_migrate",
+		Role:             RoleAdmin,
+		UserLabel:        "Migrate User",
+		Subject:          "subject-migrate",
+		Email:            "migrate@example.com",
+		ClientName:       "Baseline CLI",
+		ClientHost:       "workstation",
+		CreatedAt:        now,
+		ApprovedAt:       now,
+		LastUsedAt:       now,
+		AccessExpiresAt:  now.Add(30 * time.Minute),
+		RefreshExpiresAt: now.Add(24 * time.Hour),
+	}, now); err != nil {
+		t.Fatalf("source CreateCLISession returned error: %v", err)
+	}
+	if err := source.CreateCLITrace(CLITraceDetail{
+		Summary: CLITraceSummary{
+			TraceID:        "trace_migrate",
+			SessionID:      "cli_migrate",
+			Command:        "scan",
+			Repository:     "Baseline",
+			ProjectID:      "proj_migrate",
+			ScanID:         "scan_migrate",
+			Status:         "ok",
+			Message:        "completed",
+			Version:        "dev",
+			StartedAt:      now,
+			FinishedAt:     now.Add(time.Second),
+			DurationMS:     1000,
+			EventCount:     1,
+			FilesScanned:   12,
+			SecurityIssues: 0,
+			ViolationCount: 1,
+			Attributes: map[string]string{
+				"repository": "Baseline",
+			},
+		},
+		Events: []CLITraceEvent{
+			{
+				SpanID:    "span_migrate",
+				Type:      "cli_command_completed",
+				Component: "cli",
+				Status:    "ok",
+				Message:   "completed",
+				CreatedAt: now.Add(time.Second),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("source CreateCLITrace returned error: %v", err)
+	}
+	if _, err := source.EnqueueIntegrationJob(IntegrationJob{
+		ID:            "job_migrate",
+		Provider:      "github",
+		JobType:       "pr_sync",
+		ProjectRef:    "proj_migrate",
+		ExternalRef:   "123",
+		Status:        IntegrationJobPending,
+		NextAttemptAt: now,
+	}); err != nil {
+		t.Fatalf("source EnqueueIntegrationJob returned error: %v", err)
+	}
+
+	report, err := MigrateSQLiteToPostgres(sourcePath, os.Getenv("BASELINE_TEST_POSTGRES_URL"), true)
+	if err != nil {
+		t.Fatalf("MigrateSQLiteToPostgres returned error: %v", err)
+	}
+	if len(report.Results) == 0 {
+		t.Fatal("expected migration report results")
+	}
+
+	projects, err := target.LoadProjects()
+	if err != nil {
+		t.Fatalf("target LoadProjects returned error: %v", err)
+	}
+	if len(projects) != 1 || projects[0].ID != "proj_migrate" {
+		t.Fatalf("expected migrated project, got %#v", projects)
+	}
+
+	scans, err := target.LoadScans(10)
+	if err != nil {
+		t.Fatalf("target LoadScans returned error: %v", err)
+	}
+	if len(scans) != 1 || scans[0].ID != "scan_migrate" {
+		t.Fatalf("expected migrated scan, got %#v", scans)
+	}
+
+	user, found, err := target.GetUserByEmail("migrate@example.com")
+	if err != nil {
+		t.Fatalf("target GetUserByEmail returned error: %v", err)
+	}
+	if !found || strings.TrimSpace(user.Email) != "migrate@example.com" {
+		t.Fatalf("expected migrated user, got found=%t user=%#v", found, user)
+	}
+
+	session, found, err := target.LoadCLISessionByAccessToken("access-migrate", now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("target LoadCLISessionByAccessToken returned error: %v", err)
+	}
+	if !found || session.SessionID != "cli_migrate" {
+		t.Fatalf("expected migrated CLI session, got found=%t session=%#v", found, session)
+	}
+
+	trace, err := target.GetCLITrace("trace_migrate")
+	if err != nil {
+		t.Fatalf("target GetCLITrace returned error: %v", err)
+	}
+	if trace.Summary.TraceID != "trace_migrate" || len(trace.Events) != 1 {
+		t.Fatalf("expected migrated CLI trace, got %#v", trace)
+	}
+
+	jobs, err := target.ListIntegrationJobs(10)
+	if err != nil {
+		t.Fatalf("target ListIntegrationJobs returned error: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != "job_migrate" {
+		t.Fatalf("expected migrated integration job, got %#v", jobs)
 	}
 }
 

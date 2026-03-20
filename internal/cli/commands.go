@@ -1441,6 +1441,90 @@ func runAPICommand(traceCtx *clitrace.Context, subcommand string, args []string)
 		return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "warning", TraceMessage: "API production verification passed with warnings"}
 	}
 
+	if args[0] == "migrate-postgres" {
+		cfg := api.ConfigFromEnv()
+		sqlitePath := strings.TrimSpace(cfg.DBPath)
+		databaseURL := strings.TrimSpace(cfg.DatabaseURL)
+		resetTarget := false
+		for i := 1; i < len(args); i++ {
+			switch args[i] {
+			case "--help", "-h":
+				printAPIUsage()
+				return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "help", TraceMessage: "api migrate-postgres help shown"}
+			case "--sqlite-path":
+				if i+1 >= len(args) {
+					fmt.Println("API FAILED: --sqlite-path requires a value")
+					return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "sqlite migration source path requires a value"}
+				}
+				sqlitePath = strings.TrimSpace(args[i+1])
+				i++
+			case "--database-url":
+				if i+1 >= len(args) {
+					fmt.Println("API FAILED: --database-url requires a value")
+					return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "postgres migration target url requires a value"}
+				}
+				databaseURL = strings.TrimSpace(args[i+1])
+				i++
+			case "--reset-target":
+				resetTarget = true
+			default:
+				traceCtx.Error("api", "migrate-postgres", fmt.Errorf("unknown flag %s", args[i]), nil)
+				fmt.Printf("API FAILED: unknown flag %s\n", args[i])
+				return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "api migrate-postgres arguments invalid"}
+			}
+		}
+
+		if strings.TrimSpace(sqlitePath) == "" {
+			fmt.Println("API FAILED: sqlite source path is required")
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "sqlite migration source path is required"}
+		}
+		if strings.TrimSpace(databaseURL) == "" {
+			fmt.Println("API FAILED: postgres database url is required")
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "postgres migration target url is required"}
+		}
+
+		migrateSpan := traceCtx.HelperEnter("api", "MigrateSQLiteToPostgres", "migrating sqlite data to postgres", map[string]string{
+			"sqlite_path":  sqlitePath,
+			"reset_target": strconv.FormatBool(resetTarget),
+		})
+		report, err := api.MigrateSQLiteToPostgres(sqlitePath, databaseURL, resetTarget)
+		if err != nil {
+			traceCtx.Error("api", "MigrateSQLiteToPostgres", err, nil)
+			traceCtx.HelperExit(migrateSpan, "api", "MigrateSQLiteToPostgres", "error", "sqlite to postgres migration failed", nil)
+			fmt.Printf("API FAILED: sqlite to postgres migration failed: %v\n", err)
+			return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "sqlite to postgres migration failed"}
+		}
+		traceCtx.HelperExit(migrateSpan, "api", "MigrateSQLiteToPostgres", "ok", "sqlite to postgres migration completed", map[string]string{
+			"table_count":      strconv.Itoa(len(report.Results)),
+			"source_rows":      strconv.Itoa(report.TotalSourceRows()),
+			"migrated_rows":    strconv.Itoa(report.TotalMigratedRows()),
+			"target_row_count": strconv.Itoa(report.TotalTargetRows()),
+		})
+
+		fmt.Println("=== SQLITE TO POSTGRES MIGRATION ===")
+		fmt.Printf("Source SQLite: %s\n", sqlitePath)
+		fmt.Println("Target Postgres: configured")
+		fmt.Printf("Reset target: %t\n", resetTarget)
+		fmt.Println()
+		for _, result := range report.Results {
+			fmt.Printf("- %s: source=%d migrated=%d target=%d\n", result.Table, result.SourceRows, result.MigratedRows, result.TargetRows)
+		}
+		fmt.Println()
+		fmt.Printf("Source rows: %d\n", report.TotalSourceRows())
+		fmt.Printf("Migrated rows: %d\n", report.TotalMigratedRows())
+		fmt.Println("PASS: sqlite to postgres migration completed.")
+		return tracedCommandResult{
+			ExitCode:     types.ExitSuccess,
+			TraceStatus:  "ok",
+			TraceMessage: "sqlite to postgres migration completed",
+			Attributes: map[string]string{
+				"source_rows":   strconv.Itoa(report.TotalSourceRows()),
+				"migrated_rows": strconv.Itoa(report.TotalMigratedRows()),
+				"table_count":   strconv.Itoa(len(report.Results)),
+			},
+		}
+	}
+
 	if args[0] != "serve" {
 		traceCtx.Error("api", "serve", fmt.Errorf("unknown subcommand %s", args[0]), nil)
 		fmt.Printf("API FAILED: unknown subcommand %s\n", args[0])
@@ -1563,6 +1647,7 @@ func printAPIUsage() {
 	fmt.Println("Usage: baseline api serve [--addr <host:port>] [--ai-enabled]")
 	fmt.Println("       baseline api keygen")
 	fmt.Println("       baseline api verify-prod [--strict]")
+	fmt.Println("       baseline api migrate-postgres [--sqlite-path <path>] [--database-url <url>] [--reset-target]")
 	fmt.Println("Environment:")
 	fmt.Println("  BASELINE_API_KEY or BASELINE_API_KEYS")
 	fmt.Println("    Fallback admin/service credentials for API access.")

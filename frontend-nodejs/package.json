@@ -8,7 +8,7 @@
     "start:prod": "NODE_ENV=production node src/prod-server.js",
     "dev": "nodemon src/main.js",
     "build": "vite build",
-    "build:prod": "NODE_ENV=production vite build",
+    "build:prod": "vite build --mode production",
     "preview": "vite preview",
     "serve": "node src/main.js",
     "setup:supabase": "node scripts/setup-supabase.js",
@@ -17,6 +17,15 @@
     "lint": "echo \"Error: no linter specified\" && exit 1",
     "clean": "rimraf dist",
     "deploy": "npm run build:prod && npm run start:prod"
+  },
+  "vercelNotes": {
+    "staticDeployment": "Use Vercel with rootDirectory=frontend-nodejs, buildCommand=npm run build:prod, outputDirectory=dist",
+    "requiredEnv": [
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_AUTH_REDIRECT_TO",
+      "BASELINE_API_ORIGIN"
+    ]
   },
   "keywords": [
     "baseline",
