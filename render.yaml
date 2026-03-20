@@ -4,7 +4,6 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: sh -lc "./baseline api serve --addr 0.0.0.0:${PORT:-10000}"
     plan: free
     autoDeployTrigger: checksPass
     healthCheckPath: /healthz
