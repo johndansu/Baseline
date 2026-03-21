@@ -8,23 +8,23 @@
   "rewrites": [
     {
       "source": "/v1/:path*",
-      "destination": "/api/proxy/v1/:path*"
+      "destination": "https://baseline-api-95nb.onrender.com/v1/:path*"
     },
     {
       "source": "/healthz",
-      "destination": "/api/proxy/healthz"
+      "destination": "https://baseline-api-95nb.onrender.com/healthz"
     },
     {
       "source": "/readyz",
-      "destination": "/api/proxy/readyz"
+      "destination": "https://baseline-api-95nb.onrender.com/readyz"
     },
     {
       "source": "/livez",
-      "destination": "/api/proxy/livez"
+      "destination": "https://baseline-api-95nb.onrender.com/livez"
     },
     {
       "source": "/metrics",
-      "destination": "/api/proxy/metrics"
+      "destination": "https://baseline-api-95nb.onrender.com/metrics"
     },
     {
       "source": "/dashboard",
