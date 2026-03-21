@@ -108,17 +108,30 @@
 
   function setGlobalAuthStatus(text, isError) {
     var candidate = document.querySelector('.signin-form .auth-status, .signup-form .auth-status');
-    if (!candidate) {
-      var shell = document.querySelector('.signin-form, .signup-form');
-      if (!shell) return;
-      candidate = document.createElement('p');
-      candidate.className = 'auth-status';
-      candidate.style.marginTop = '12px';
-      candidate.style.fontSize = '0.9rem';
-      shell.appendChild(candidate);
+    if (!candidate) return;
+    candidate.textContent = '';
+    candidate.style.display = 'none';
+  }
+
+  function userFacingAuthMessage(message, fallback) {
+    var normalized = String(message || '').trim();
+    if (!normalized) {
+      return fallback || 'Something went wrong. Please try again.';
     }
-    candidate.textContent = text;
-    candidate.style.color = isError ? '#fecaca' : 'rgba(255,255,255,0.84)';
+
+    if (
+      normalized === 'Supabase not initialized' ||
+      normalized.indexOf('configuration missing') !== -1 ||
+      normalized.indexOf('Failed to initialize Supabase') !== -1
+    ) {
+      return 'Sign-in is temporarily unavailable. Please refresh and try again.';
+    }
+
+    if (normalized.indexOf('dashboard access') !== -1) {
+      return 'Sign-in finished, but the dashboard is not ready yet. Please try again in a moment.';
+    }
+
+    return normalized;
   }
 
   function exchangeBackendSession() {
@@ -575,7 +588,7 @@
         })
         .catch(function(error) {
           console.error('Authentication error:', error);
-          setStatus(form, error.message || "Authentication failed. Please try again.", true);
+          setStatus(form, userFacingAuthMessage(error && error.message, "Authentication failed. Please try again."), true);
         })
         .finally(function() {
           if (submitButton) submitButton.disabled = false;
