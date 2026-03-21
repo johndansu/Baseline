@@ -28,11 +28,15 @@ export function renderCLITelemetryPanel(dashboard) {
                     <div>
                         <h3 class="text-lg font-semibold text-gray-900">CLI Trace Runs</h3>
                         <p class="text-sm text-gray-700 mt-1">Admin-only trace visibility for executed CLI commands, branches, helper steps, and outcomes.</p>
+                        <p class="text-xs text-gray-500 mt-2">${renderLastUpdatedLabel(dashboard.cliState?.lastLoadedAt)}</p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                         ${renderQuickToggle('All runs', 'all', quick)}
                         ${renderQuickToggle('Warnings only', 'warning', quick)}
                         ${renderQuickToggle('Errors only', 'error', quick)}
+                        <button type="button" id="cli-trace-refresh" class="px-4 py-2 border border-orange-200 text-orange-700 rounded-lg hover:bg-orange-50 text-sm font-medium">
+                            Refresh now
+                        </button>
                         <button type="button" id="cli-trace-clear-filters" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium">
                             Clear filters
                         </button>
@@ -343,6 +347,22 @@ function bindCLITelemetryControls(dashboard, filtered) {
         });
     }
 
+    const refreshButton = document.getElementById('cli-trace-refresh');
+    if (refreshButton) {
+        refreshButton.addEventListener('click', async () => {
+            if (refreshButton.disabled) {
+                return;
+            }
+            refreshButton.disabled = true;
+            refreshButton.textContent = 'Refreshing...';
+            try {
+                await dashboard.loadCLITelemetryData();
+            } catch (_) {
+                // loadCLITelemetryData already renders the error state.
+            }
+        });
+    }
+
     const clearFiltersButton = document.getElementById('cli-trace-clear-filters');
     if (clearFiltersButton) {
         clearFiltersButton.addEventListener('click', () => {
@@ -571,6 +591,17 @@ function renderQuickToggle(label, value, activeValue) {
         ? 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium bg-orange-600 text-white border-orange-600'
         : 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium bg-white text-gray-700 border-gray-300 hover:bg-gray-50';
     return `<button type="button" data-cli-quick-filter="${value}" class="${className}">${label}</button>`;
+}
+
+function renderLastUpdatedLabel(rawTimestamp) {
+    if (!rawTimestamp) {
+        return 'Updated just now after the first telemetry fetch.';
+    }
+    const parsed = new Date(rawTimestamp);
+    if (Number.isNaN(parsed.getTime())) {
+        return 'Updated recently';
+    }
+    return `Updated ${parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
 
 function classifyQuickStatus(status) {
