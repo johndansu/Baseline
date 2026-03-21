@@ -242,8 +242,6 @@ class BaselineDashboard {
             details: {},
             selectedTraceID: '',
             lastLoadedAt: '',
-            overviewRuns: [],
-            overviewLastLoadedAt: '',
             filters: {
                 command: 'all',
                 repository: 'all',
@@ -667,8 +665,7 @@ class BaselineDashboard {
         }
         await Promise.allSettled([
             this.loadOverviewStats(),
-            this.loadRecentActivity(),
-            this.loadOverviewCLIRuns()
+            this.loadRecentActivity()
         ]);
     }
 
@@ -1222,197 +1219,6 @@ class BaselineDashboard {
         `;
         
         return div;
-    }
-
-    async loadOverviewCLIRuns() {
-        const panel = document.getElementById('overview-cli-runs-panel');
-        if (!panel) {
-            return;
-        }
-        if (!this.isAdmin()) {
-            panel.innerHTML = `
-                <div class="p-6">
-                    <div class="flex items-start justify-between gap-4">
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-900">Latest CLI Runs</h3>
-                            <p class="text-sm text-gray-700 mt-1">CLI telemetry is available to admins so production command history stays controlled.</p>
-                        </div>
-                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Admin only</span>
-                    </div>
-                </div>
-            `;
-            return;
-        }
-
-        try {
-            const payload = await this.apiRequest('/v1/cli/traces?limit=5');
-            const traces = Array.isArray(payload?.traces) ? payload.traces.slice() : [];
-            traces.sort((a, b) => new Date(b?.started_at || 0) - new Date(a?.started_at || 0));
-            this.cliState.overviewRuns = traces.slice(0, 5);
-            this.cliState.overviewLastLoadedAt = new Date().toISOString();
-            this.renderOverviewCLIRunsPanel();
-        } catch (error) {
-            panel.innerHTML = `
-                <div class="p-6">
-                    <div class="flex items-start justify-between gap-4">
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-900">Latest CLI Runs</h3>
-                            <p class="text-sm text-red-600 mt-1">${this.escapeHtml(error.message || 'Failed to load CLI runs')}</p>
-                        </div>
-                        <button type="button" id="overview-cli-open-button" class="inline-flex items-center px-3 py-2 rounded-lg border border-orange-200 text-orange-700 hover:bg-orange-50 text-sm font-medium">
-                            Open CLI Telemetry
-                        </button>
-                    </div>
-                </div>
-            `;
-            this.bindOverviewCLIRunsControls();
-        }
-    }
-
-    renderOverviewCLIRunsPanel() {
-        const panel = document.getElementById('overview-cli-runs-panel');
-        if (!panel) {
-            return;
-        }
-
-        const traces = Array.isArray(this.cliState?.overviewRuns) ? this.cliState.overviewRuns : [];
-        const updatedAt = this.formatOverviewCLIRunsUpdatedAt(this.cliState?.overviewLastLoadedAt);
-
-        panel.innerHTML = `
-            <div class="p-6 border-b border-gray-200 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                    <h3 class="text-lg font-semibold text-gray-900">Latest CLI Runs</h3>
-                    <p class="text-sm text-gray-700 mt-1">Fresh command uploads from connected CLI sessions so we can spot new activity without leaving the overview.</p>
-                    <p class="text-xs text-gray-500 mt-2">${this.escapeHtml(updatedAt)}</p>
-                </div>
-                <button type="button" id="overview-cli-open-button" class="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-orange-200 text-orange-700 hover:bg-orange-50 text-sm font-medium shrink-0">
-                    Open CLI Telemetry
-                </button>
-            </div>
-            <div class="divide-y divide-gray-200">
-                ${traces.length ? traces.map((trace) => this.renderOverviewCLIRunItem(trace)).join('') : `
-                    <div class="p-6 text-sm text-gray-500">No CLI runs have been recorded yet.</div>
-                `}
-            </div>
-        `;
-
-        this.bindOverviewCLIRunsControls();
-    }
-
-    bindOverviewCLIRunsControls() {
-        const openButton = document.getElementById('overview-cli-open-button');
-        if (openButton && openButton.dataset.bound !== '1') {
-            openButton.dataset.bound = '1';
-            openButton.addEventListener('click', async () => {
-                await this.switchTab('cli');
-            });
-        }
-
-        document.querySelectorAll('[data-overview-cli-trace-id]').forEach((button) => {
-            if (button.dataset.bound === '1') {
-                return;
-            }
-            button.dataset.bound = '1';
-            button.addEventListener('click', async () => {
-                const traceID = String(button.getAttribute('data-overview-cli-trace-id') || '').trim();
-                if (!traceID) {
-                    return;
-                }
-                await this.switchTab('cli');
-                await this.openCLITraceDetail(traceID);
-            });
-        });
-    }
-
-    renderOverviewCLIRunItem(trace) {
-        const status = String(trace?.status || 'unknown').trim().toLowerCase();
-        const command = String(trace?.command || 'command').trim() || 'command';
-        const repository = String(trace?.repository || 'Unknown repository').trim() || 'Unknown repository';
-        const project = String(trace?.project_id || 'Unattached project').trim() || 'Unattached project';
-        const message = String(trace?.message || '').trim() || 'No status message was recorded.';
-        const traceID = String(trace?.trace_id || '').trim();
-        const duration = this.formatDurationValue(trace?.duration_ms);
-        const statusMeta = this.describeOverviewCLIRunStatus(status);
-
-        return `
-            <div class="p-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="${statusMeta.className}">${this.escapeHtml(statusMeta.label)}</span>
-                        <p class="text-sm font-semibold text-gray-900">${this.escapeHtml(command)}</p>
-                        <span class="text-xs text-gray-500">${this.escapeHtml(repository)}</span>
-                    </div>
-                    <p class="text-sm text-gray-700 mt-2">${this.escapeHtml(message)}</p>
-                    <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                        <span>Project: ${this.escapeHtml(project)}</span>
-                        <span>Duration: ${this.escapeHtml(duration)}</span>
-                        <span>Started: ${this.escapeHtml(this.formatDate(trace?.started_at))}</span>
-                        ${traceID ? `<span>Trace: ${this.escapeHtml(traceID)}</span>` : ''}
-                    </div>
-                </div>
-                <button type="button" data-overview-cli-trace-id="${this.escapeHtml(traceID)}" class="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-medium shrink-0"${traceID ? '' : ' disabled'}>
-                    View trace
-                </button>
-            </div>
-        `;
-    }
-
-    formatOverviewCLIRunsUpdatedAt(rawTimestamp) {
-        if (!rawTimestamp) {
-            return 'Updated when the dashboard refreshes.';
-        }
-        const parsed = new Date(rawTimestamp);
-        if (Number.isNaN(parsed.getTime())) {
-            return 'Updated recently';
-        }
-        return `Updated ${parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-    }
-
-    formatDurationValue(rawDurationMs) {
-        const durationMs = Number(rawDurationMs || 0);
-        if (!Number.isFinite(durationMs) || durationMs <= 0) {
-            return 'n/a';
-        }
-        if (durationMs < 1000) {
-            return `${durationMs} ms`;
-        }
-        const seconds = durationMs / 1000;
-        if (seconds < 60) {
-            return `${seconds.toFixed(seconds >= 10 ? 0 : 1)} s`;
-        }
-        const minutes = Math.floor(seconds / 60);
-        const remainingSeconds = Math.round(seconds % 60);
-        return `${minutes}m ${remainingSeconds}s`;
-    }
-
-    describeOverviewCLIRunStatus(status) {
-        switch (status) {
-            case 'ok':
-            case 'pass':
-            case 'success':
-                return {
-                    label: 'Healthy',
-                    className: 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800'
-                };
-            case 'warning':
-            case 'warn':
-                return {
-                    label: 'Warning',
-                    className: 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800'
-                };
-            case 'error':
-            case 'fail':
-            case 'failed':
-                return {
-                    label: 'Error',
-                    className: 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800'
-                };
-            default:
-                return {
-                    label: 'Unknown',
-                    className: 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700'
-                };
-        }
     }
 
     updateNotificationsIndicator() {
