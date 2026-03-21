@@ -1,0 +1,45 @@
+{
+  "name": "baseline-cli",
+  "version": "0.1.0",
+  "description": "Install the Baseline CLI from GitHub release binaries.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johndansu/Baseline.git"
+  },
+  "homepage": "https://github.com/johndansu/Baseline",
+  "bugs": {
+    "url": "https://github.com/johndansu/Baseline/issues"
+  },
+  "keywords": [
+    "baseline",
+    "cli",
+    "devops",
+    "policy",
+    "release"
+  ],
+  "bin": {
+    "baseline": "bin/baseline.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "scripts",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "tar": "^7.4.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "baseline": {
+    "releaseRepo": "johndansu/Baseline",
+    "binaryName": "baseline"
+  }
+}

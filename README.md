@@ -393,6 +393,30 @@ Release automation:
 - GitHub releases publish the packaged archives plus checksum files
 - GitHub Actions `workflow_dispatch` can generate the same signed release bundle without publishing a release
 
+## Install With npm
+
+If you want a shorter developer-facing install path, Baseline can also be distributed through npm as a wrapper around the compiled GitHub release binaries.
+
+Planned install command:
+
+```bash
+npm i -g baseline-cli
+baseline version
+```
+
+Package source:
+
+```text
+npm/cli
+```
+
+Important:
+- publish the GitHub release assets first
+- then publish the matching npm package version
+- npm package version `1.2.3` should map to GitHub release tag `v1.2.3`
+- for local npm package development before a release exists, use:
+  - `BASELINE_NPM_SKIP_DOWNLOAD=1 npm install`
+
 ## Install From Packaged Releases
 
 The recommended production install path is to use a packaged release archive, not an ad hoc local build.
@@ -563,6 +587,22 @@ These smoke checks:
   - `baseline ci setup --help`
 
 That gives maintainers one repeatable “fresh install works” check before announcing a release.
+
+### 6) Publish the npm wrapper
+
+If you want users to install Baseline with a short terminal command instead of manually downloading archives:
+
+1. publish the GitHub Release first
+2. update `npm/cli/package.json` to the matching version
+3. from `npm/cli`, run:
+
+```bash
+npm publish
+```
+
+The npm package is a thin wrapper:
+- `postinstall` downloads the matching platform archive from GitHub Releases
+- the `baseline` command launches the installed compiled binary
 
 ## Quick Start
 

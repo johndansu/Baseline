@@ -84,3 +84,5 @@ frontend-nodejs/npm-debug.log*
 frontend-nodejs/yarn-debug.log*
 frontend-nodejs/yarn-error.log*
 frontend-nodejs/.DS_Store
+
+npm/cli/node_modules/
