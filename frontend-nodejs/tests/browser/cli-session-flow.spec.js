@@ -334,6 +334,40 @@ test('CLI login approval modal supports dashboard approval from query URL', asyn
   await expect(page).toHaveURL(/\/dashboard\.html$/);
 });
 
+test('CLI login approval query survives unauthorized redirect to sign-in', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.EventSource = class FakeEventSource {
+      constructor() {}
+      addEventListener() {}
+      close() {}
+    };
+    window.localStorage.setItem(
+      'baseline.dashboard.settings.admin@example.com',
+      JSON.stringify({ defaultTab: 'settings', refreshIntervalMs: 60000 })
+    );
+  });
+
+  await page.route('**/v1/auth/me', async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'unauthorized', message: 'Unauthorized' } })
+    });
+  });
+
+  await page.route('**/v1/dashboard/capabilities', async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'unauthorized', message: 'Unauthorized' } })
+    });
+  });
+
+  await page.goto('/dashboard.html?approve_cli_login=1&user_code=PBMK-NKUA');
+
+  await expect(page).toHaveURL(/\/signin\.html\?return_to=%2Fdashboard\.html%3Fapprove_cli_login%3D1%26user_code%3DPBMK-NKUA$/);
+});
+
 test('CLI session settings supports detail, single revoke, and revoke-all flows', async ({ page }) => {
   const state = await mockDashboardSessionAPI(page);
 

@@ -265,7 +265,7 @@ class BaselineDashboard {
             this.dashboardStream.close();
             this.dashboardStream = null;
         }
-        const returnTarget = window.location.pathname || '/dashboard';
+        const returnTarget = `${window.location.pathname || '/dashboard'}${window.location.search || ''}${window.location.hash || ''}`;
         const returnTo = encodeURIComponent(returnTarget);
         window.location.href = `/signin.html?return_to=${returnTo}`;
     }

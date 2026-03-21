@@ -2400,6 +2400,60 @@ func TestReadyEndpointInMemoryModeIsReady(t *testing.T) {
 	}
 }
 
+func TestHealthEndpointAllowsHead(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodHead, ts.URL+"/healthz", nil)
+	if err != nil {
+		t.Fatalf("failed to build HEAD healthz request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD /healthz failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from HEAD /healthz, got %d", resp.StatusCode)
+	}
+}
+
+func TestReadyEndpointAllowsHead(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.APIKeys = map[string]Role{
+		"admin-key": RoleAdmin,
+	}
+	server, err := NewServer(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodHead, ts.URL+"/readyz", nil)
+	if err != nil {
+		t.Fatalf("failed to build HEAD readyz request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD /readyz failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from HEAD /readyz, got %d", resp.StatusCode)
+	}
+}
+
 func TestReadyEndpointPersistentStoreRequiresWorker(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "readyz_requires_worker.db")
 	store, err := NewStore(dbPath)
