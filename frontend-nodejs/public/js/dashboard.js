@@ -2767,7 +2767,7 @@ class BaselineDashboard {
     openCLILoginApprovalModal(prefillCode = '') {
         const input = document.getElementById('cli-login-user-code');
         const feedback = document.getElementById('cli-login-approval-feedback');
-        this.cliApprovalState.userCode = String(prefillCode || this.cliApprovalState.userCode || '').trim().toUpperCase();
+        this.cliApprovalState.userCode = String(prefillCode || '').trim().toUpperCase();
         if (input) {
             input.value = this.cliApprovalState.userCode;
         }
