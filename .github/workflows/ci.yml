@@ -66,14 +66,12 @@ jobs:
           POSTGRES_USER: baseline
           POSTGRES_PASSWORD: baseline
         ports:
-          - 55432:5432
+          - 5432/tcp
         options: >-
           --health-cmd "pg_isready -U baseline -d baseline_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-    env:
-      BASELINE_TEST_POSTGRES_URL: postgres://baseline:baseline@127.0.0.1:55432/baseline_test?sslmode=disable
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
@@ -88,6 +86,8 @@ jobs:
         run: go mod download
 
       - name: Run focused Postgres store tests
+        env:
+          BASELINE_TEST_POSTGRES_URL: postgres://baseline:baseline@127.0.0.1:${{ job.services.postgres.ports[5432] }}/baseline_test?sslmode=disable
         run: go test ./internal/api -run '^TestPostgresStore' -count=1
 
   security-scan:
