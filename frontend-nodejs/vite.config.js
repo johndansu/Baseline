@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { mkdirSync, copyFileSync } from 'fs';
 
 export default defineConfig(({ mode }) => {
   const isProduction = mode === 'production' || process.env.NODE_ENV === 'production';
@@ -65,6 +66,15 @@ export default defineConfig(({ mode }) => {
           </script>
           </head>`
           );
+        }
+      },
+      {
+        name: 'copy-runtime-config-scripts',
+        closeBundle() {
+          const distJSDir = resolve(__dirname, 'dist/js');
+          mkdirSync(distJSDir, { recursive: true });
+          copyFileSync(resolve(__dirname, 'public/js/runtime-config.js'), resolve(distJSDir, 'runtime-config.js'));
+          copyFileSync(resolve(__dirname, 'public/js/supabase-config.js'), resolve(distJSDir, 'supabase-config.js'));
         }
       }
     ],
