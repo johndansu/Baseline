@@ -334,6 +334,18 @@ test('CLI login approval modal supports dashboard approval from query URL', asyn
   await expect(page).toHaveURL(/\/dashboard\.html$/);
 });
 
+test('manual CLI approval modal opens blank without query params', async ({ page }) => {
+  await mockDashboardSessionAPI(page);
+
+  await page.goto('/dashboard.html');
+  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Approve CLI login' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Approve CLI Login' })).toBeVisible();
+  await expect(page.locator('#cli-login-user-code')).toHaveValue('');
+  await expect(page.locator('#cli-login-user-code-display')).toHaveText('ENTER CODE BELOW');
+});
+
 test('CLI login approval query survives unauthorized redirect to sign-in', async ({ page }) => {
   await page.addInitScript(() => {
     window.EventSource = class FakeEventSource {
