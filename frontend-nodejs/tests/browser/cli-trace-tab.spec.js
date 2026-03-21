@@ -102,8 +102,32 @@ const traceDetail = {
   ]
 };
 
-async function mockDashboardAPI(page) {
-  await page.addInitScript(() => {
+const refreshedTraceList = [
+  {
+    trace_id: 'trc_new_1',
+    command: 'check',
+    repository: 'Baseline',
+    project_id: 'baseline_repo',
+    scan_id: '',
+    status: 'ok',
+    message: 'fresh trace arrived after refresh',
+    version: 'dev',
+    started_at: '2026-03-16T10:05:00Z',
+    finished_at: '2026-03-16T10:05:01Z',
+    duration_ms: 1100,
+    event_count: 2,
+    files_scanned: 120,
+    security_issues: 0,
+    violation_count: 0
+  },
+  ...traceList
+];
+
+async function mockDashboardAPI(page, options = {}) {
+  const defaultTab = options.defaultTab || 'cli';
+  let fullTelemetryRequests = 0;
+
+  await page.addInitScript(({ defaultTabValue }) => {
     window.EventSource = class FakeEventSource {
       constructor() {}
       addEventListener() {}
@@ -111,9 +135,9 @@ async function mockDashboardAPI(page) {
     };
     window.localStorage.setItem(
       'baseline.dashboard.settings.admin@example.com',
-      JSON.stringify({ defaultTab: 'cli', refreshIntervalMs: 60000 })
+      JSON.stringify({ defaultTab: defaultTabValue, refreshIntervalMs: 60000 })
     );
-  });
+  }, { defaultTabValue: defaultTab });
 
   await page.route('**/v1/auth/me', async (route) => {
     await route.fulfill({
@@ -185,10 +209,16 @@ async function mockDashboardAPI(page) {
   });
 
   await page.route('**/v1/cli/traces?**', async (route) => {
+    const url = new URL(route.request().url());
+    const limit = url.searchParams.get('limit');
+    if (limit === '250') {
+      fullTelemetryRequests += 1;
+    }
+    const traces = limit === '250' && fullTelemetryRequests > 1 ? refreshedTraceList : traceList;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ traces: traceList })
+      body: JSON.stringify({ traces })
     });
   });
 
@@ -201,11 +231,8 @@ async function mockDashboardAPI(page) {
   });
 }
 
-test.beforeEach(async ({ page }) => {
-  await mockDashboardAPI(page);
-});
-
 test('CLI trace tab supports filters, drill-down, and reset', async ({ page }) => {
+  await mockDashboardAPI(page);
   await page.goto('/dashboard.html');
   await page.getByRole('link', { name: 'CLI Telemetry' }).click();
 
@@ -214,13 +241,13 @@ test('CLI trace tab supports filters, drill-down, and reset', async ({ page }) =
   await expect(page.getByText('Warnings today')).toBeVisible();
 
   await page.getByRole('button', { name: 'Errors only' }).click();
-  await expect(page.getByText('trc_err_1')).toBeVisible();
-  await expect(page.getByText('trc_warn_1')).not.toBeVisible();
+  await expect(page.locator('#cli-tab').getByText('trc_err_1', { exact: true })).toBeVisible();
+  await expect(page.locator('#cli-tab').getByText('trc_warn_1', { exact: true })).not.toBeVisible();
 
   await page.getByRole('button', { name: 'Baseline' }).first().click();
   await expect(page.locator('#cli-filter-repository')).toHaveValue('Baseline');
-  await expect(page.getByText('trc_err_1')).toBeVisible();
-  await expect(page.getByText('trc_ok_1')).not.toBeVisible();
+  await expect(page.locator('#cli-tab').getByText('trc_err_1', { exact: true })).toBeVisible();
+  await expect(page.locator('#cli-tab').getByText('trc_ok_1', { exact: true })).not.toBeVisible();
 
   await page.getByRole('button', { name: 'View trace' }).first().click();
   await expect(page.getByRole('heading', { name: 'CLI Trace Detail' })).toBeVisible();
@@ -239,6 +266,7 @@ test('CLI trace tab supports filters, drill-down, and reset', async ({ page }) =
 });
 
 test('CLI trace tab keeps active filters when returning to the tab', async ({ page }) => {
+  await mockDashboardAPI(page);
   await page.goto('/dashboard.html');
   await page.getByRole('link', { name: 'CLI Telemetry' }).click();
 
@@ -259,4 +287,31 @@ test('CLI trace tab keeps active filters when returning to the tab', async ({ pa
   await expect(page.locator('#cli-tab').getByText('trc_warn_1')).toBeVisible();
   await expect(page.locator('#cli-tab').getByText('trc_err_1')).not.toBeVisible();
   await expect(page.locator('#cli-tab').getByText('trc_ok_1')).not.toBeVisible();
+});
+
+test('CLI trace tab supports manual refresh for fresh runs', async ({ page }) => {
+  await mockDashboardAPI(page);
+  await page.goto('/dashboard.html');
+  await page.getByRole('link', { name: 'CLI Telemetry' }).click();
+  await expect(page.getByRole('heading', { name: 'CLI Trace Runs' })).toBeVisible();
+  await expect(page.locator('#cli-tab').getByText('trc_new_1')).not.toBeVisible();
+
+  await page.getByRole('button', { name: 'Refresh now' }).click();
+
+  await expect(page.locator('#cli-tab').getByText('trc_new_1')).toBeVisible();
+  await expect(page.locator('#cli-tab').getByRole('button', { name: 'View trace' }).first()).toBeVisible();
+});
+
+test('overview surfaces latest CLI runs and links into telemetry', async ({ page }) => {
+  await mockDashboardAPI(page, { defaultTab: 'overview' });
+  await page.goto('/dashboard.html');
+
+  await expect(page.locator('#overview-cli-runs-panel').getByRole('heading', { name: 'Latest CLI Runs' })).toBeVisible();
+  await expect(page.locator('#overview-cli-runs-panel').getByText('dashboard upload failed')).toBeVisible();
+  await expect(page.locator('#overview-cli-runs-panel').getByText('report generated with warnings')).toBeVisible();
+
+  await page.locator('#overview-cli-runs-panel').getByRole('button', { name: 'Open CLI Telemetry' }).click();
+
+  await expect(page.locator('#page-title')).toHaveText('CLI Telemetry');
+  await expect(page.getByRole('heading', { name: 'CLI Trace Runs' })).toBeVisible();
 });
