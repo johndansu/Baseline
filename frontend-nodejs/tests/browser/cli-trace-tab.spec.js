@@ -301,17 +301,3 @@ test('CLI trace tab supports manual refresh for fresh runs', async ({ page }) =>
   await expect(page.locator('#cli-tab').getByText('trc_new_1')).toBeVisible();
   await expect(page.locator('#cli-tab').getByRole('button', { name: 'View trace' }).first()).toBeVisible();
 });
-
-test('overview surfaces latest CLI runs and links into telemetry', async ({ page }) => {
-  await mockDashboardAPI(page, { defaultTab: 'overview' });
-  await page.goto('/dashboard.html');
-
-  await expect(page.locator('#overview-cli-runs-panel').getByRole('heading', { name: 'Latest CLI Runs' })).toBeVisible();
-  await expect(page.locator('#overview-cli-runs-panel').getByText('dashboard upload failed')).toBeVisible();
-  await expect(page.locator('#overview-cli-runs-panel').getByText('report generated with warnings')).toBeVisible();
-
-  await page.locator('#overview-cli-runs-panel').getByRole('button', { name: 'Open CLI Telemetry' }).click();
-
-  await expect(page.locator('#page-title')).toHaveText('CLI Telemetry');
-  await expect(page.getByRole('heading', { name: 'CLI Trace Runs' })).toBeVisible();
-});

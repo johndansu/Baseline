@@ -588,9 +588,12 @@ function summarizeCLITraceGroupSet(traces, getLabel) {
 function renderQuickToggle(label, value, activeValue) {
     const isActive = value === activeValue;
     const className = isActive
-        ? 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium bg-orange-600 text-white border-orange-600'
-        : 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium bg-white text-gray-700 border-gray-300 hover:bg-gray-50';
-    return `<button type="button" data-cli-quick-filter="${value}" class="${className}">${label}</button>`;
+        ? 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium border-orange-600 text-white'
+        : 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium text-gray-700 border-gray-300 hover:bg-gray-50';
+    const style = isActive
+        ? 'background-color:#ea580c;color:#ffffff;'
+        : 'background-color:#f9fafb;color:#374151;';
+    return `<button type="button" data-cli-quick-filter="${value}" class="${className}" style="${style}">${label}</button>`;
 }
 
 function renderLastUpdatedLabel(rawTimestamp) {
