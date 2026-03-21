@@ -11,17 +11,24 @@
     return normalized;
   }
 
+  function pickConfigValue() {
+    for (var i = 0; i < arguments.length; i += 1) {
+      var candidate = cleanValue(arguments[i]);
+      if (candidate) return candidate;
+    }
+    return '';
+  }
+
   var env = window.ENV || {};
   var runtime = window.RUNTIME_CONFIG || {};
-  var configSource = Object.assign({}, env, runtime);
   var defaultRedirect =
     window.location.origin +
     '/signin.html?return_to=' +
     encodeURIComponent('/dashboard');
 
   window.SUPABASE_CONFIG = {
-    url: cleanValue(configSource.SUPABASE_URL) || 'https://twnkjfrpxmdmlcxswizf.supabase.co',
-    anonKey: cleanValue(configSource.SUPABASE_ANON_KEY),
+    url: pickConfigValue(runtime.SUPABASE_URL, env.SUPABASE_URL) || 'https://twnkjfrpxmdmlcxswizf.supabase.co',
+    anonKey: pickConfigValue(runtime.SUPABASE_ANON_KEY, env.SUPABASE_ANON_KEY),
     providers: {
       google: {
         enabled: true,
@@ -33,7 +40,7 @@
       }
     },
     auth: {
-      redirectTo: cleanValue(configSource.SUPABASE_AUTH_REDIRECT_TO) || defaultRedirect,
+      redirectTo: pickConfigValue(runtime.SUPABASE_AUTH_REDIRECT_TO, env.SUPABASE_AUTH_REDIRECT_TO) || defaultRedirect,
       persistSession: true,
       detectSessionInUrl: true,
       flowType: 'pkce'
