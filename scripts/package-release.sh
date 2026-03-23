@@ -27,8 +27,9 @@ resolve_git_value() {
 TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
 RUN_DIR="${OUTPUT_ROOT}/${TIMESTAMP}"
 mkdir -p "${RUN_DIR}"
-BINARIES_DIR="${RUN_DIR}/binaries"
-ARCHIVES_DIR="${RUN_DIR}/archives"
+RUN_DIR_ABS="$(cd "${RUN_DIR}" && pwd)"
+BINARIES_DIR="${RUN_DIR_ABS}/binaries"
+ARCHIVES_DIR="${RUN_DIR_ABS}/archives"
 mkdir -p "${BINARIES_DIR}" "${ARCHIVES_DIR}"
 
 if [[ -z "${VERSION}" ]]; then
@@ -52,8 +53,8 @@ BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "build_date=${BUILD_DATE}"
 } > "${RUN_DIR}/RELEASE_INFO.txt"
 
-binary_checksum_file="${RUN_DIR}/SHA256SUMS.binaries"
-archive_checksum_file="${RUN_DIR}/SHA256SUMS.archives"
+binary_checksum_file="${RUN_DIR_ABS}/SHA256SUMS.binaries"
+archive_checksum_file="${RUN_DIR_ABS}/SHA256SUMS.archives"
 : > "${binary_checksum_file}"
 : > "${archive_checksum_file}"
 
@@ -65,7 +66,7 @@ for target in "${TARGETS[@]}"; do
   fi
   binary_name="baseline_${VERSION}_${goos}_${goarch}${suffix}"
   destination="${BINARIES_DIR}/${binary_name}"
-  stage_dir="${RUN_DIR}/stage_${goos}_${goarch}"
+  stage_dir="${RUN_DIR_ABS}/stage_${goos}_${goarch}"
 
   echo
   echo "==> Building ${target}"
@@ -79,7 +80,7 @@ for target in "${TARGETS[@]}"; do
   rm -rf "${stage_dir}"
   mkdir -p "${stage_dir}"
   cp "${destination}" "${stage_dir}/${binary_name}"
-  cp "${RUN_DIR}/RELEASE_INFO.txt" "${stage_dir}/RELEASE_INFO.txt"
+  cp "${RUN_DIR_ABS}/RELEASE_INFO.txt" "${stage_dir}/RELEASE_INFO.txt"
 
   if [[ "${goos}" == "windows" ]]; then
     archive_name="baseline_${VERSION}_${goos}_${goarch}.zip"
@@ -99,6 +100,6 @@ for target in "${TARGETS[@]}"; do
 done
 
 echo
-echo "Release artifacts written to: ${RUN_DIR}"
+echo "Release artifacts written to: ${RUN_DIR_ABS}"
 echo "Binary checksums written to: ${binary_checksum_file}"
 echo "Archive checksums written to: ${archive_checksum_file}"
