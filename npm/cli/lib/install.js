@@ -12,7 +12,7 @@ async function installReleaseBinary(packageRoot, options = {}) {
   const env = options.env || process.env;
   const log = options.log || console.log;
   if (String(env.BASELINE_NPM_SKIP_DOWNLOAD || '').trim() === '1') {
-    log('[baseline-cli] Skipping binary download because BASELINE_NPM_SKIP_DOWNLOAD=1.');
+    log('[baselineprod-cli] Skipping binary download because BASELINE_NPM_SKIP_DOWNLOAD=1.');
     return null;
   }
 
@@ -28,13 +28,13 @@ async function installReleaseBinary(packageRoot, options = {}) {
     env
   });
 
-  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'baseline-cli-'));
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'baselineprod-cli-'));
   const archivePath = path.join(tempRoot, plan.assetName);
   const extractDir = path.join(tempRoot, 'extract');
   await fsp.mkdir(extractDir, { recursive: true });
 
   try {
-    log(`[baseline-cli] Downloading ${plan.assetName}...`);
+    log(`[baselineprod-cli] Downloading ${plan.assetName}...`);
     await downloadToFile(plan.assetURL, archivePath);
     await extractArchive(archivePath, extractDir, plan.target.platform);
     const extractedBinary = await findExtractedBinary(extractDir, plan.target.platform);
@@ -45,7 +45,7 @@ async function installReleaseBinary(packageRoot, options = {}) {
       await fsp.chmod(destination, 0o755);
     }
     await writeInstallMetadata(packageRoot, plan);
-    log(`[baseline-cli] Installed ${plan.binaryName}.`);
+    log(`[baselineprod-cli] Installed ${plan.binaryName}.`);
     return destination;
   } finally {
     await fsp.rm(tempRoot, { recursive: true, force: true });
@@ -61,7 +61,7 @@ function downloadToFile(url, destination, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     const request = client.get(url, {
       headers: {
-        'User-Agent': 'baseline-cli-installer'
+        'User-Agent': 'baselineprod-cli-installer'
       }
     }, (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {

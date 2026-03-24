@@ -7,6 +7,6 @@ const packageRoot = path.resolve(__dirname, '..');
 
 installReleaseBinary(packageRoot)
   .catch((error) => {
-    console.error(`[baseline-cli] ${error.message}`);
+    console.error(`[baselineprod-cli] ${error.message}`);
     process.exit(1);
   });

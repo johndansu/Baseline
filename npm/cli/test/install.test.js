@@ -6,7 +6,7 @@ const path = require('node:path');
 const { findExtractedBinary, writeInstallMetadata } = require('../lib/install');
 
 test('findExtractedBinary finds the extracted executable for unix archives', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'baseline-cli-test-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'baselineprod-cli-test-'));
   try {
     const binDir = path.join(root, 'pkg');
     await fs.mkdir(binDir, { recursive: true });
@@ -22,7 +22,7 @@ test('findExtractedBinary finds the extracted executable for unix archives', asy
 });
 
 test('writeInstallMetadata writes the installed release details', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'baseline-cli-test-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'baselineprod-cli-test-'));
   try {
     await fs.mkdir(path.join(root, 'vendor'), { recursive: true });
     await writeInstallMetadata(root, {

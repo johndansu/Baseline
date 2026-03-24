@@ -9,7 +9,7 @@ function mapPlatform(platform) {
     case 'darwin':
       return 'darwin';
     default:
-      throw new Error(`Unsupported platform for baseline-cli: ${platform}`);
+      throw new Error(`Unsupported platform for baselineprod-cli: ${platform}`);
   }
 }
 
@@ -20,7 +20,7 @@ function mapArch(arch) {
     case 'arm64':
       return 'arm64';
     default:
-      throw new Error(`Unsupported architecture for baseline-cli: ${arch}`);
+      throw new Error(`Unsupported architecture for baselineprod-cli: ${arch}`);
   }
 }
 

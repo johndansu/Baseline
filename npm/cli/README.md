@@ -1,4 +1,4 @@
-# baseline-cli
+# baselineprod-cli
 
 Installs the compiled Baseline CLI from GitHub release binaries and exposes it as:
 
@@ -9,7 +9,7 @@ baseline
 Install globally:
 
 ```bash
-npm i -g baseline-cli
+npm i -g baselineprod-cli
 ```
 
 After install:

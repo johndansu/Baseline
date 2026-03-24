@@ -11,8 +11,8 @@ const binaryPath = installedBinaryPath(packageRoot, target);
 
 if (!fs.existsSync(binaryPath)) {
   const binaryName = binaryFileName(target);
-  console.error(`[baseline-cli] Installed binary not found: ${binaryName}`);
-  console.error('[baseline-cli] Reinstall the package with `npm i -g baseline-cli`.');
+  console.error(`[baselineprod-cli] Installed binary not found: ${binaryName}`);
+  console.error('[baselineprod-cli] Reinstall the package with `npm i -g baselineprod-cli`.');
   process.exit(1);
 }
 
@@ -30,6 +30,6 @@ child.on('exit', (code, signal) => {
 });
 
 child.on('error', (error) => {
-  console.error(`[baseline-cli] Failed to start Baseline: ${error.message}`);
+  console.error(`[baselineprod-cli] Failed to start Baseline: ${error.message}`);
   process.exit(1);
 });

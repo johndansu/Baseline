@@ -400,7 +400,7 @@ If you want a shorter developer-facing install path, Baseline can also be distri
 Planned install command:
 
 ```bash
-npm i -g baseline-cli
+npm i -g baselineprod-cli
 baseline version
 ```
 
