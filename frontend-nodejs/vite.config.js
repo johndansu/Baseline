@@ -20,7 +20,9 @@ export default defineConfig(({ mode }) => {
           main: resolve(__dirname, 'public/index.html'),
           dashboard: resolve(__dirname, 'public/dashboard.html'),
           signin: resolve(__dirname, 'public/signin.html'),
-          signup: resolve(__dirname, 'public/signup.html')
+          signup: resolve(__dirname, 'public/signup.html'),
+          cliGuide: resolve(__dirname, 'public/cli-guide.html'),
+          cliLogin: resolve(__dirname, 'public/cli-login.html')
         },
         output: {
           manualChunks: {
