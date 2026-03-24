@@ -375,7 +375,7 @@ func printDashboardUsage() {
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  --addr <host:port>  Dashboard bind address (default: 127.0.0.1:8091)")
-	fmt.Println("  --api <url>         Baseline API base URL (default: http://127.0.0.1:8080)")
+	fmt.Println("  --api <url>         Baseline API base URL (default: derived from env or local API)")
 	fmt.Println("  --no-open           Do not open the browser automatically during dashboard login")
 	fmt.Println("  --api-key <key>     Fallback API key for project dashboard upload when session login is not available")
 	fmt.Println("  --project-id <id>   Explicit dashboard project ID for connect flow")
@@ -386,14 +386,14 @@ func printDashboardUsage() {
 	fmt.Println("  BASELINE_API_ADDR           Used to derive API URL when dashboard URL is not set")
 	fmt.Println()
 	fmt.Println("Recommended:")
-	fmt.Println("  baseline dashboard login --api http://127.0.0.1:8080")
+	fmt.Println("  baseline dashboard login --api <your-api-url>")
 	fmt.Println("Legacy fallback:")
-	fmt.Println("  baseline dashboard connect --api http://127.0.0.1:8080")
+	fmt.Println("  baseline dashboard connect --api <your-api-url>")
 	fmt.Println()
 	fmt.Println("Example:")
 	fmt.Println("  baseline api serve --addr :8080")
-	fmt.Println("  baseline dashboard serve --addr 127.0.0.1:8091 --api http://127.0.0.1:8080")
-	fmt.Println("  baseline dashboard login --api http://127.0.0.1:8080")
+	fmt.Println("  baseline dashboard serve --addr 127.0.0.1:8091 --api <your-api-url>")
+	fmt.Println("  baseline dashboard login --api <your-api-url>")
 }
 
 func renderDashboardHTML(apiBaseURL string) string {
