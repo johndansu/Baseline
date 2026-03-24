@@ -122,7 +122,7 @@ func TestRunTracedCommandFlushesTraceOnPanic(t *testing.T) {
 	})
 }
 
-func TestRunTracedCommandWarnsWhenTraceUploadSkipped(t *testing.T) {
+func TestRunTracedCommandSkipsWarningWhenNoDashboardTelemetryConfigured(t *testing.T) {
 	oldStderr := os.Stderr
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -150,7 +150,49 @@ func TestRunTracedCommandWarnsWhenTraceUploadSkipped(t *testing.T) {
 	if result != 0 {
 		t.Fatalf("expected success exit code, got %d", result)
 	}
+	if strings.Contains(output, "Trace upload skipped") {
+		t.Fatalf("expected no skipped trace warning without dashboard telemetry configured, got %q", output)
+	}
+}
+
+func TestRunTracedCommandWarnsWhenConfiguredTelemetryUploadIsSkipped(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	os.Stderr = w
+	defer func() {
+		os.Stderr = oldStderr
+	}()
+
+	result := runTracedCommand("version", dashboardConnectionConfig{
+		APIBaseURL: "https://baseline-api.example.com",
+		Enabled:    true,
+	}, func(traceCtx *clitrace.Context) tracedCommandResult {
+		traceCtx.SetMetadata("repository", "Baseline")
+		return tracedCommandResult{
+			ExitCode:     0,
+			TraceStatus:  "ok",
+			TraceMessage: "version completed",
+		}
+	})
+
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	output := buf.String()
+
+	if result != 0 {
+		t.Fatalf("expected success exit code, got %d", result)
+	}
 	if !strings.Contains(output, "Trace upload skipped") {
 		t.Fatalf("expected skipped trace warning, got %q", output)
+	}
+	if !strings.Contains(output, "baseline dashboard login --api <your-api-url>") {
+		t.Fatalf("expected generic dashboard login guidance, got %q", output)
+	}
+	if strings.Contains(output, "http://127.0.0.1:8080") {
+		t.Fatalf("expected skipped trace warning to avoid hardcoded local API URL, got %q", output)
 	}
 }

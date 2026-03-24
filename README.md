@@ -395,9 +395,9 @@ Release automation:
 
 ## Install With npm
 
-If you want a shorter developer-facing install path, Baseline can also be distributed through npm as a wrapper around the compiled GitHub release binaries.
+Baseline is available on npm as a wrapper around the compiled GitHub release binaries.
 
-Planned install command:
+Install command:
 
 ```bash
 npm i -g baselineprod-cli

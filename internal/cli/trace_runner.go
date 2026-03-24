@@ -33,7 +33,7 @@ func runTracedCommand(command string, connection dashboardConnectionConfig, fn f
 			})
 			eventsPosted := emitCLITraceEvents(connection, command, traceCtx.Metadata(), traceCtx.Events())
 			tracePosted := emitCLITrace(connection, buildCLITracePayload(command, traceCtx))
-			warnIfTraceUploadSkipped(command, eventsPosted || tracePosted)
+			warnIfTraceUploadSkipped(command, connection, eventsPosted || tracePosted)
 			panic(recovered)
 		}
 		if !traceCtx.Completed() {
@@ -43,7 +43,7 @@ func runTracedCommand(command string, connection dashboardConnectionConfig, fn f
 		}
 		eventsPosted := emitCLITraceEvents(connection, command, traceCtx.Metadata(), traceCtx.Events())
 		tracePosted := emitCLITrace(connection, buildCLITracePayload(command, traceCtx))
-		warnIfTraceUploadSkipped(command, eventsPosted || tracePosted)
+		warnIfTraceUploadSkipped(command, connection, eventsPosted || tracePosted)
 	}()
 
 	result := fn(traceCtx)
@@ -54,11 +54,21 @@ func runTracedCommand(command string, connection dashboardConnectionConfig, fn f
 	return exitCode
 }
 
-func warnIfTraceUploadSkipped(command string, uploaded bool) {
-	if uploaded {
+func warnIfTraceUploadSkipped(command string, connection dashboardConnectionConfig, uploaded bool) {
+	if uploaded || !shouldWarnForSkippedTraceUpload(connection) {
 		return
 	}
-	_, _ = fmt.Fprintf(os.Stderr, "Trace upload skipped for %q: no active dashboard session/config for this repository. Run `baseline dashboard login --api http://127.0.0.1:8080`.\n", command)
+	_, _ = fmt.Fprintf(os.Stderr, "Trace upload skipped for %q: no active dashboard session/config for this repository. Run `baseline dashboard login --api <your-api-url>`.\n", command)
+}
+
+func shouldWarnForSkippedTraceUpload(connection dashboardConnectionConfig) bool {
+	if strings.TrimSpace(connection.APIBaseURL) != "" {
+		return true
+	}
+	if strings.TrimSpace(connection.APIKey) != "" || strings.TrimSpace(connection.AccessToken) != "" || strings.TrimSpace(connection.RefreshToken) != "" {
+		return true
+	}
+	return connection.Enabled || connection.Prompted
 }
 
 func traceCtxElapsedMilliseconds(ctx *clitrace.Context) int64 {
