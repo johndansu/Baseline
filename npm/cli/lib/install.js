@@ -27,6 +27,11 @@ async function installReleaseBinary(packageRoot, options = {}) {
     releaseRepo,
     env
   });
+  const destination = installedBinaryPath(packageRoot, plan.target);
+  if (await shouldReuseInstalledBinary(packageRoot, destination, plan)) {
+    log(`[baselineprod-cli] Reusing existing ${plan.binaryName}.`);
+    return destination;
+  }
 
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'baselineprod-cli-'));
   const archivePath = path.join(tempRoot, plan.assetName);
@@ -38,7 +43,6 @@ async function installReleaseBinary(packageRoot, options = {}) {
     await downloadToFile(plan.assetURL, archivePath);
     await extractArchive(archivePath, extractDir, plan.target.platform);
     const extractedBinary = await findExtractedBinary(extractDir, plan.target.platform);
-    const destination = installedBinaryPath(packageRoot, plan.target);
     await fsp.mkdir(path.dirname(destination), { recursive: true });
     await fsp.copyFile(extractedBinary, destination);
     if (plan.target.platform !== 'windows') {
@@ -49,6 +53,16 @@ async function installReleaseBinary(packageRoot, options = {}) {
     return destination;
   } finally {
     await fsp.rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function shouldReuseInstalledBinary(packageRoot, destination, plan) {
+  try {
+    await fsp.access(destination, fs.constants.F_OK);
+    const metadata = await readInstallMetadata(packageRoot);
+    return metadata.release_tag === plan.tag && metadata.asset_name === plan.assetName;
+  } catch {
+    return false;
   }
 }
 
@@ -154,10 +168,18 @@ async function writeInstallMetadata(packageRoot, plan) {
   await fsp.writeFile(metadataPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
+async function readInstallMetadata(packageRoot) {
+  const metadataPath = path.join(packageRoot, 'vendor', 'install.json');
+  const raw = await fsp.readFile(metadataPath, 'utf8');
+  return JSON.parse(raw);
+}
+
 module.exports = {
   downloadToFile,
   extractArchive,
   findExtractedBinary,
   installReleaseBinary,
+  readInstallMetadata,
+  shouldReuseInstalledBinary,
   writeInstallMetadata
 };
