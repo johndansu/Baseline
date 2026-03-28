@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -58,7 +59,8 @@ func TestMaybePromptForDashboardUploadConnectsAndPersistsConfig(t *testing.T) {
 
 	var authHeaders []string
 	var createdProjectName string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
@@ -116,7 +118,7 @@ func TestMaybePromptForDashboardUploadConnectsAndPersistsConfig(t *testing.T) {
 	if connection.Source != "prompt" {
 		t.Fatalf("expected prompt connection source, got %q", connection.Source)
 	}
-	if len(authHeaders) != 2 || authHeaders[0] != "Bearer user-api-key" || authHeaders[1] != "Bearer user-api-key" {
+	if len(authHeaders) < 2 || authHeaders[len(authHeaders)-2] != "Bearer user-api-key" || authHeaders[len(authHeaders)-1] != "Bearer user-api-key" {
 		t.Fatalf("expected project lookup/create to use provided key, got %#v", authHeaders)
 	}
 	if strings.TrimSpace(createdProjectName) == "" {
@@ -143,6 +145,70 @@ func TestMaybePromptForDashboardUploadConnectsAndPersistsConfig(t *testing.T) {
 	}
 	if got := secrets.Dashboard.APIKeys["default"]; got != "user-api-key" {
 		t.Fatalf("expected stored API key, got %q", got)
+	}
+}
+
+func TestMaybePromptForDashboardUploadUsesStoredSessionWithoutManualAPIKey(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+
+	var authHeaders []string
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"projects":[{"id":"proj_session","name":"baseline","repository_url":"https://github.com/example/baseline.git"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	if err := saveStoredDashboardCLISession(baselineDashboardCLISession{
+		APIBaseURL:  server.URL,
+		AccessToken: "session-access-token",
+	}); err != nil {
+		t.Fatalf("saveStoredDashboardCLISession: %v", err)
+	}
+
+	stdinFile := tempInputFile(t, "y\n")
+	defer stdinFile.Close()
+	stdoutFile, err := os.CreateTemp(t.TempDir(), "baseline-dashboard-output-*.txt")
+	if err != nil {
+		t.Fatalf("create stdout file: %v", err)
+	}
+	defer stdoutFile.Close()
+
+	oldCheck := interactiveTerminalCheck
+	interactiveTerminalCheck = func(stdin *os.File, stdout *os.File) bool { return true }
+	defer func() { interactiveTerminalCheck = oldCheck }()
+
+	connection, err := maybePromptForDashboardUpload(stdinFile, stdoutFile)
+	if err != nil {
+		t.Fatalf("maybePromptForDashboardUpload returned error: %v", err)
+	}
+	if connection.APIBaseURL != server.URL {
+		t.Fatalf("expected API base URL %q, got %q", server.URL, connection.APIBaseURL)
+	}
+	if connection.ProjectID != "proj_session" {
+		t.Fatalf("expected project proj_session, got %q", connection.ProjectID)
+	}
+	if connection.APIKey != "" {
+		t.Fatalf("expected no fallback API key for session-backed prompt, got %q", connection.APIKey)
+	}
+	if len(authHeaders) != 1 || authHeaders[0] != "Bearer session-access-token" {
+		t.Fatalf("expected session token to be used for project lookup, got %#v", authHeaders)
+	}
+
+	savedConfig, err := loadBaselineLocalConfig()
+	if err != nil {
+		t.Fatalf("loadBaselineLocalConfig returned error: %v", err)
+	}
+	if savedConfig.Dashboard.Upload.APIKeyRef != "" {
+		t.Fatalf("expected session-backed upload config without API key ref, got %q", savedConfig.Dashboard.Upload.APIKeyRef)
 	}
 }
 
@@ -290,7 +356,8 @@ func TestRunDashboardConnectCommandRecordsProjectResolutionAndPersistenceHelpers
 	t.Setenv("BASELINE_CONFIG_PATH", configPath)
 
 	var authHeaders []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
@@ -337,6 +404,79 @@ func TestRunDashboardConnectCommandRecordsProjectResolutionAndPersistenceHelpers
 	}
 	if !foundSecretsSave {
 		t.Fatal("expected saveBaselineSecrets helper exit trace event for dashboard connect")
+	}
+}
+
+func TestConnectDashboardForCurrentProjectWithReaderUsesBrowserLoginWhenNoSessionOrAPIKey(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+
+	var openedURL string
+	oldOpenBrowser := openBrowserForDashboardLogin
+	openBrowserForDashboardLogin = func(target string) error {
+		openedURL = target
+		return nil
+	}
+	defer func() { openBrowserForDashboardLogin = oldOpenBrowser }()
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/cli/session/start":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{
+				"device_code":"device-123",
+				"user_code":"ABCD-EFGH",
+				"verification_url":"` + server.URL + `/dashboard",
+				"expires_at":"2099-03-16T21:30:00Z",
+				"interval_seconds":1
+			}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/cli/session/poll":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"access_token":"session-access-token",
+				"refresh_token":"session-refresh-token",
+				"user":"John",
+				"email":"john@example.com",
+				"role":"admin"
+			}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"projects":[{"id":"proj_browser","name":"baseline","repository_url":"https://github.com/example/baseline.git"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	reader := bufio.NewReader(strings.NewReader(""))
+	stdoutFile, err := os.CreateTemp(t.TempDir(), "baseline-dashboard-output-*.txt")
+	if err != nil {
+		t.Fatalf("create stdout file: %v", err)
+	}
+	defer stdoutFile.Close()
+
+	result, err := connectDashboardForCurrentProjectWithReader(nil, dashboardConnectOptions{
+		APIBaseURL: server.URL,
+	}, reader, stdoutFile, true)
+	if err != nil {
+		t.Fatalf("connectDashboardForCurrentProjectWithReader returned error: %v", err)
+	}
+	if result.APIBaseURL != server.URL {
+		t.Fatalf("expected API base URL %q, got %q", server.URL, result.APIBaseURL)
+	}
+	if result.ProjectID != "proj_browser" {
+		t.Fatalf("expected project proj_browser, got %q", result.ProjectID)
+	}
+	if !strings.Contains(openedURL, "/dashboard?approve_cli_login=1&user_code=") {
+		t.Fatalf("expected browser approval URL to be opened, got %q", openedURL)
+	}
+
+	savedSession := loadStoredDashboardCLISession()
+	if savedSession.APIBaseURL != server.URL || savedSession.AccessToken != "session-access-token" {
+		t.Fatalf("expected stored CLI session after browser login, got %+v", savedSession)
 	}
 }
 

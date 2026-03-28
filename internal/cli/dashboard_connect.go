@@ -456,27 +456,13 @@ func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opt
 	apiKey := strings.TrimSpace(opts.APIKey)
 	projectID := strings.TrimSpace(opts.ProjectID)
 
+	if apiBaseURL == "" {
+		apiBaseURL = defaultDashboardLoginBaseURL()
+	}
+
 	if interactive {
 		if reader == nil {
 			return dashboardConnectResult{}, errors.New("interactive dashboard connect requires an input reader")
-		}
-		if apiBaseURL == "" {
-			prompt := fmt.Sprintf("Dashboard API URL [%s]: ", apiURLFromAPIAddr(os.Getenv("BASELINE_API_ADDR")))
-			value, err := promptForInput(reader, stdout, prompt)
-			if err != nil {
-				return dashboardConnectResult{}, err
-			}
-			apiBaseURL = strings.TrimSpace(value)
-			if apiBaseURL == "" {
-				apiBaseURL = apiURLFromAPIAddr(os.Getenv("BASELINE_API_ADDR"))
-			}
-		}
-		if apiKey == "" {
-			value, err := promptForInput(reader, stdout, "Dashboard API key: ")
-			if err != nil {
-				return dashboardConnectResult{}, err
-			}
-			apiKey = strings.TrimSpace(value)
 		}
 	}
 
@@ -502,6 +488,36 @@ func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opt
 		traceCtx.HelperExit(validateSpan, "cli", "validateAPIBaseURL", "ok", "dashboard API base URL validated", nil)
 	}
 	apiBaseURL = normalizedURL
+
+	if strings.TrimSpace(apiKey) == "" {
+		if token := dashboardSessionAccessTokenForBaseURL(apiBaseURL); token != "" {
+			return connectDashboardUploadWithBearerToken(apiBaseURL, token, projectID)
+		}
+		if interactive {
+			result, err := connectDashboardForCurrentProjectViaBrowserLogin(traceCtx, apiBaseURL, projectID, stdout)
+			if err == nil {
+				return result, nil
+			}
+			fmt.Fprintf(stdout, "Dashboard browser connect unavailable (%v). Falling back to manual API key entry.\n", err)
+			prompt := fmt.Sprintf("Dashboard API URL [%s]: ", apiBaseURL)
+			value, promptErr := promptForInput(reader, stdout, prompt)
+			if promptErr != nil {
+				return dashboardConnectResult{}, promptErr
+			}
+			value = strings.TrimSpace(value)
+			if value != "" {
+				apiBaseURL, err = validateAPIBaseURL(value)
+				if err != nil {
+					return dashboardConnectResult{}, err
+				}
+			}
+			value, promptErr = promptForInput(reader, stdout, "Dashboard API key: ")
+			if promptErr != nil {
+				return dashboardConnectResult{}, promptErr
+			}
+			apiKey = strings.TrimSpace(value)
+		}
+	}
 	if strings.TrimSpace(apiKey) == "" {
 		return dashboardConnectResult{}, errors.New("dashboard API key is required")
 	}
@@ -603,6 +619,27 @@ func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opt
 		APIBaseURL: apiBaseURL,
 		ProjectID:  resolvedProjectID,
 	}, nil
+}
+
+func dashboardSessionAccessTokenForBaseURL(baseURL string) string {
+	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if normalizedBaseURL == "" {
+		return ""
+	}
+	if session, err := refreshedStoredDashboardCLISession(normalizedBaseURL); err == nil {
+		if strings.TrimRight(strings.TrimSpace(session.APIBaseURL), "/") == normalizedBaseURL && strings.TrimSpace(session.AccessToken) != "" {
+			return strings.TrimSpace(session.AccessToken)
+		}
+	}
+	return storedCLIAccessTokenForBaseURL(normalizedBaseURL)
+}
+
+func connectDashboardForCurrentProjectViaBrowserLogin(traceCtx *clitrace.Context, apiBaseURL, explicitProjectID string, stdout *os.File) (dashboardConnectResult, error) {
+	session, err := completeDashboardBrowserLogin(traceCtx, apiBaseURL, "Approve this dashboard connection in your browser.", stdout, false)
+	if err != nil {
+		return dashboardConnectResult{}, err
+	}
+	return connectDashboardUploadWithBearerToken(apiBaseURL, session.AccessToken, explicitProjectID)
 }
 
 func maybePromptForDashboardUpload(stdin *os.File, stdout *os.File) (dashboardConnectionConfig, error) {
