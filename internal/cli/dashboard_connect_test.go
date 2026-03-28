@@ -212,6 +212,64 @@ func TestMaybePromptForDashboardUploadUsesStoredSessionWithoutManualAPIKey(t *te
 	}
 }
 
+func TestMaybePromptForDashboardUploadPrefersStoredSessionAPIOverLocalEnv(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+	t.Setenv("BASELINE_API_ADDR", "127.0.0.1:8080")
+	t.Setenv("BASELINE_API_KEY", "local-dev-key")
+
+	var authHeaders []string
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"projects":[{"id":"proj_hosted","name":"baseline","repository_url":"https://github.com/example/baseline.git"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	if err := saveStoredDashboardCLISession(baselineDashboardCLISession{
+		APIBaseURL:  server.URL,
+		AccessToken: "session-access-token",
+	}); err != nil {
+		t.Fatalf("saveStoredDashboardCLISession: %v", err)
+	}
+
+	stdinFile := tempInputFile(t, "y\n")
+	defer stdinFile.Close()
+	stdoutFile, err := os.CreateTemp(t.TempDir(), "baseline-dashboard-output-*.txt")
+	if err != nil {
+		t.Fatalf("create stdout file: %v", err)
+	}
+	defer stdoutFile.Close()
+
+	oldCheck := interactiveTerminalCheck
+	interactiveTerminalCheck = func(stdin *os.File, stdout *os.File) bool { return true }
+	defer func() { interactiveTerminalCheck = oldCheck }()
+
+	connection, err := maybePromptForDashboardUpload(stdinFile, stdoutFile)
+	if err != nil {
+		t.Fatalf("maybePromptForDashboardUpload returned error: %v", err)
+	}
+	if connection.APIBaseURL != server.URL {
+		t.Fatalf("expected hosted session API base URL %q, got %q", server.URL, connection.APIBaseURL)
+	}
+	if connection.ProjectID != "proj_hosted" {
+		t.Fatalf("expected project proj_hosted, got %q", connection.ProjectID)
+	}
+	if connection.APIKey != "" {
+		t.Fatalf("expected no fallback API key for session-backed prompt, got %q", connection.APIKey)
+	}
+	if len(authHeaders) != 1 || authHeaders[0] != "Bearer session-access-token" {
+		t.Fatalf("expected hosted session token to be used, got %#v", authHeaders)
+	}
+}
+
 func TestFormatDashboardUploadFailureSuggestsRepairForSavedConnection(t *testing.T) {
 	connection := dashboardConnectionConfig{
 		Enabled:  true,
