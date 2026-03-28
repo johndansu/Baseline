@@ -188,10 +188,41 @@ baseline api verify-prod --strict</code></pre>
         </article>
 
         <article class="guide-entry">
-          <h3><code>baseline dashboard</code></h3>
+          <h3><code>baseline api migrate-postgres</code></h3>
+          <p>Migrates Baseline API data from SQLite into a Postgres target.</p>
+          <p><strong>Use it when:</strong> you are moving an existing Baseline deployment from local SQLite storage to a hosted Postgres database.</p>
+          <pre><code>baseline api migrate-postgres --sqlite-path ./baseline_api.db --database-url "postgres://USER:PASSWORD@HOST:5432/baseline?sslmode=disable" --reset-target</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline dashboard serve</code></h3>
           <p>Runs the separate local dashboard proxy service for selected read-only API paths.</p>
           <p><strong>Use it when:</strong> you want the proxy dashboard workflow instead of the API-hosted dashboard route.</p>
-          <pre><code>baseline dashboard --addr 127.0.0.1:8091 --api http://127.0.0.1:8080</code></pre>
+          <pre><code>baseline dashboard serve --addr 127.0.0.1:8091 --api http://127.0.0.1:8080</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline dashboard login</code></h3>
+          <p>Starts the hosted browser login flow for a CLI session.</p>
+          <p><strong>Use it when:</strong> you want to connect the CLI to a hosted Baseline API and approve the session in the dashboard.</p>
+          <pre><code>baseline dashboard login --api https://baseline-api-95nb.onrender.com</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline dashboard whoami</code> and <code>logout</code></h3>
+          <p>Shows the current dashboard session identity or clears the saved CLI session.</p>
+          <p><strong>Use it when:</strong> you want to verify which hosted account the CLI is using or explicitly sign the CLI out.</p>
+          <pre><code>baseline dashboard whoami
+baseline dashboard logout</code></pre>
+        </article>
+
+        <article class="guide-entry">
+          <h3><code>baseline dashboard connect</code>, <code>status</code>, <code>disconnect</code></h3>
+          <p>Manages the saved project-local dashboard upload connection used by <code>baseline scan</code>.</p>
+          <p><strong>Use it when:</strong> you want to inspect, repair, or remove the saved dashboard connection for the current repository.</p>
+          <pre><code>baseline dashboard connect --api http://127.0.0.1:8080
+baseline dashboard status
+baseline dashboard disconnect</code></pre>
         </article>
       </section>
 
@@ -204,6 +235,13 @@ baseline api verify-prod --strict</code></pre>
           <pre><code>go build -o baseline ./cmd/baseline
 go test ./...</code></pre>
           <p>Use this when validating the repository itself before release or contribution.</p>
+        </article>
+
+        <article class="guide-entry">
+          <h3>CI workflow scaffolding</h3>
+          <pre><code>baseline ci setup --help
+baseline ci setup --provider github --mode enforce</code></pre>
+          <p>Use this when you want Baseline to scaffold a CI workflow that runs repository checks in GitHub, GitLab, or Azure pipelines.</p>
         </article>
 
         <article class="guide-entry">
