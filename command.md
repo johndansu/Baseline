@@ -19,6 +19,13 @@ baseline explain A1
 
 ## Project Dashboard Upload Flow
 ```bash
+# browser-based CLI session login
+baseline dashboard login --api https://baseline-api-95nb.onrender.com
+
+# inspect or clear the current CLI session
+baseline dashboard whoami
+baseline dashboard logout
+
 # first-time interactive project connection
 baseline scan
 
@@ -41,11 +48,18 @@ baseline pr
 baseline security-advice --out SECURITY.AI.SUGGESTIONS.md
 ```
 
+## CI Scaffolding
+```bash
+baseline ci setup --help
+baseline ci setup --provider github --mode enforce
+```
+
 ## API and Auth (Current)
 ```bash
 baseline api keygen
 baseline api verify-prod
 baseline api verify-prod --strict
+baseline api migrate-postgres --sqlite-path ./baseline_api.db --database-url "postgres://USER:PASSWORD@HOST:5432/baseline?sslmode=disable" --reset-target
 baseline api serve --addr :8080
 # local dashboard proxy service (selected read-only API proxy paths)
 baseline dashboard serve --addr 127.0.0.1:8091 --api http://127.0.0.1:8080

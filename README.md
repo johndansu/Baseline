@@ -1,6 +1,19 @@
 # Baseline
 
-Baseline is a production-readiness gate for software delivery.
+Baseline is a developer-facing release gate.
+
+It helps teams answer one question before they ship:
+
+`Is this change actually safe enough to release?`
+
+Baseline does that by running deterministic policy checks from a CLI, optionally persisting results through an API, and exposing the operational state in a hosted dashboard.
+
+If a repository, release, or deployment does not meet the rules you define, Baseline can fail the check and stop the ship path.
+
+In practical terms, Baseline lets you:
+- run `baseline check` locally or in CI before merging or releasing
+- enforce policy rules around release hygiene, secrets, docs, ownership, and operational readiness
+- connect a hosted API + dashboard when you want auth, audit history, CLI session approval, and scan visibility
 
 It provides:
 - a CLI for deterministic policy checks before shipping
@@ -23,6 +36,25 @@ Baseline centralizes those release-readiness checks into deterministic rules and
 
 In short: Baseline is not a replacement for CI/CD. It is a policy gate that sits in front of shipping.
 
+## What Baseline Looks Like In Practice
+
+The simplest flow looks like this:
+
+1. A developer runs `baseline check`
+2. Baseline evaluates deterministic release rules
+3. It reports:
+   - what passed
+   - what failed
+   - what must be fixed before release
+4. In CI, the same rules can block a merge or release if the repo is not ready
+
+When teams want more than local CLI usage, they can add the API and dashboard for:
+- human sign-in
+- API keys
+- audit history
+- CLI session approval
+- uploaded scan and trace visibility
+
 ## What Baseline Does
 
 Baseline helps teams block risky releases before they reach production by enforcing checks such as:
@@ -35,6 +67,16 @@ Baseline helps teams block risky releases before they reach production by enforc
 Baseline is deterministic:
 - AI can assist with scaffold generation (`baseline generate`, `baseline pr`)
 - AI does not decide policy outcomes
+
+## Who Baseline Is For
+
+Baseline is for teams that already ship software with Git, CI, and pull requests, but still want a consistent final gate before release.
+
+It is especially useful when:
+- multiple repositories need the same release rules
+- release requirements currently live in scripts, docs, or tribal knowledge
+- teams need an audit trail of what was checked and why a release was blocked
+- developers want a CLI-first workflow, but operators also need a dashboard-backed control plane
 
 ## Typical Usage Patterns
 
@@ -673,7 +715,11 @@ curl http://127.0.0.1:8080/metrics
 - `baseline api serve` - run HTTP API server
 - `baseline api keygen` - generate random API key
 - `baseline api verify-prod [--strict]` - validate API production env config
+- `baseline api migrate-postgres --sqlite-path <path> --database-url <url> [--reset-target]` - migrate persisted API data from SQLite into Postgres
 - `baseline dashboard serve` - local dashboard proxy service for selected read APIs
+- `baseline dashboard login [--api <url>]` - start hosted browser login for the CLI
+- `baseline dashboard whoami` - show the current hosted dashboard identity for the CLI session
+- `baseline dashboard logout` - clear the current hosted CLI dashboard session
 - `baseline dashboard connect` - connect the current repository to a dashboard project using a user-owned API key
 - `baseline dashboard status` - show the saved dashboard connection for the current repository
 - `baseline dashboard disconnect` - remove the saved dashboard connection for the current repository
