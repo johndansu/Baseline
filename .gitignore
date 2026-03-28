@@ -23,6 +23,7 @@ vendor/
 # Logs
 logs/
 *.log
+*.logs
 
 # Temporary files
 tmp/
@@ -32,6 +33,7 @@ temp/
 internal/api/*.go.*
 .gocache/
 .baseline/*.log
+.baseline/*.logs
 .baseline/*.pid
 .baseline/config.yaml
 .baseline/secrets.json
