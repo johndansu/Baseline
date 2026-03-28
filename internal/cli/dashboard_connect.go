@@ -411,9 +411,7 @@ func runDashboardDisconnectCommand(traceCtx *clitrace.Context, telemetryConnecti
 }
 
 func parseDashboardConnectArgs(args []string) (dashboardConnectOptions, error) {
-	opts := dashboardConnectOptions{
-		APIBaseURL: defaultScanUploadBaseURL(),
-	}
+	opts := dashboardConnectOptions{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--help", "-h":
@@ -452,13 +450,9 @@ func connectDashboardForCurrentProject(traceCtx *clitrace.Context, opts dashboar
 }
 
 func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opts dashboardConnectOptions, reader *bufio.Reader, stdout *os.File, interactive bool) (dashboardConnectResult, error) {
-	apiBaseURL := strings.TrimSpace(opts.APIBaseURL)
+	apiBaseURL := resolveDashboardConnectBaseURL(strings.TrimSpace(opts.APIBaseURL))
 	apiKey := strings.TrimSpace(opts.APIKey)
 	projectID := strings.TrimSpace(opts.ProjectID)
-
-	if apiBaseURL == "" {
-		apiBaseURL = defaultDashboardLoginBaseURL()
-	}
 
 	if interactive {
 		if reader == nil {
@@ -466,9 +460,6 @@ func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opt
 		}
 	}
 
-	if apiBaseURL == "" {
-		apiBaseURL = defaultScanUploadBaseURL()
-	}
 	if strings.TrimSpace(apiBaseURL) == "" {
 		return dashboardConnectResult{}, errors.New("dashboard API URL is required")
 	}
@@ -619,6 +610,19 @@ func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opt
 		APIBaseURL: apiBaseURL,
 		ProjectID:  resolvedProjectID,
 	}, nil
+}
+
+func resolveDashboardConnectBaseURL(explicit string) string {
+	if trimmed := strings.TrimSpace(explicit); trimmed != "" {
+		return trimmed
+	}
+	if session := loadStoredDashboardCLISession(); strings.TrimSpace(session.APIBaseURL) != "" {
+		return strings.TrimSpace(session.APIBaseURL)
+	}
+	if baseURL := defaultScanUploadBaseURL(); strings.TrimSpace(baseURL) != "" {
+		return baseURL
+	}
+	return apiURLFromAPIAddr(os.Getenv("BASELINE_API_ADDR"))
 }
 
 func dashboardSessionAccessTokenForBaseURL(baseURL string) string {
