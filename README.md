@@ -1,54 +1,102 @@
 # Baseline
 
-Baseline is a developer-facing release gate.
+Baseline is a CLI-first release readiness gate for software teams.
 
-It helps teams answer one question before they ship:
+It answers one question before code ships:
 
-`Is this change actually safe enough to release?`
+`Is this repository, build, or release actually ready for production?`
 
-Baseline does that by running deterministic policy checks from a CLI, optionally persisting results through an API, and exposing the operational state in a hosted dashboard.
+Most teams already have CI, tests, and deployment tooling. What they usually do not have is one consistent, repeatable place to enforce the final release rules that live in docs, tribal knowledge, ad-hoc scripts, and team memory.
 
-If a repository, release, or deployment does not meet the rules you define, Baseline can fail the check and stop the ship path.
+Baseline turns those fuzzy release requirements into deterministic checks you can run:
+- locally before you push
+- in CI before you merge
+- in a hosted dashboard when you want visibility, audit history, and operational workflows
+
+If a repository or release does not meet the rules you define, Baseline can tell you exactly what failed, why it failed, and when needed, block the ship path.
 
 In practical terms, Baseline lets you:
-- run `baseline check` locally or in CI before merging or releasing
-- enforce policy rules around release hygiene, secrets, docs, ownership, and operational readiness
+- initialize a repository with `baseline init`
+- run `baseline check` to see whether the repo meets your release rules
+- run `baseline enforce` in CI to block merges or releases on violations
 - connect a hosted API + dashboard when you want auth, audit history, CLI session approval, and scan visibility
+- upload repository scan results with `baseline scan` once the dashboard connection is active
 
-It provides:
-- a CLI for deterministic policy checks before shipping
-- an optional HTTP API for automation and operations
-- dashboard backend endpoints for summary/capabilities/activity
-- project-owned dashboard scan upload from the CLI
-- auth frontend pages (`signin`, `signup`) for human login via OIDC (Supabase/Auth0 supported)
+Baseline is made up of:
+- a CLI for policy checks, reports, scaffolding, and CI workflows
+- an optional HTTP API for automation, integrations, and persistence
+- a hosted dashboard flow for human sign-in, scan visibility, approvals, and operational review
 
 ## Why Baseline
 
-Most teams already have CI, tests, and deployment tooling, but release risk still slips through because the final safety checks are:
-- spread across scripts and team tribal knowledge
-- inconsistently enforced across repositories
-- hard to audit after an incident
+Release risk usually slips through in the gap between "the tests passed" and "this is genuinely safe to ship."
 
-Baseline centralizes those release-readiness checks into deterministic rules and exposes them through:
-- a CLI for local and CI usage
-- an API for integrations and automation
-- a human auth flow for operational access to API-backed functionality
+That gap is where teams start asking questions like:
+- Do we actually have branch protection in place?
+- Are secrets leaking into the repo?
+- Is there a rollback plan?
+- Are deployment and runtime basics configured correctly?
+- Are we enforcing the same release rules across every repository?
 
-In short: Baseline is not a replacement for CI/CD. It is a policy gate that sits in front of shipping.
+Baseline exists to make those questions explicit, repeatable, and enforceable.
+
+It is not a replacement for CI/CD.
+It sits in front of shipping and gives teams one policy layer they can run locally, in CI, and through a dashboard-backed operational flow.
+
+## First-Run Flow
+
+The shortest useful onboarding flow looks like this:
+
+1. Run `baseline init`
+2. Run `baseline check`
+3. If you want the hosted experience, run:
+   - `baseline dashboard login --api <your-api-url>`
+   - `baseline dashboard connect --api <your-api-url>`
+4. Run `baseline scan`
+5. Later, add `baseline enforce` in CI when you want blocking release gates
+
+What each step does:
+- `baseline init`
+  - writes the local Baseline config for the repository
+  - can optionally scaffold CI wiring
+- `baseline check`
+  - evaluates deterministic release rules locally
+  - shows what passed, what failed, and what needs fixing
+- `baseline dashboard login`
+  - signs the human user into the hosted dashboard
+- `baseline dashboard connect`
+  - connects the current repository to the dashboard-backed upload flow
+- `baseline scan`
+  - uploads repository scan results to the dashboard when the project connection is active
+- `baseline enforce`
+  - uses the same rule set in a blocking CI or release path
+
+Here is what that looks like in commands:
+
+```bash
+baseline init
+baseline check
+baseline dashboard login --api <your-api-url>
+baseline dashboard connect --api <your-api-url>
+baseline scan
+```
 
 ## What Baseline Looks Like In Practice
 
-The simplest flow looks like this:
+Baseline is not just one command. Teams usually use it in one of these patterns:
 
-1. A developer runs `baseline check`
-2. Baseline evaluates deterministic release rules
-3. It reports:
-   - what passed
-   - what failed
-   - what must be fixed before release
-4. In CI, the same rules can block a merge or release if the repo is not ready
+1. Quick local proof
+   - run `baseline check`
+   - see whether the repository is safe enough to ship right now
+2. Hosted operational flow
+   - log in to the dashboard
+   - connect the repository
+   - upload scans and review them in the dashboard
+3. CI release gate
+   - run `baseline check` or `baseline enforce` in CI
+   - block merges or releases when rules fail
 
-When teams want more than local CLI usage, they can add the API and dashboard for:
+When teams want more than a local-only CLI workflow, they can add the API and dashboard for:
 - human sign-in
 - API keys
 - audit history
@@ -80,11 +128,15 @@ It is especially useful when:
 
 ## Typical Usage Patterns
 
-### 1) CLI in CI/CD (most common)
+### 1) Local Repository Onboarding
+
+Use `baseline init`, `baseline check`, and `baseline scan` when you want to set a repository up, inspect its current state, and optionally push scan results to the dashboard.
+
+### 2) CLI in CI/CD
 
 Use `baseline check` or `baseline enforce` in pull request and release pipelines to block merges/releases when policy requirements are not met.
 
-### 2) API for Automation / Integrations
+### 3) API for Automation / Integrations
 
 Use `baseline api serve` when you need:
 - API key management
@@ -92,7 +144,7 @@ Use `baseline api serve` when you need:
 - audit event retrieval
 - webhook ingestion for GitHub/GitLab signals
 
-### 3) Human Login for Operations
+### 4) Human Login for Operations
 
 Use the API-hosted auth pages (`/signin.html`, `/signup.html`) to authenticate via OIDC (Supabase/Auth0), then let Baseline issue a local session cookie for subsequent API requests.
 
