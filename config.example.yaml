@@ -1,3 +1,5 @@
+# Example Baseline runtime configuration for self-hosted or deployed setups.
+# Copy this to your target environment and replace the placeholder values.
 baseline:
   log_level: "info"
   mode: "production"
