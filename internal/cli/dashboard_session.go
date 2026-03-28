@@ -96,47 +96,17 @@ func runDashboardLoginCommand(traceCtx *clitrace.Context, args []string) tracedC
 	}
 	traceCtx.HelperExit(validateSpan, "cli", "validateAPIBaseURL", "ok", "dashboard login API base URL validated", nil)
 
-	startSpan := traceCtx.HelperEnter("cli", "startCLISessionLogin", "starting CLI dashboard login request", nil)
-	started, err := startCLISessionLogin(baseURL)
+	session, err := completeDashboardBrowserLogin(traceCtx, baseURL, "Approve this CLI session in your dashboard.", os.Stdout, opts.NoOpen)
 	if err != nil {
-		traceCtx.Error("cli", "startCLISessionLogin", err, nil)
-		traceCtx.HelperExit(startSpan, "cli", "startCLISessionLogin", "error", "dashboard login request start failed", nil)
 		fmt.Printf("DASHBOARD LOGIN FAILED: %v\n", err)
-		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "dashboard login request start failed"}
-	}
-	traceCtx.HelperExit(startSpan, "cli", "startCLISessionLogin", "ok", "dashboard login request started", nil)
-
-	fmt.Printf("Approve this CLI session in your dashboard.\n")
-	fmt.Printf("User code: %s\n", started.UserCode)
-	fmt.Printf("Verification URL: %s\n", started.VerificationURL)
-	fmt.Printf("Approval URL: %s\n", started.CompleteVerificationURL)
-
-	if !opts.NoOpen {
-		traceCtx.Branch("cli", "dashboard login", "open_browser", nil)
-		if err := openBrowserForDashboardLogin(started.CompleteVerificationURL); err != nil {
-			traceCtx.Error("cli", "openBrowser", err, nil)
-			fmt.Printf("Could not open browser automatically. Open this URL manually:\n%s\n", started.CompleteVerificationURL)
+		traceStatus := "system_error"
+		traceMessage := "dashboard login request start failed"
+		if strings.Contains(strings.ToLower(err.Error()), "approval") || strings.Contains(strings.ToLower(err.Error()), "expired") {
+			traceStatus = "login_failed"
+			traceMessage = "dashboard login approval failed"
 		}
+		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: traceStatus, TraceMessage: traceMessage}
 	}
-
-	pollSpan := traceCtx.HelperEnter("cli", "pollCLISessionLogin", "waiting for CLI dashboard login approval", nil)
-	session, err := pollCLISessionLogin(started)
-	if err != nil {
-		traceCtx.Error("cli", "pollCLISessionLogin", err, nil)
-		traceCtx.HelperExit(pollSpan, "cli", "pollCLISessionLogin", "error", "dashboard login approval failed", nil)
-		fmt.Printf("DASHBOARD LOGIN FAILED: %v\n", err)
-		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "login_failed", TraceMessage: "dashboard login approval failed"}
-	}
-	traceCtx.HelperExit(pollSpan, "cli", "pollCLISessionLogin", "ok", "dashboard login approved", nil)
-
-	saveSpan := traceCtx.HelperEnter("cli", "saveStoredDashboardCLISession", "saving CLI dashboard session", nil)
-	if err := saveStoredDashboardCLISession(session); err != nil {
-		traceCtx.Error("cli", "saveStoredDashboardCLISession", err, nil)
-		traceCtx.HelperExit(saveSpan, "cli", "saveStoredDashboardCLISession", "error", "CLI dashboard session save failed", nil)
-		fmt.Printf("DASHBOARD LOGIN FAILED: %v\n", err)
-		return tracedCommandResult{ExitCode: types.ExitSystemError, TraceStatus: "system_error", TraceMessage: "CLI dashboard session save failed"}
-	}
-	traceCtx.HelperExit(saveSpan, "cli", "saveStoredDashboardCLISession", "ok", "CLI dashboard session saved", nil)
 
 	activationSpan := traceCtx.HelperEnter("cli", "activateDashboardUploadForSession", "activating dashboard upload for current project", nil)
 	if err := activateDashboardUploadForSession(baseURL, session.AccessToken); err != nil {
@@ -159,19 +129,104 @@ func runDashboardLoginCommand(traceCtx *clitrace.Context, args []string) tracedC
 	return tracedCommandResult{ExitCode: types.ExitSuccess, TraceStatus: "authenticated", TraceMessage: "CLI dashboard session connected"}
 }
 
-func activateDashboardUploadForSession(baseURL, accessToken string) error {
+func completeDashboardBrowserLogin(traceCtx *clitrace.Context, baseURL, intro string, stdout *os.File, noOpen bool) (baselineDashboardCLISession, error) {
+	startSpan := ""
+	if traceCtx != nil {
+		startSpan = traceCtx.HelperEnter("cli", "startCLISessionLogin", "starting CLI dashboard login request", nil)
+	}
+	started, err := startCLISessionLogin(baseURL)
+	if err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "startCLISessionLogin", err, nil)
+			traceCtx.HelperExit(startSpan, "cli", "startCLISessionLogin", "error", "dashboard login request start failed", nil)
+		}
+		return baselineDashboardCLISession{}, err
+	}
+	if traceCtx != nil {
+		traceCtx.HelperExit(startSpan, "cli", "startCLISessionLogin", "ok", "dashboard login request started", nil)
+	}
+
+	output := stdout
+	if output == nil {
+		output = os.Stdout
+	}
+	if strings.TrimSpace(intro) == "" {
+		intro = "Approve this request in your dashboard."
+	}
+	fmt.Fprintln(output, intro)
+	fmt.Fprintf(output, "User code: %s\n", started.UserCode)
+	fmt.Fprintf(output, "Verification URL: %s\n", started.VerificationURL)
+	fmt.Fprintf(output, "Approval URL: %s\n", started.CompleteVerificationURL)
+
+	if !noOpen {
+		if traceCtx != nil {
+			traceCtx.Branch("cli", "dashboard login", "open_browser", nil)
+		}
+		if err := openBrowserForDashboardLogin(started.CompleteVerificationURL); err != nil {
+			if traceCtx != nil {
+				traceCtx.Error("cli", "openBrowser", err, nil)
+			}
+			fmt.Fprintf(output, "Could not open browser automatically. Open this URL manually:\n%s\n", started.CompleteVerificationURL)
+		}
+	}
+
+	pollSpan := ""
+	if traceCtx != nil {
+		pollSpan = traceCtx.HelperEnter("cli", "pollCLISessionLogin", "waiting for CLI dashboard login approval", nil)
+	}
+	session, err := pollCLISessionLogin(started)
+	if err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "pollCLISessionLogin", err, nil)
+			traceCtx.HelperExit(pollSpan, "cli", "pollCLISessionLogin", "error", "dashboard login approval failed", nil)
+		}
+		return baselineDashboardCLISession{}, err
+	}
+	if traceCtx != nil {
+		traceCtx.HelperExit(pollSpan, "cli", "pollCLISessionLogin", "ok", "dashboard login approved", nil)
+	}
+
+	saveSpan := ""
+	if traceCtx != nil {
+		saveSpan = traceCtx.HelperEnter("cli", "saveStoredDashboardCLISession", "saving CLI dashboard session", nil)
+	}
+	if err := saveStoredDashboardCLISession(session); err != nil {
+		if traceCtx != nil {
+			traceCtx.Error("cli", "saveStoredDashboardCLISession", err, nil)
+			traceCtx.HelperExit(saveSpan, "cli", "saveStoredDashboardCLISession", "error", "CLI dashboard session save failed", nil)
+		}
+		return baselineDashboardCLISession{}, err
+	}
+	if traceCtx != nil {
+		traceCtx.HelperExit(saveSpan, "cli", "saveStoredDashboardCLISession", "ok", "CLI dashboard session saved", nil)
+	}
+	return session, nil
+}
+
+func connectDashboardUploadWithBearerToken(baseURL, authToken, explicitProjectID string) (dashboardConnectResult, error) {
 	normalizedBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	authToken := strings.TrimSpace(accessToken)
-	if normalizedBaseURL == "" || authToken == "" {
-		return errors.New("dashboard session is missing API base URL or access token")
+	token := strings.TrimSpace(authToken)
+	if normalizedBaseURL == "" || token == "" {
+		return dashboardConnectResult{}, errors.New("dashboard session is missing API base URL or access token")
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
-	projectID, err := resolveOrCreateProjectForConnection(client, normalizedBaseURL, authToken, "")
+	projectID, err := resolveOrCreateProjectForConnection(client, normalizedBaseURL, token, explicitProjectID)
 	if err != nil {
-		return err
+		return dashboardConnectResult{}, err
 	}
-	return saveSessionBackedDashboardUploadConfig(normalizedBaseURL, projectID)
+	if err := saveSessionBackedDashboardUploadConfig(normalizedBaseURL, projectID); err != nil {
+		return dashboardConnectResult{}, err
+	}
+	return dashboardConnectResult{
+		APIBaseURL: normalizedBaseURL,
+		ProjectID:  projectID,
+	}, nil
+}
+
+func activateDashboardUploadForSession(baseURL, accessToken string) error {
+	_, err := connectDashboardUploadWithBearerToken(baseURL, accessToken, "")
+	return err
 }
 
 func saveSessionBackedDashboardUploadConfig(baseURL, projectID string) error {
