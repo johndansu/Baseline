@@ -255,6 +255,10 @@ class BaselineDashboard {
             items: [],
             readIDs: new Set()
         };
+        this.bootstrapState = {
+            active: true,
+            lastError: null
+        };
         this.preferences = this.loadDashboardPreferences();
         this.autoRefreshIntervalMs = this.preferences.refreshIntervalMs;
         this.currentTab = this.preferences.defaultTab;
@@ -347,6 +351,7 @@ class BaselineDashboard {
         this.setupTabNavigation();
         this.initializeChart();
         this.setupEventListeners();
+        this.bindBootstrapControls();
         this.bindOverviewControls();
         this.setupAutoRefresh();
         this.bindModalTriggerButtons(document);
@@ -355,51 +360,93 @@ class BaselineDashboard {
         this.bindRunScanForm();
         this.bindGenerateKeyForm();
         this.bindRevokeKeyForm();
-        this.updateUserUI({});
+        this.showBootstrapOverlay('Loading your workspace', 'We are checking your session and pulling in your latest dashboard data.');
         this.bootstrap();
     }
 
     async bootstrap() {
-        const authSession = await this.loadAuthSession();
-        if (!authSession) {
-            return;
-        }
-        if (authSession.role) {
-            this.authz.role = String(authSession.role).toLowerCase() || this.authz.role;
-        }
-        this.setupDashboardStream();
-        await this.loadCapabilities();
-        if (this.isAdmin()) {
-            this.apiKeyState.mode = 'me';
-            this.apiKeyState.targetUserID = '';
-        } else {
-            this.apiKeyState.mode = 'me';
-            this.apiKeyState.targetUserID = '';
-        }
-        this.applyCapabilitiesToNavigation();
-        const preferredTab = String(this.preferences?.defaultTab || 'overview').trim().toLowerCase();
-        if (preferredTab && preferredTab !== this.currentTab && this.canAccessTab(preferredTab)) {
-            this.currentTab = preferredTab;
-        }
-        if (!this.canAccessTab(this.currentTab)) {
-            const fallback = this.firstAllowedTab();
-            if (fallback) {
-                this.currentTab = fallback;
-                this.switchTab(fallback);
+        this.bootstrapState.active = true;
+        this.bootstrapState.lastError = null;
+        this.showBootstrapOverlay('Loading your workspace', 'We are checking your session and pulling in your latest dashboard data.');
+        try {
+            const authSession = await this.loadAuthSessionWithRetry();
+            if (!authSession) {
                 return;
             }
+            if (authSession.role) {
+                this.authz.role = String(authSession.role).toLowerCase() || this.authz.role;
+            }
+            this.setupDashboardStream();
+            await this.loadCapabilities();
+            this.apiKeyState.mode = 'me';
+            this.apiKeyState.targetUserID = '';
+            this.applyCapabilitiesToNavigation();
+            const preferredTab = String(this.preferences?.defaultTab || 'overview').trim().toLowerCase();
+            if (preferredTab && preferredTab !== this.currentTab && this.canAccessTab(preferredTab)) {
+                this.currentTab = preferredTab;
+            }
+            if (!this.canAccessTab(this.currentTab)) {
+                const fallback = this.firstAllowedTab();
+                if (fallback) {
+                    this.currentTab = fallback;
+                    this.switchTab(fallback);
+                    this.hideBootstrapOverlay();
+                    return;
+                }
+            }
+            await this.loadDashboardData();
+            this.switchTab(this.currentTab);
+            this.handlePendingCLILoginApproval();
+            this.hideBootstrapOverlay();
+        } catch (error) {
+            this.bootstrapState.lastError = error;
+            this.showBootstrapOverlay(
+                'Unable to load the dashboard',
+                this.describeBootstrapError(error),
+                true
+            );
+        } finally {
+            this.bootstrapState.active = false;
         }
-        await this.loadDashboardData();
-        this.switchTab(this.currentTab);
-        this.handlePendingCLILoginApproval();
+    }
+
+    async loadAuthSessionWithRetry() {
+        const retryDelaysMs = [0, 1500, 3000];
+        let lastError = null;
+        for (let attempt = 0; attempt < retryDelaysMs.length; attempt += 1) {
+            const delayMs = retryDelaysMs[attempt];
+            if (delayMs > 0) {
+                this.showBootstrapOverlay(
+                    'Reconnecting to Baseline',
+                    `The API is waking up. Retrying in ${Math.ceil(delayMs / 1000)} second${delayMs >= 2000 ? 's' : ''}...`
+                );
+                await this.sleep(delayMs);
+            }
+            try {
+                return await this.loadAuthSession();
+            } catch (error) {
+                lastError = error;
+                if (this.isUnauthorizedBootstrapError(error)) {
+                    this.handleUnauthorized();
+                    return null;
+                }
+                if (!this.isRetryableBootstrapError(error) || attempt === retryDelaysMs.length - 1) {
+                    break;
+                }
+            }
+        }
+        throw lastError || new Error('Unable to verify your session.');
     }
 
     async loadAuthSession() {
         try {
-            const payload = await this.apiRequest('/v1/auth/me');
+            const payload = await this.apiRequest('/v1/auth/me', {
+                suppressUnauthorizedHandler: true
+            });
             if (!payload || payload.authenticated !== true) {
-                this.handleUnauthorized();
-                return null;
+                const authError = new Error('Your session is no longer active.');
+                authError.status = 401;
+                throw authError;
             }
             this.identity = {
                 user: String(payload.user || '').trim(),
@@ -420,10 +467,73 @@ class BaselineDashboard {
                 role: String(payload.role || '')
             });
             return payload;
-        } catch (_) {
-            this.handleUnauthorized();
-            return null;
+        } catch (error) {
+            throw error;
         }
+    }
+
+    bindBootstrapControls() {
+        const retryButton = document.getElementById('dashboard-bootstrap-retry');
+        if (!retryButton) {
+            return;
+        }
+        retryButton.addEventListener('click', () => {
+            this.bootstrap();
+        });
+    }
+
+    showBootstrapOverlay(title, message, showRetry = false) {
+        const overlay = document.getElementById('dashboard-bootstrap-overlay');
+        const titleNode = document.getElementById('dashboard-bootstrap-title');
+        const messageNode = document.getElementById('dashboard-bootstrap-message');
+        const actionsNode = document.getElementById('dashboard-bootstrap-actions');
+        if (titleNode) {
+            titleNode.textContent = title || 'Loading your workspace';
+        }
+        if (messageNode) {
+            messageNode.textContent = message || 'We are checking your session and pulling in your latest dashboard data.';
+        }
+        if (actionsNode) {
+            actionsNode.classList.toggle('hidden', !showRetry);
+        }
+        if (overlay) {
+            overlay.classList.remove('hidden');
+        }
+    }
+
+    hideBootstrapOverlay() {
+        const overlay = document.getElementById('dashboard-bootstrap-overlay');
+        if (overlay) {
+            overlay.classList.add('hidden');
+        }
+    }
+
+    isRetryableBootstrapError(error) {
+        const status = Number(error?.status || 0);
+        if (!status) {
+            return true;
+        }
+        return status === 400 || status === 408 || status === 425 || status === 429 || status === 502 || status === 503 || status === 504;
+    }
+
+    isUnauthorizedBootstrapError(error) {
+        return Number(error?.status || 0) === 401;
+    }
+
+    describeBootstrapError(error) {
+        if (this.isRetryableBootstrapError(error)) {
+            return 'The dashboard could not reach the API yet. This usually happens while the backend is waking up. Retry in a moment.';
+        }
+        if (this.isUnauthorizedBootstrapError(error)) {
+            return 'Your session has expired. We are sending you back to sign in again.';
+        }
+        return String(error?.message || 'The dashboard could not finish loading.');
+    }
+
+    sleep(ms) {
+        return new Promise((resolve) => {
+            window.setTimeout(resolve, ms);
+        });
     }
 
     async loadCapabilities() {

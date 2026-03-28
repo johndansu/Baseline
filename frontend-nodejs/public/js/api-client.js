@@ -55,6 +55,7 @@ export class DashboardAPIClient {
     async request(path, options = {}) {
         const method = String(options.method || 'GET').toUpperCase();
         const headers = this.normalizeHeaders(options.headers);
+        const suppressUnauthorizedHandler = options.suppressUnauthorizedHandler === true;
         if (this.isMutatingMethod(method) && !this.hasHeader(headers, 'X-Baseline-CSRF')) {
             headers['X-Baseline-CSRF'] = '1';
         }
@@ -67,7 +68,9 @@ export class DashboardAPIClient {
         });
 
         if (response.status === 401) {
-            this.onUnauthorized();
+            if (!suppressUnauthorizedHandler) {
+                this.onUnauthorized();
+            }
             throw new DashboardAPIError('Unauthorized', { code: 'unauthorized', status: 401 });
         }
 
