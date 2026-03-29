@@ -3,11 +3,9 @@ package cli
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,42 +50,12 @@ func TestResolveDashboardUploadConfigForScanPrefersSavedDisabledConfigOverEnv(t 
 	}
 }
 
-func TestMaybePromptForDashboardUploadConnectsAndPersistsConfig(t *testing.T) {
+func TestMaybePromptForDashboardUploadRequiresConfiguredDashboardAPI(t *testing.T) {
 	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
 	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
 	t.Setenv("BASELINE_CONFIG_PATH", configPath)
 
-	var authHeaders []string
-	var createdProjectName string
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"projects":[]}`))
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/projects":
-			var payload map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("decode create project payload: %v", err)
-			}
-			createdProjectName, _ = payload["name"].(string)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":"proj_baseline","name":"baseline","repository_url":"https://github.com/example/baseline.git"}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-
-	parsedURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("parse server URL: %v", err)
-	}
-	t.Setenv("BASELINE_API_ADDR", parsedURL.Host)
-
-	stdinFile := tempInputFile(t, "y\n\nuser-api-key\n")
+	stdinFile := tempInputFile(t, "y\n")
 	defer stdinFile.Close()
 	stdoutFile, err := os.CreateTemp(t.TempDir(), "baseline-dashboard-output-*.txt")
 	if err != nil {
@@ -99,52 +67,12 @@ func TestMaybePromptForDashboardUploadConnectsAndPersistsConfig(t *testing.T) {
 	interactiveTerminalCheck = func(stdin *os.File, stdout *os.File) bool { return true }
 	defer func() { interactiveTerminalCheck = oldCheck }()
 
-	connection, err := maybePromptForDashboardUpload(stdinFile, stdoutFile)
-	if err != nil {
-		t.Fatalf("maybePromptForDashboardUpload returned error: %v", err)
+	_, err = maybePromptForDashboardUpload(stdinFile, stdoutFile)
+	if err == nil {
+		t.Fatal("expected missing dashboard API configuration to fail")
 	}
-	if !connection.Enabled || !connection.Prompted {
-		t.Fatalf("expected enabled prompted connection, got %+v", connection)
-	}
-	if connection.APIBaseURL != server.URL {
-		t.Fatalf("expected API base URL %q, got %q", server.URL, connection.APIBaseURL)
-	}
-	if connection.ProjectID != "proj_baseline" {
-		t.Fatalf("expected project proj_baseline, got %q", connection.ProjectID)
-	}
-	if connection.APIKey != "user-api-key" {
-		t.Fatalf("expected stored API key to be returned, got %q", connection.APIKey)
-	}
-	if connection.Source != "prompt" {
-		t.Fatalf("expected prompt connection source, got %q", connection.Source)
-	}
-	if len(authHeaders) < 2 || authHeaders[len(authHeaders)-2] != "Bearer user-api-key" || authHeaders[len(authHeaders)-1] != "Bearer user-api-key" {
-		t.Fatalf("expected project lookup/create to use provided key, got %#v", authHeaders)
-	}
-	if strings.TrimSpace(createdProjectName) == "" {
-		t.Fatalf("expected create project payload to include a name")
-	}
-
-	savedConfig, err := loadBaselineLocalConfig()
-	if err != nil {
-		t.Fatalf("loadBaselineLocalConfig returned error: %v", err)
-	}
-	if !savedConfig.Dashboard.Upload.Prompted || !savedConfig.Dashboard.Upload.Enabled {
-		t.Fatalf("expected persisted enabled upload config, got %+v", savedConfig.Dashboard.Upload)
-	}
-	if savedConfig.Dashboard.Upload.ProjectID != "proj_baseline" {
-		t.Fatalf("expected persisted project ID proj_baseline, got %q", savedConfig.Dashboard.Upload.ProjectID)
-	}
-	if savedConfig.Dashboard.Upload.APIKeyRef != "default" {
-		t.Fatalf("expected persisted API key ref default, got %q", savedConfig.Dashboard.Upload.APIKeyRef)
-	}
-
-	secrets, err := loadBaselineSecrets()
-	if err != nil {
-		t.Fatalf("loadBaselineSecrets returned error: %v", err)
-	}
-	if got := secrets.Dashboard.APIKeys["default"]; got != "user-api-key" {
-		t.Fatalf("expected stored API key, got %q", got)
+	if !strings.Contains(err.Error(), "baseline dashboard login --api <your-api-url>") {
+		t.Fatalf("expected hosted login guidance, got %q", err.Error())
 	}
 }
 
@@ -267,6 +195,32 @@ func TestMaybePromptForDashboardUploadPrefersStoredSessionAPIOverLocalEnv(t *tes
 	}
 	if len(authHeaders) != 1 || authHeaders[0] != "Bearer session-access-token" {
 		t.Fatalf("expected hosted session token to be used, got %#v", authHeaders)
+	}
+}
+
+func TestConnectDashboardForCurrentProjectWithReaderReturnsHelpfulErrorWhenBrowserConnectFails(t *testing.T) {
+	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
+	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+
+	reader := bufio.NewReader(strings.NewReader(""))
+	stdoutFile, err := os.CreateTemp(t.TempDir(), "baseline-dashboard-output-*.txt")
+	if err != nil {
+		t.Fatalf("create stdout file: %v", err)
+	}
+	defer stdoutFile.Close()
+
+	_, err = connectDashboardForCurrentProjectWithReader(nil, dashboardConnectOptions{
+		APIBaseURL: "https://baseline-api.example.com",
+	}, reader, stdoutFile, true)
+	if err == nil {
+		t.Fatal("expected browser connect failure")
+	}
+	if !strings.Contains(err.Error(), "dashboard browser connect failed") {
+		t.Fatalf("expected browser connect failure guidance, got %q", err.Error())
+	}
+	if strings.Contains(err.Error(), "Falling back to manual API key entry") {
+		t.Fatalf("did not expect manual fallback guidance, got %q", err.Error())
 	}
 }
 

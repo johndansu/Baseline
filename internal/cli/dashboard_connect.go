@@ -461,7 +461,7 @@ func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opt
 	}
 
 	if strings.TrimSpace(apiBaseURL) == "" {
-		return dashboardConnectResult{}, errors.New("dashboard API URL is required")
+		return dashboardConnectResult{}, errors.New("no dashboard API URL is configured; run `baseline dashboard login --api <your-api-url>` first or pass `--api` explicitly")
 	}
 	validateSpan := ""
 	if traceCtx != nil {
@@ -489,28 +489,11 @@ func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opt
 			if err == nil {
 				return result, nil
 			}
-			fmt.Fprintf(stdout, "Dashboard browser connect unavailable (%v). Falling back to manual API key entry.\n", err)
-			prompt := fmt.Sprintf("Dashboard API URL [%s]: ", apiBaseURL)
-			value, promptErr := promptForInput(reader, stdout, prompt)
-			if promptErr != nil {
-				return dashboardConnectResult{}, promptErr
-			}
-			value = strings.TrimSpace(value)
-			if value != "" {
-				apiBaseURL, err = validateAPIBaseURL(value)
-				if err != nil {
-					return dashboardConnectResult{}, err
-				}
-			}
-			value, promptErr = promptForInput(reader, stdout, "Dashboard API key: ")
-			if promptErr != nil {
-				return dashboardConnectResult{}, promptErr
-			}
-			apiKey = strings.TrimSpace(value)
+			return dashboardConnectResult{}, fmt.Errorf("dashboard browser connect failed: %w. Run `baseline dashboard login --api <your-api-url>` first or pass `baseline dashboard connect --api <your-api-url> --api-key <key>`", err)
 		}
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		return dashboardConnectResult{}, errors.New("dashboard API key is required")
+		return dashboardConnectResult{}, errors.New("dashboard connect requires a CLI dashboard session or an explicit `--api-key`")
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -622,7 +605,7 @@ func resolveDashboardConnectBaseURL(explicit string) string {
 	if baseURL := defaultScanUploadBaseURL(); strings.TrimSpace(baseURL) != "" {
 		return baseURL
 	}
-	return apiURLFromAPIAddr(os.Getenv("BASELINE_API_ADDR"))
+	return ""
 }
 
 func dashboardSessionAccessTokenForBaseURL(baseURL string) string {
