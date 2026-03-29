@@ -70,7 +70,8 @@ export function renderProjectsTable(dashboard, projects) {
                                                     type="button"
                                                     data-project-action="edit"
                                                     data-project-id="${dashboard.escapeHtml(project.id)}"
-                                                    class="text-orange-600 hover:text-orange-700 font-medium"
+                                                    class="font-medium"
+                                                    style="color:#ea580c;background:transparent;"
                                                 >
                                                     Edit
                                                 </button>
@@ -79,7 +80,8 @@ export function renderProjectsTable(dashboard, projects) {
                                                 type="button"
                                                 data-project-action="view"
                                                 data-project-id="${dashboard.escapeHtml(project.id)}"
-                                                class="text-gray-700 hover:text-gray-900 font-medium"
+                                                class="font-medium"
+                                                style="color:#374151;background:transparent;"
                                             >
                                                 View
                                             </button>
@@ -88,7 +90,8 @@ export function renderProjectsTable(dashboard, projects) {
                                                     type="button"
                                                     data-project-action="assign-owner"
                                                     data-project-id="${dashboard.escapeHtml(project.id)}"
-                                                    class="text-gray-600 hover:text-gray-900 font-medium"
+                                                    class="font-medium"
+                                                    style="color:#4b5563;background:transparent;"
                                                 >
                                                     Assign owner
                                                 </button>
