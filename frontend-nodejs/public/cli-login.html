@@ -24,9 +24,9 @@
             min-height: 100vh;
             font-family: "Segoe UI", system-ui, sans-serif;
             background:
-                radial-gradient(circle at top left, rgba(251, 191, 36, 0.28), transparent 35%),
-                radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.2), transparent 40%),
-                linear-gradient(160deg, #fff7ed 0%, var(--bg) 100%);
+                radial-gradient(circle at top left, rgba(251, 191, 36, 0.18), transparent 35%),
+                radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.14), transparent 40%),
+                linear-gradient(160deg, #fffaf5 0%, var(--bg) 100%);
             color: var(--text);
             display: grid;
             place-items: center;
@@ -34,12 +34,18 @@
         }
 
         .card {
-            width: min(480px, 100%);
-            background: var(--panel);
-            border: 1px solid var(--border);
-            border-radius: 24px;
-            box-shadow: 0 30px 80px rgba(15, 23, 42, 0.12);
-            padding: 28px;
+            width: min(420px, 100%);
+            border-radius: 20px;
+            padding: 28px 24px;
+            text-align: center;
+            opacity: 0;
+            transform: translateY(8px);
+            transition: opacity 140ms ease, transform 140ms ease;
+        }
+
+        .card.visible {
+            opacity: 1;
+            transform: translateY(0);
         }
 
         .eyebrow {
@@ -51,12 +57,12 @@
             letter-spacing: 0.08em;
             text-transform: uppercase;
             color: var(--accent);
-            margin-bottom: 14px;
+            margin-bottom: 12px;
         }
 
         h1 {
             margin: 0 0 10px;
-            font-size: clamp(28px, 4vw, 38px);
+            font-size: clamp(26px, 4vw, 34px);
             line-height: 1.05;
         }
 
@@ -66,12 +72,14 @@
             line-height: 1.6;
         }
 
-        .code-block {
-            margin-top: 20px;
-            border-radius: 18px;
-            border: 1px solid rgba(234, 88, 12, 0.18);
-            background: rgba(255, 247, 237, 0.9);
-            padding: 18px;
+        .spinner {
+            width: 46px;
+            height: 46px;
+            margin: 0 auto 18px;
+            border-radius: 999px;
+            border: 3px solid rgba(15, 23, 42, 0.08);
+            border-top-color: var(--accent);
+            animation: spin 0.9s linear infinite;
         }
 
         .code-label {
@@ -84,18 +92,20 @@
         }
 
         .code-value {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 800;
             letter-spacing: 0.18em;
             color: var(--text);
+            margin-top: 14px;
         }
 
         .status {
-            margin-top: 20px;
+            margin-top: 16px;
             padding: 14px 16px;
             border-radius: 16px;
             background: rgba(15, 23, 42, 0.04);
             font-size: 14px;
+            text-align: left;
         }
 
         .status strong {
@@ -112,17 +122,22 @@
         .link:hover {
             text-decoration: underline;
         }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 </head>
 <body>
-    <main class="card">
+    <main id="bridgeCard" class="card" aria-live="polite">
         <div class="eyebrow">Baseline CLI</div>
-        <h1>Preparing dashboard approval</h1>
-        <p id="message">We are checking your session and opening the CLI approval modal in the dashboard.</p>
-        <div class="code-block">
-            <div class="code-label">User code</div>
-            <div id="userCode" class="code-value">-</div>
-        </div>
+        <div class="spinner" aria-hidden="true"></div>
+        <h1>Redirecting to approval</h1>
+        <p id="message">We are taking you to the existing dashboard approval modal.</p>
+        <div class="code-label">User code</div>
+        <div id="userCode" class="code-value">-</div>
         <div class="status">
             <strong>What happens next</strong>
             <span id="status">If you are signed in, we will take you straight to the existing dashboard approval flow. Otherwise, we will send you to sign in first and bring you back here automatically.</span>
@@ -146,11 +161,17 @@
                 : '/dashboard.html?approve_cli_login=1';
             const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash || ''}`;
             const signInPath = `/signin.html?return_to=${encodeURIComponent(currentPath)}`;
+            const bridgeCard = document.getElementById('bridgeCard');
+            const revealBridge = window.setTimeout(() => {
+                bridgeCard?.classList.add('visible');
+            }, 450);
 
             document.getElementById('userCode').textContent = normalizedUserCode;
             document.getElementById('dashboardLink').href = dashboardPath;
 
             if (!deviceCode || !userCode) {
+                window.clearTimeout(revealBridge);
+                bridgeCard?.classList.add('visible');
                 document.getElementById('message').textContent = 'This approval link is incomplete.';
                 document.getElementById('status').textContent = 'Go back to the terminal and start the CLI approval flow again so we can open the right dashboard modal for you.';
                 return;
@@ -164,6 +185,7 @@
                 });
 
                 if (response.status === 401) {
+                    window.clearTimeout(revealBridge);
                     window.location.replace(signInPath);
                     return;
                 }
@@ -172,8 +194,11 @@
                     throw new Error(`auth ${response.status}`);
                 }
 
+                window.clearTimeout(revealBridge);
                 window.location.replace(dashboardPath);
             } catch (_) {
+                window.clearTimeout(revealBridge);
+                bridgeCard?.classList.add('visible');
                 document.getElementById('message').textContent = 'We could not verify your session yet.';
                 document.getElementById('status').innerHTML = `Open <a class="link" href="${dashboardPath}">the dashboard approval flow</a> manually, or sign in first and try the terminal link again.`;
             }
