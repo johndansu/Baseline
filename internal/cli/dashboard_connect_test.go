@@ -456,7 +456,8 @@ func TestConnectDashboardForCurrentProjectWithReaderUsesBrowserLoginWhenNoSessio
 			_, _ = w.Write([]byte(`{
 				"device_code":"device-123",
 				"user_code":"ABCD-EFGH",
-				"verification_url":"` + server.URL + `/dashboard",
+				"verification_url":"` + server.URL + `/cli-login.html",
+				"complete_verification_url":"` + server.URL + `/cli-login.html?device_code=device-123&user_code=ABCD-EFGH",
 				"expires_at":"2099-03-16T21:30:00Z",
 				"interval_seconds":1
 			}`))
