@@ -318,18 +318,18 @@ async function mockDashboardSessionAPI(page) {
   return state;
 }
 
-test('CLI login approval page supports dashboard approval from query URL', async ({ page }) => {
+test('CLI login bridge opens the existing dashboard approval modal from query URL', async ({ page }) => {
   const state = await mockDashboardSessionAPI(page);
 
   await page.goto('/cli-login.html?device_code=device-123&user_code=PBMK-NKUA');
 
   await expect(page.getByRole('heading', { name: 'Approve CLI Login' })).toBeVisible();
-  await expect(page.locator('#userCodeInput')).toHaveValue('PBMK-NKUA');
-  await expect(page.locator('#userCode')).toHaveText('PBMK-NKUA');
+  await expect(page.locator('#cli-login-user-code')).toHaveValue('PBMK-NKUA');
+  await expect(page.locator('#cli-login-user-code-display')).toHaveText('PBMK-NKUA');
 
   await page.getByRole('button', { name: 'Approve CLI Session' }).click();
 
-  await expect(page.locator('#status')).toContainText('CLI session approved');
+  await expect(page.locator('#cli-login-approval-feedback')).toContainText('CLI session approved');
   await expect.poll(() => state.approvedCodes).toContain('PBMK-NKUA');
 });
 
