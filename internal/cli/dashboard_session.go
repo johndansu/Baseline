@@ -357,7 +357,7 @@ func startCLISessionLogin(baseURL string) (cliSessionLoginStart, error) {
 		return cliSessionLoginStart{}, err
 	}
 	started.APIBaseURL = strings.TrimRight(baseURL, "/")
-	started.CompleteVerificationURL = started.APIBaseURL + "/dashboard?approve_cli_login=1&user_code=" + url.QueryEscape(started.UserCode)
+	started.CompleteVerificationURL = started.APIBaseURL + "/cli-login.html?device_code=" + url.QueryEscape(started.DeviceCode) + "&user_code=" + url.QueryEscape(started.UserCode)
 	if started.IntervalSeconds <= 0 {
 		started.IntervalSeconds = 2
 	}

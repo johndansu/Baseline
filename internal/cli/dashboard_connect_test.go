@@ -497,7 +497,7 @@ func TestConnectDashboardForCurrentProjectWithReaderUsesBrowserLoginWhenNoSessio
 	if result.ProjectID != "proj_browser" {
 		t.Fatalf("expected project proj_browser, got %q", result.ProjectID)
 	}
-	if !strings.Contains(openedURL, "/dashboard?approve_cli_login=1&user_code=") {
+	if !strings.Contains(openedURL, "/cli-login.html?device_code=device-123&user_code=") {
 		t.Fatalf("expected browser approval URL to be opened, got %q", openedURL)
 	}
 

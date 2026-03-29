@@ -156,11 +156,11 @@ func TestStartCLISessionLoginBuildsDashboardApprovalURLFromAPIBase(t *testing.T)
 	if err != nil {
 		t.Fatalf("startCLISessionLogin: %v", err)
 	}
-	if !strings.HasPrefix(started.CompleteVerificationURL, server.URL+"/dashboard?approve_cli_login=1&user_code=") {
+	if !strings.HasPrefix(started.CompleteVerificationURL, server.URL+"/cli-login.html?device_code=device-123&user_code=") {
 		t.Fatalf("expected approval URL based on API base URL, got %q", started.CompleteVerificationURL)
 	}
-	if strings.Contains(started.CompleteVerificationURL, "/dashboard/dashboard") {
-		t.Fatalf("approval URL should not duplicate dashboard path: %q", started.CompleteVerificationURL)
+	if strings.Contains(started.CompleteVerificationURL, "/cli-login.html/cli-login.html") {
+		t.Fatalf("approval URL should not duplicate cli-login path: %q", started.CompleteVerificationURL)
 	}
 }
 
