@@ -357,7 +357,15 @@ func startCLISessionLogin(baseURL string) (cliSessionLoginStart, error) {
 		return cliSessionLoginStart{}, err
 	}
 	started.APIBaseURL = strings.TrimRight(baseURL, "/")
-	started.CompleteVerificationURL = started.APIBaseURL + "/cli-login.html?device_code=" + url.QueryEscape(started.DeviceCode) + "&user_code=" + url.QueryEscape(started.UserCode)
+	started.VerificationURL = strings.TrimSpace(started.VerificationURL)
+	started.CompleteVerificationURL = strings.TrimSpace(started.CompleteVerificationURL)
+	if started.CompleteVerificationURL == "" {
+		if started.VerificationURL != "" {
+			started.CompleteVerificationURL = started.VerificationURL + "?device_code=" + url.QueryEscape(started.DeviceCode) + "&user_code=" + url.QueryEscape(started.UserCode)
+		} else {
+			started.CompleteVerificationURL = started.APIBaseURL + "/cli-login.html?device_code=" + url.QueryEscape(started.DeviceCode) + "&user_code=" + url.QueryEscape(started.UserCode)
+		}
+	}
 	if started.IntervalSeconds <= 0 {
 		started.IntervalSeconds = 2
 	}
