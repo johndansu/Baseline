@@ -163,3 +163,16 @@ func TestStartCLISessionLoginBuildsDashboardApprovalURLFromAPIBase(t *testing.T)
 		t.Fatalf("approval URL should not duplicate dashboard path: %q", started.CompleteVerificationURL)
 	}
 }
+
+func TestDefaultDashboardLoginBaseURLFallsBackToHostedDefault(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), ".baseline", "config.yaml")
+	t.Setenv("BASELINE_CONFIG_PATH", configPath)
+	t.Setenv("BASELINE_SCAN_API_URL", "")
+	t.Setenv("BASELINE_API_KEY", "")
+	t.Setenv("BASELINE_API_ADDR", "")
+	t.Setenv("BASELINE_DASHBOARD_API_URL", "")
+
+	if got := defaultDashboardLoginBaseURL(); got != defaultHostedDashboardAPIURL {
+		t.Fatalf("expected hosted default dashboard API URL %q, got %q", defaultHostedDashboardAPIURL, got)
+	}
+}
