@@ -19,6 +19,8 @@ import (
 
 var openBrowserForDashboardLogin = openBrowserURL
 
+const defaultHostedDashboardAPIURL = "https://baseline-api-95nb.onrender.com"
+
 func handleDashboardLogin(args []string) {
 	connection := resolveCLITelemetryConnection()
 	os.Exit(runTracedCommand("dashboard login", connection, func(traceCtx *clitrace.Context) tracedCommandResult {
@@ -521,7 +523,13 @@ func defaultDashboardLoginBaseURL() string {
 	if baseURL := defaultScanUploadBaseURL(); strings.TrimSpace(baseURL) != "" {
 		return baseURL
 	}
-	return apiURLFromAPIAddr(os.Getenv("BASELINE_API_ADDR"))
+	if baseURL := strings.TrimSpace(os.Getenv("BASELINE_DASHBOARD_API_URL")); baseURL != "" {
+		return baseURL
+	}
+	if baseURL := strings.TrimSpace(os.Getenv("BASELINE_API_ADDR")); baseURL != "" {
+		return apiURLFromAPIAddr(baseURL)
+	}
+	return defaultHostedDashboardAPIURL
 }
 
 func defaultCLIClientName() string {

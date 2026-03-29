@@ -50,7 +50,7 @@ func TestResolveDashboardUploadConfigForScanPrefersSavedDisabledConfigOverEnv(t 
 	}
 }
 
-func TestMaybePromptForDashboardUploadRequiresConfiguredDashboardAPI(t *testing.T) {
+func TestMaybePromptForDashboardUploadUsesHostedDefaultWhenNoSessionOrEnv(t *testing.T) {
 	repoDir := setupTempGitRepo(t, "https://github.com/example/baseline.git")
 	configPath := filepath.Join(repoDir, ".baseline", "config.yaml")
 	t.Setenv("BASELINE_CONFIG_PATH", configPath)
@@ -67,12 +67,27 @@ func TestMaybePromptForDashboardUploadRequiresConfiguredDashboardAPI(t *testing.
 	interactiveTerminalCheck = func(stdin *os.File, stdout *os.File) bool { return true }
 	defer func() { interactiveTerminalCheck = oldCheck }()
 
-	_, err = maybePromptForDashboardUpload(stdinFile, stdoutFile)
-	if err == nil {
-		t.Fatal("expected missing dashboard API configuration to fail")
+	oldBrowserConnect := connectDashboardViaBrowser
+	connectDashboardViaBrowser = func(traceCtx *clitrace.Context, apiBaseURL, explicitProjectID string, stdout *os.File) (dashboardConnectResult, error) {
+		if apiBaseURL != defaultHostedDashboardAPIURL {
+			t.Fatalf("expected hosted default API URL %q, got %q", defaultHostedDashboardAPIURL, apiBaseURL)
+		}
+		return dashboardConnectResult{
+			APIBaseURL: apiBaseURL,
+			ProjectID:  "proj_hosted_default",
+		}, nil
 	}
-	if !strings.Contains(err.Error(), "baseline dashboard login --api <your-api-url>") {
-		t.Fatalf("expected hosted login guidance, got %q", err.Error())
+	defer func() { connectDashboardViaBrowser = oldBrowserConnect }()
+
+	connection, err := maybePromptForDashboardUpload(stdinFile, stdoutFile)
+	if err != nil {
+		t.Fatalf("maybePromptForDashboardUpload returned error: %v", err)
+	}
+	if connection.APIBaseURL != defaultHostedDashboardAPIURL {
+		t.Fatalf("expected hosted default API URL %q, got %q", defaultHostedDashboardAPIURL, connection.APIBaseURL)
+	}
+	if connection.ProjectID != "proj_hosted_default" {
+		t.Fatalf("expected hosted default project id, got %q", connection.ProjectID)
 	}
 }
 

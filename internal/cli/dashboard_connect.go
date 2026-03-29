@@ -79,6 +79,7 @@ type dashboardConnectResult struct {
 
 var errDashboardUploadPromptSkipped = errors.New("dashboard upload prompt skipped")
 var interactiveTerminalCheck = isInteractiveTerminal
+var connectDashboardViaBrowser = connectDashboardForCurrentProjectViaBrowserLogin
 
 func handleDashboardConnect(args []string) {
 	connection := resolveCLITelemetryConnection()
@@ -485,7 +486,7 @@ func connectDashboardForCurrentProjectWithReader(traceCtx *clitrace.Context, opt
 			return connectDashboardUploadWithBearerToken(apiBaseURL, token, projectID)
 		}
 		if interactive {
-			result, err := connectDashboardForCurrentProjectViaBrowserLogin(traceCtx, apiBaseURL, projectID, stdout)
+			result, err := connectDashboardViaBrowser(traceCtx, apiBaseURL, projectID, stdout)
 			if err == nil {
 				return result, nil
 			}
@@ -605,7 +606,7 @@ func resolveDashboardConnectBaseURL(explicit string) string {
 	if baseURL := defaultScanUploadBaseURL(); strings.TrimSpace(baseURL) != "" {
 		return baseURL
 	}
-	return ""
+	return defaultDashboardLoginBaseURL()
 }
 
 func dashboardSessionAccessTokenForBaseURL(baseURL string) string {
