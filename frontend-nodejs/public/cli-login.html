@@ -137,6 +137,35 @@
         userCodeBox.textContent = code || 'ENTER CODE BELOW';
       }
 
+      async function ensureSignedIn() {
+        setStatus('Checking your dashboard session...', '');
+        try {
+          const response = await fetch('/v1/auth/me', {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (response.status === 401) {
+            const returnTo = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+            window.location.href = '/signin.html?return_to=' + returnTo;
+            return false;
+          }
+          if (!response.ok) {
+            setStatus('We could not verify your dashboard session yet. Try again in a moment.', 'bad');
+            return false;
+          }
+          const payload = await response.json().catch(() => ({}));
+          if (!payload || payload.authenticated !== true) {
+            const returnTo = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+            window.location.href = '/signin.html?return_to=' + returnTo;
+            return false;
+          }
+          setStatus('Ready to approve this CLI session.', '');
+          return true;
+        } catch (error) {
+          setStatus(error && error.message ? error.message : 'Unable to verify your session right now.', 'bad');
+          return false;
+        }
+      }
+
       async function approve() {
         const userCode = currentUserCode();
         if (!deviceCode && !userCode) {
@@ -178,6 +207,7 @@
       openDashboardButton.addEventListener('click', function () {
         window.location.href = '/dashboard';
       });
+      ensureSignedIn();
     })();
   </script>
 </body>

@@ -38,15 +38,22 @@ func TestCLISessionDeviceFlowLifecycle(t *testing.T) {
 	}
 
 	var startPayload struct {
-		DeviceCode      string `json:"device_code"`
-		UserCode        string `json:"user_code"`
-		VerificationURL string `json:"verification_url"`
+		DeviceCode              string `json:"device_code"`
+		UserCode                string `json:"user_code"`
+		VerificationURL         string `json:"verification_url"`
+		CompleteVerificationURL string `json:"complete_verification_url"`
 	}
 	if err := json.Unmarshal([]byte(body), &startPayload); err != nil {
 		t.Fatalf("decode start payload: %v body=%s", err, body)
 	}
 	if startPayload.DeviceCode == "" || startPayload.UserCode == "" {
 		t.Fatalf("expected device and user codes, payload=%+v", startPayload)
+	}
+	if !strings.Contains(startPayload.VerificationURL, "/cli-login.html") {
+		t.Fatalf("expected cli-login verification URL, got %q", startPayload.VerificationURL)
+	}
+	if !strings.Contains(startPayload.CompleteVerificationURL, "device_code=") || !strings.Contains(startPayload.CompleteVerificationURL, "user_code=") {
+		t.Fatalf("expected complete verification URL with device and user code, got %q", startPayload.CompleteVerificationURL)
 	}
 
 	resp, body = mustRequest(t, cliClient, http.MethodPost, ts.URL+"/v1/cli/session/poll", map[string]any{

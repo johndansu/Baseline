@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	clitrace "github.com/baseline/baseline/internal/cli/trace"
@@ -132,7 +131,7 @@ func TestActivateDashboardUploadForSessionPersistsSessionBackedConfig(t *testing
 	}
 }
 
-func TestStartCLISessionLoginBuildsDashboardApprovalURLFromAPIBase(t *testing.T) {
+func TestStartCLISessionLoginUsesServerProvidedCompleteVerificationURL(t *testing.T) {
 	var serverURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/cli/session/start" {
@@ -144,7 +143,8 @@ func TestStartCLISessionLoginBuildsDashboardApprovalURLFromAPIBase(t *testing.T)
 		_, _ = w.Write([]byte(`{
 			"device_code":"device-123",
 			"user_code":"ABCD-EFGH",
-			"verification_url":"` + serverURL + `/dashboard",
+			"verification_url":"` + serverURL + `/cli-login.html",
+			"complete_verification_url":"https://baseline-prod.vercel.app/cli-login.html?device_code=device-123&user_code=ABCD-EFGH",
 			"expires_at":"2026-03-16T21:30:00Z",
 			"interval_seconds":2
 		}`))
@@ -156,11 +156,8 @@ func TestStartCLISessionLoginBuildsDashboardApprovalURLFromAPIBase(t *testing.T)
 	if err != nil {
 		t.Fatalf("startCLISessionLogin: %v", err)
 	}
-	if !strings.HasPrefix(started.CompleteVerificationURL, server.URL+"/dashboard?approve_cli_login=1&user_code=") {
-		t.Fatalf("expected approval URL based on API base URL, got %q", started.CompleteVerificationURL)
-	}
-	if strings.Contains(started.CompleteVerificationURL, "/dashboard/dashboard") {
-		t.Fatalf("approval URL should not duplicate dashboard path: %q", started.CompleteVerificationURL)
+	if started.CompleteVerificationURL != "https://baseline-prod.vercel.app/cli-login.html?device_code=device-123&user_code=ABCD-EFGH" {
+		t.Fatalf("expected server-provided complete verification URL, got %q", started.CompleteVerificationURL)
 	}
 }
 

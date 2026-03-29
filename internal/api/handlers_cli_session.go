@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -77,11 +78,12 @@ func (s *Server) handleCLISessionStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"device_code":      deviceCode,
-		"user_code":        userCode,
-		"verification_url": s.cliVerificationURL(r),
-		"expires_at":       expiresAt,
-		"interval_seconds": 2,
+		"device_code":               deviceCode,
+		"user_code":                 userCode,
+		"verification_url":          s.cliVerificationURL(r),
+		"complete_verification_url": s.cliCompleteVerificationURL(r, deviceCode, userCode),
+		"expires_at":                expiresAt,
+		"interval_seconds":          2,
 	})
 }
 
@@ -759,7 +761,12 @@ func (s *Server) cliVerificationURL(r *http.Request) string {
 	if s.isRequestSecure(r) {
 		scheme = "https"
 	}
-	return fmt.Sprintf("%s://%s/dashboard", scheme, r.Host)
+	return fmt.Sprintf("%s://%s/cli-login.html", scheme, r.Host)
+}
+
+func (s *Server) cliCompleteVerificationURL(r *http.Request, deviceCode, userCode string) string {
+	base := s.cliVerificationURL(r)
+	return fmt.Sprintf("%s?device_code=%s&user_code=%s", base, url.QueryEscape(strings.TrimSpace(deviceCode)), url.QueryEscape(strings.TrimSpace(strings.ToUpper(userCode))))
 }
 
 func randomCLIUserCode() string {

@@ -456,7 +456,8 @@ func TestConnectDashboardForCurrentProjectWithReaderUsesBrowserLoginWhenNoSessio
 			_, _ = w.Write([]byte(`{
 				"device_code":"device-123",
 				"user_code":"ABCD-EFGH",
-				"verification_url":"` + server.URL + `/dashboard",
+				"verification_url":"` + server.URL + `/cli-login.html",
+				"complete_verification_url":"` + server.URL + `/cli-login.html?device_code=device-123&user_code=ABCD-EFGH",
 				"expires_at":"2099-03-16T21:30:00Z",
 				"interval_seconds":1
 			}`))
@@ -497,7 +498,7 @@ func TestConnectDashboardForCurrentProjectWithReaderUsesBrowserLoginWhenNoSessio
 	if result.ProjectID != "proj_browser" {
 		t.Fatalf("expected project proj_browser, got %q", result.ProjectID)
 	}
-	if !strings.Contains(openedURL, "/dashboard?approve_cli_login=1&user_code=") {
+	if !strings.Contains(openedURL, "/cli-login.html?device_code=device-123&user_code=") {
 		t.Fatalf("expected browser approval URL to be opened, got %q", openedURL)
 	}
 

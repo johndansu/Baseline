@@ -108,6 +108,13 @@ func refreshCLIUploadConnection(connection dashboardConnectionConfig) dashboardC
 	if refreshed.APIBaseURL == "" {
 		return refreshed
 	}
+	if session, err := refreshedStoredDashboardCLISession(refreshed.APIBaseURL); err == nil {
+		if strings.TrimSpace(session.AccessToken) != "" {
+			refreshed.AccessToken = strings.TrimSpace(session.AccessToken)
+			refreshed.RefreshToken = strings.TrimSpace(session.RefreshToken)
+			return refreshed
+		}
+	}
 	if token := storedCLIAccessTokenForBaseURL(refreshed.APIBaseURL); strings.TrimSpace(token) != "" {
 		refreshed.AccessToken = strings.TrimSpace(token)
 	}
