@@ -4,23 +4,21 @@ export function renderProjectsTable(dashboard, projects) {
     const canWriteProjects = dashboard.hasCapability('projects.write');
     const isAdmin = dashboard.isAdmin();
     const showActions = true;
-    const addProjectButton = canWriteProjects
-        ? `<button type="button" data-open-modal="addProjectModal" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">Add Project</button>`
-        : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Add Project</button>`;
     const editActionHeader = showActions
         ? `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>`
         : '';
     const ownerHeader = `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>`;
+    const helperCopy = isAdmin
+        ? 'Projects appear here after Baseline connects a repository or uploads a scan. Owner assignment is admin-only.'
+        : 'Projects appear here after Baseline connects a repository or uploads a scan. If one is missing, reconnect that repo from the CLI.';
 
     if (!Array.isArray(projects) || projects.length === 0) {
         projectsTab.innerHTML = `
             <div class="bg-white rounded-lg border border-gray-200 p-6">
-                <div class="flex items-center justify-between gap-4">
-                    <div>
-                        <h3 class="text-lg font-semibold text-gray-900">Projects</h3>
-                        <p class="text-sm text-gray-700 mt-1">No projects found.</p>
-                    </div>
-                    ${addProjectButton}
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900">Projects</h3>
+                    <p class="text-sm text-gray-700 mt-1">No projects found yet.</p>
+                    <p class="text-sm text-gray-500 mt-2">${helperCopy}</p>
                 </div>
             </div>
         `;
@@ -29,12 +27,12 @@ export function renderProjectsTable(dashboard, projects) {
 
     projectsTab.innerHTML = `
         <div class="bg-white rounded-lg border border-gray-200">
-            <div class="p-6 border-b border-gray-200 flex items-center justify-between gap-4">
+            <div class="p-6 border-b border-gray-200">
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900">Projects</h3>
-                    <p class="text-sm text-gray-700 mt-1">Live projects and scan posture from backend APIs</p>
+                    <p class="text-sm text-gray-700 mt-1">Projects Baseline already knows about, plus their latest scan posture.</p>
+                    <p class="text-sm text-gray-500 mt-2">${helperCopy}</p>
                 </div>
-                ${addProjectButton}
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full">
