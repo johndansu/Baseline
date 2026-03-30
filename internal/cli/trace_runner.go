@@ -55,10 +55,26 @@ func runTracedCommand(command string, connection dashboardConnectionConfig, fn f
 }
 
 func warnIfTraceUploadSkipped(command string, connection dashboardConnectionConfig, uploaded bool) {
-	if uploaded || !shouldWarnForSkippedTraceUpload(connection) {
+	if uploaded || !shouldWarnForSkippedTraceUpload(connection) || !shouldWarnForSkippedTraceUploadCommand(command) {
 		return
 	}
 	_, _ = fmt.Fprintf(os.Stderr, "Trace upload skipped for %q: no active dashboard session/config for this repository. Run `baseline dashboard login --api <your-api-url>`.\n", command)
+}
+
+func shouldWarnForSkippedTraceUploadCommand(command string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(command))
+	switch {
+	case normalized == "check",
+		normalized == "enforce",
+		normalized == "ci",
+		normalized == "api",
+		strings.HasPrefix(normalized, "api "),
+		normalized == "dashboard",
+		normalized == "dashboard serve":
+		return true
+	default:
+		return false
+	}
 }
 
 func shouldWarnForSkippedTraceUpload(connection dashboardConnectionConfig) bool {
