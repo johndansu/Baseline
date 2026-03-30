@@ -4,6 +4,9 @@ This changelog tracks user-visible Baseline releases and the most important fixe
 
 ## Unreleased
 
+### Changed
+- Added a mobile-only dashboard banner that keeps access open but clearly recommends desktop for project, scan, key, and operator-heavy workflows.
+
 ## v1.2.2
 
 ### Added
