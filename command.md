@@ -17,6 +17,22 @@ baseline report --sarif
 baseline explain A1
 ```
 
+## Install and Update
+```bash
+# first install
+npm i -g baselineprod-cli
+
+# recommended update path
+npm i -g baselineprod-cli@latest
+
+# confirm the installed build
+baseline version
+```
+
+Notes:
+- use the `@latest` install when you want the newest released fixes and frontend-connected flow changes
+- if Baseline behaves differently from the docs or dashboard, update the CLI first
+
 ## Project Dashboard Upload Flow
 ```bash
 # browser-based CLI session login

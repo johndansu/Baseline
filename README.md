@@ -498,10 +498,28 @@ npm i -g baselineprod-cli
 baseline version
 ```
 
+Update command:
+
+```bash
+npm i -g baselineprod-cli@latest
+baseline version
+```
+
+Recommended habit:
+- update the CLI before troubleshooting, reconnecting the dashboard, or trying a newly announced feature
+- Baseline is moving quickly right now, so recent fixes often land in the latest npm release first
+- check `CHANGELOG.md` when you want to see what changed between releases
+
 Package source:
 
 ```text
 npm/cli
+```
+
+Release notes:
+
+```text
+CHANGELOG.md
 ```
 
 Important:
