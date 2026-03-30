@@ -71,7 +71,22 @@
             <dt>Best operator entry</dt>
             <dd>Use <code>baseline api serve</code> when you need auth, audit history, and API-backed operations.</dd>
           </div>
+          <div>
+            <dt>Keep the CLI current</dt>
+            <dd>Run <code>npm i -g baselineprod-cli@latest</code> before troubleshooting or testing a newly released flow.</dd>
+          </div>
         </dl>
+      </section>
+
+      <section class="guide-block">
+        <h2>Install and update</h2>
+        <p>Baseline is moving quickly right now. If the docs mention a flow you do not see locally yet, update the CLI first.</p>
+        <pre><code>npm i -g baselineprod-cli
+baseline version
+
+npm i -g baselineprod-cli@latest
+baseline version</code></pre>
+        <p>For release-by-release changes, read <a href="https://github.com/baseline/baseline/blob/main/CHANGELOG.md">CHANGELOG.md</a>.</p>
       </section>
 
       <section id="core" class="guide-block">

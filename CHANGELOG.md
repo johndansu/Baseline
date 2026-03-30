@@ -1,132 +1,80 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+This changelog tracks user-visible Baseline releases and the most important fixes between versions.
 
-## [Unreleased] - 2026-02-18
+## Unreleased
 
-### Highlights
-- Moved the API from mostly in-memory behavior toward a durable service model.
-- Added first-class API key lifecycle management (issue/list/revoke).
-- Added OpenAPI contract publishing at runtime.
-- Added signed inbound integration webhooks for GitHub and GitLab.
-- Hardened auth/session behavior for production use.
+## v1.2.2
 
 ### Added
-- API key management endpoints:
-  - `GET /v1/api-keys` returns metadata inventory (no raw secrets).
-  - `POST /v1/api-keys` issues a new key (admin only, one-time secret return).
-  - `DELETE /v1/api-keys/{id}` revokes an existing managed key (admin only).
-- OpenAPI route:
-  - `GET /openapi.yaml` serves the API contract.
-- Integration webhook routes:
-  - `POST /v1/integrations/github/webhook`
-  - `POST /v1/integrations/gitlab/webhook`
-- Integration status publishing routes:
-  - `POST /v1/integrations/github/check-runs`
-  - `POST /v1/integrations/gitlab/statuses`
-- SQLite persistence layer:
-  - New persistent store implementation for API keys and audit events.
-  - Database initialization/migrations on API startup.
-  - Write-ahead logging and busy timeout pragmas for safer local concurrency.
-- Additional API metadata model:
-  - `APIKeyMetadata` includes `id`, `name`, `role`, `prefix`, `source`, `created_at`, `created_by`, `revoked`, `revoked_at`.
-- New configuration/env support:
-  - `BASELINE_API_REQUIRE_HTTPS`
-  - `BASELINE_API_DASHBOARD_SESSION_COOKIE_SECURE`
-  - `BASELINE_API_GITHUB_WEBHOOK_SECRET`
-  - `BASELINE_API_GITLAB_WEBHOOK_TOKEN`
-  - `BASELINE_API_GITHUB_TOKEN`
-  - `BASELINE_API_GITHUB_API_URL`
-  - `BASELINE_API_GITLAB_TOKEN`
-  - `BASELINE_API_GITLAB_API_URL`
+- Added explicit CLI update guidance to the landing page, CLI guide, README, and command reference.
+- Added `CHANGELOG.md` as the release-notes source of truth in the repository.
 
-### Security
-- Added Bearer auth challenge headers:
-  - 401 responses now include `WWW-Authenticate: Bearer ...` for standards-compliant clients.
-- Added CSRF guard for session-cookie auth:
-  - Session-authenticated mutating requests now require `X-Baseline-CSRF: 1`.
-- Enforced stricter request parsing:
-  - Max request body size at handler level.
-  - Strict JSON decode behavior with unknown-field rejection.
-  - Deterministic `request_too_large` error on overflow.
-- Hardened session cookies:
-  - `HttpOnly` + strict same-site behavior.
-  - secure-cookie behavior aligned with HTTPS/proxy settings.
-- GitHub webhook signature verification:
-  - HMAC SHA-256 via `X-Hub-Signature-256` validated against configured secret.
-- GitLab webhook token verification:
-  - `X-Gitlab-Token` validated with constant-time compare.
-- Outbound provider publishing authorization:
-  - GitHub check-run publishing requires configured API token.
-  - GitLab status publishing requires configured API token.
+## v1.2.1
+
+### Fixed
+- Quieted trace-upload warnings for normal user-facing commands such as `baseline version`, `baseline scan`, `baseline init`, `baseline report`, `baseline generate`, `baseline pr`, `baseline explain`, `baseline security-advice`, and dashboard auth/connect commands.
+
+## v1.2.0
 
 ### Changed
-- Self-service registration (`/v1/auth/register`) now issues server-generated API keys.
-- API key auth now supports full lifecycle states:
-  - active, revoked, bootstrap-protected.
-- Bootstrap key behavior:
-  - keys injected from environment are tracked as `source=bootstrap`.
-  - bootstrap keys are intentionally not revocable via API (must rotate in env + restart).
-- API startup behavior:
-  - `baseline api serve` now opens a persistent SQLite store and restores state.
-  - No-arg `baseline` auto-starts API when key config is present.
-- Dashboard behavior:
-  - removed persistent API-key storage in browser `localStorage`.
-  - credential entry remains in-memory for active session only.
-- Documentation:
-  - README and OpenAPI contract updated to reflect current implemented routes and security requirements.
+- Rolled up the recent CLI and frontend UX improvements into a clean minor release line.
 
-### Persistence
-- API keys persisted to SQLite with metadata and revocation state.
-- Audit events persisted and loaded across restarts.
-- Integration jobs persisted to SQLite (`pending/running/succeeded/failed`) with attempt counters.
-- Startup reconciliation:
-  - bootstrap env keys are ensured in DB without overwriting managed records.
-  - persisted managed keys are loaded into runtime auth state.
-- Revocation durability:
-  - key revocation is persisted before in-memory invalidation is finalized.
+### Fixed
+- Restored contrast for project action buttons in the dashboard so admin actions such as `Assign owner` remain visible.
+- Clarified the projects page so it matches the real project-creation flow instead of implying a manual add-project workflow.
 
-### API Contract and Runtime Behavior
-- Added explicit webhook contract entries to OpenAPI.
-- Added API key lifecycle contract entries to OpenAPI.
-- Added outbound GitHub/GitLab status publishing entries to OpenAPI.
-- Webhook routes now enqueue asynchronous integration jobs for background processing.
-- Error behavior standardized across new endpoints:
-  - `401 unauthorized`
-  - `403 forbidden` / `integration_disabled`
-  - `404 not_found`
-  - `409 conflict` for bootstrap key revoke attempts
-  - `413 request_too_large`
+## v1.1.9
 
-### CLI and Ops
-- API serve flow now fails early with deterministic error when store open fails.
-- Production verification now flags placeholder webhook secrets/tokens.
-- API usage/help text expanded with new integration env vars.
-- CI security scan tuned to high-confidence/high-severity `gosec` findings and excludes noisy subprocess/file-path false positives (`G204`, `G304`) from blocking pipeline merges.
+### Fixed
+- Streamlined the browser approval bridge used during CLI dashboard approval flows.
 
-### Tests
-- Added/expanded coverage for:
-  - unauthorized Bearer challenge behavior
-  - CSRF enforcement paths
-  - server-generated self-service keys
-  - API key lifecycle (create/list/revoke/blocked bootstrap revoke)
-  - persistence across restart (key auth + revoke + audit events)
-  - webhook validation (GitHub signature, GitLab token)
-  - outbound publish flow validation (GitHub check-run, GitLab commit status)
-  - persistent integration job enqueue behavior from webhook ingestion
-  - integration worker retry/backoff behavior for transient failures
-  - config parsing for new security/integration env variables
-- Full suite passing after these changes.
+## v1.1.8
 
-### Fixes
-- Fixed restart/state issues caused by config map aliasing.
-- Fixed key state reclassification edge cases during persistence bootstrap.
-- Fixed lifecycle consistency so revoked keys are rejected after restart.
+### Fixed
+- Routed CLI approval through the existing dashboard modal instead of a separate approval UI.
 
-### Notes for Operators
-- If you use session cookie auth for mutating calls, include `X-Baseline-CSRF: 1`.
-- For webhook ingestion, configure one or both:
-  - `BASELINE_API_GITHUB_WEBHOOK_SECRET`
-  - `BASELINE_API_GITLAB_WEBHOOK_TOKEN`
-- Keep `BASELINE_API_DB_PATH` on persistent storage in production.
-- Rotate any previously exposed API secrets before deploying these changes.
+## v1.1.7
+
+### Fixed
+- Moved CLI approval to a dedicated browser approval page flow.
+- Stopped hand-building approval URLs when the API already provides a complete verification URL.
+- Refreshed stored dashboard sessions before telemetry upload so trace/event uploads keep working after token refresh.
+- Updated browser-login tests to match the current session-start contract.
+
+## v1.1.6
+
+### Fixed
+- Defaulted dashboard connect/login flows to the hosted Baseline path instead of falling back to local manual entry.
+- Removed the manual dashboard API URL and API key fallback from the normal hosted scan/connect flow.
+- Made dashboard connect prefer the stored session API URL when one already exists.
+
+## v1.1.5
+
+### Fixed
+- Improved hosted dashboard connect behavior for fresh repositories so session-aware CLI flows work more consistently.
+
+## v1.1.4
+
+### Fixed
+- Reused dashboard sessions for project connect where possible.
+- Improved dashboard loading behavior during API wake-up so the UI stays in a loading/reconnecting state instead of dropping into a template-looking shell.
+
+## v1.1.3
+
+### Fixed
+- Quieted the telemetry warning for ordinary users who have not configured dashboard telemetry.
+- Updated public docs and landing copy to reflect npm installation.
+
+## v1.1.2
+
+### Added
+- Published the npm wrapper under `baselineprod-cli`.
+
+### Fixed
+- Matched the npm release line with the packaged GitHub release assets.
+
+## v1.1.1
+
+### Fixed
+- Fixed Bash release packaging to use absolute archive paths so Windows zip creation succeeds reliably.
