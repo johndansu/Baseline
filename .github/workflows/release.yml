@@ -260,8 +260,6 @@ jobs:
             ${{ steps.package.outputs.run_dir }}/SHA256SUMS.archives
             ${{ steps.package.outputs.run_dir }}/metadata.txt
             ${{ steps.package.outputs.run_dir }}/RELEASE_INFO.txt
-            ${{ steps.package.outputs.run_dir }}/archives/*.sig
-            ${{ steps.package.outputs.run_dir }}/archives/*.pem
             ${{ steps.package.outputs.run_dir }}/SHA256SUMS.binaries.sig
             ${{ steps.package.outputs.run_dir }}/SHA256SUMS.binaries.pem
             ${{ steps.package.outputs.run_dir }}/SHA256SUMS.archives.sig
