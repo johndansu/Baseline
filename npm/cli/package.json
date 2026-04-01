@@ -1,6 +1,6 @@
 {
   "name": "baselineprod-cli",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Install the Baseline CLI from GitHub release binaries.",
   "license": "MIT",
   "repository": {

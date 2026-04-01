@@ -12,6 +12,18 @@ Internal refactors and low-level test churn are omitted unless they changed ship
 
 ## Unreleased
 
+## v1.2.3 - 2026-04-01
+
+### Changed
+- Added a mobile-only dashboard banner that keeps access open but makes it clear that project management, scans, keys, and operator-heavy workflows are best handled on desktop.
+
+### Fixed
+- Fixed the GitHub release workflow so release assets are uploaded exactly once instead of failing on duplicate `.sig` and `.pem` sidecar uploads.
+
+### Why this release matters
+- Mobile users now get a clearer expectation about what works well on phones versus what is better on desktop.
+- Future GitHub releases should upload complete signed assets without the duplicate-asset failure seen in the previous workflow configuration.
+
 ## v1.2.2 - 2026-03-30
 
 ### Added
@@ -21,11 +33,9 @@ Internal refactors and low-level test churn are omitted unless they changed ship
 ### Changed
 - Clarified the recommended update path for fast-moving CLI releases:
   - `npm i -g baselineprod-cli@latest`
-- Added a mobile-only dashboard banner that keeps access open but makes it clear that project management, scans, keys, and operator-heavy workflows are best handled on desktop.
 
 ### Why this release matters
 - Users now have a clear way to tell whether they should update before troubleshooting or trying a newly shipped flow.
-- Mobile users now get a clearer expectation about what works well on phones versus what is better on desktop.
 
 ## v1.2.1 - 2026-03-30
 
