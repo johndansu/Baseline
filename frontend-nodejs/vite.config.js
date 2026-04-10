@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
           dashboard: resolve(__dirname, 'public/dashboard.html'),
           signin: resolve(__dirname, 'public/signin.html'),
           signup: resolve(__dirname, 'public/signup.html'),
+          resetPassword: resolve(__dirname, 'public/reset-password.html'),
           cliGuide: resolve(__dirname, 'public/cli-guide.html'),
           cliLogin: resolve(__dirname, 'public/cli-login.html')
         },

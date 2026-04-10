@@ -6,7 +6,7 @@ const { verifyJWT, extractTokenFromHeader } = require('../utils/supabase');
  */
 function authenticateToken(req, res, next) {
   // Skip authentication for health check and public routes
-  const publicRoutes = ['/health', '/api/status', '/signin.html', '/signup.html', '/index.html'];
+  const publicRoutes = ['/health', '/api/status', '/signin.html', '/signup.html', '/reset-password.html', '/index.html'];
   if (publicRoutes.includes(req.path) || req.path.startsWith('/css/') || req.path.startsWith('/js/') || req.path.startsWith('/assets/')) {
     return next();
   }

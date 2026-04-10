@@ -20,12 +20,14 @@
   var isRedirecting = false;
   var lastAuthState = null;
   var uiUpdateTimeout = null;
+  var recoveryMode = false;
   var SAFE_RETURN_PATHS = {
     '/dashboard': true,
     '/dashboard.html': true,
     '/index.html': true,
     '/signin.html': true,
-    '/signup.html': true
+    '/signup.html': true,
+    '/reset-password.html': true
   };
 
   function safeAuthReturnTo(rawReturnTo) {
@@ -107,10 +109,24 @@
   }
 
   function setGlobalAuthStatus(text, isError) {
-    var candidate = document.querySelector('.signin-form .auth-status, .signup-form .auth-status');
+    var candidate = document.querySelector('.signin-form .auth-status, .signup-form .auth-status, .reset-password-form .auth-status');
     if (!candidate) return;
-    candidate.textContent = '';
-    candidate.style.display = 'none';
+    var message = String(text || '').trim();
+    if (!message) {
+      candidate.textContent = '';
+      candidate.style.display = 'none';
+      candidate.className = 'auth-status';
+      return;
+    }
+    candidate.textContent = message;
+    candidate.style.display = 'block';
+    candidate.className = 'auth-status ' + (isError ? 'is-error' : 'is-success');
+  }
+
+  function hasRecoveryParams() {
+    var search = new URLSearchParams(window.location.search);
+    var hash = new URLSearchParams(String(window.location.hash || '').replace(/^#/, ''));
+    return search.get('type') === 'recovery' || hash.get('type') === 'recovery' || search.has('access_token') || hash.has('access_token');
   }
 
   function userFacingAuthMessage(message, fallback) {
@@ -264,6 +280,7 @@
         configScript.onerror = function() {
           console.error('Failed to load supabase-config.js file');
           authState.loading = false;
+          setGlobalAuthStatus('Sign-in is temporarily unavailable because auth configuration failed to load.', true);
           updateAuthUI();
         };
         configScript.onload = function() {
@@ -286,6 +303,7 @@
       .catch(function(error) {
         console.error('Failed to initialize Supabase:', error);
         authState.loading = false;
+        setGlobalAuthStatus('Sign-in is temporarily unavailable. Please refresh and try again.', true);
         updateAuthUI();
       });
   }
@@ -297,21 +315,24 @@
       console.error('Config URL:', config.url);
       console.error('Config anonKey:', config.anonKey ? 'SET' : 'NOT SET');
       authState.loading = false;
+      setGlobalAuthStatus('Sign-in is temporarily unavailable because the Supabase runtime configuration is missing.', true);
       updateAuthUI();
       return Promise.resolve();
     }
 
     try {
       authState.supabase = supabaseClient.createClient(config.url, config.anonKey, {
-        auth: {
+      auth: {
           autoRefreshToken: true,
           persistSession: true,
-          detectSessionInUrl: true
+          detectSessionInUrl: true,
+          flowType: config.auth && config.auth.flowType ? config.auth.flowType : 'pkce'
         }
       });
     } catch (error) {
       console.error('Error creating Supabase client:', error);
       authState.loading = false;
+      setGlobalAuthStatus('Sign-in is temporarily unavailable. Please refresh and try again.', true);
       updateAuthUI();
       return Promise.resolve();
     }
@@ -336,10 +357,14 @@
     authState.session = session;
     authState.user = session ? session.user : null;
     authState.authenticated = !!session;
+    if (event === 'PASSWORD_RECOVERY' || (window.location.pathname === '/reset-password.html' && hasRecoveryParams() && session)) {
+      recoveryMode = true;
+    }
     
     // Update UI only if state actually changed
     if (lastAuthState !== stateKey) {
       updateAuthUI();
+      updateResetPasswordPage();
       lastAuthState = stateKey;
     }
     
@@ -485,6 +510,131 @@
     });
   }
 
+  function setStatus(form, text, isError) {
+    var node = form.parentElement ? form.parentElement.querySelector(".auth-status") : null;
+    if (!node) {
+      node = document.createElement("p");
+      node.className = "auth-status";
+      if (form.parentElement) {
+        form.parentElement.appendChild(node);
+      }
+    }
+    var message = String(text || '').trim();
+    node.textContent = message;
+    node.className = 'auth-status ' + (isError ? 'is-error' : 'is-success');
+    node.style.display = message ? 'block' : 'none';
+  }
+
+  function bindPasswordVisibilityToggles() {
+    var toggles = document.querySelectorAll('[data-password-toggle]');
+    Array.prototype.forEach.call(toggles, function(toggle) {
+      if (toggle.dataset.bound === '1') return;
+      toggle.dataset.bound = '1';
+      toggle.addEventListener('click', function() {
+        var inputID = String(toggle.getAttribute('data-password-toggle') || '').trim();
+        var input = inputID ? document.getElementById(inputID) : null;
+        if (!input) return;
+        var reveal = input.type === 'password';
+        input.type = reveal ? 'text' : 'password';
+        toggle.textContent = reveal ? 'Hide' : 'Show';
+        toggle.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+      });
+    });
+  }
+
+  function bindResetPasswordRequestForm(form) {
+    if (!form) return;
+    form.addEventListener('submit', function(event) {
+      event.preventDefault();
+      var emailField = form.querySelector("input[name='email']");
+      var submitButton = form.querySelector("button[type='submit']");
+      var email = String(emailField && emailField.value || '').trim();
+      if (submitButton) submitButton.disabled = true;
+      setStatus(form, 'Sending reset email...', false);
+      resetPassword(email)
+        .then(function(result) {
+          if (result && result.error) {
+            throw result.error;
+          }
+          setStatus(form, 'If an account exists for this email, a password reset email will be sent.', false);
+        })
+        .catch(function(error) {
+          console.error('Password reset error:', error);
+          setStatus(form, 'Failed to send password reset email. Please try again.', true);
+        })
+        .finally(function() {
+          if (submitButton) submitButton.disabled = false;
+        });
+    });
+  }
+
+  function bindResetPasswordConfirmForm(form) {
+    if (!form) return;
+    form.addEventListener('submit', function(event) {
+      event.preventDefault();
+      var passwordField = form.querySelector("input[name='password']");
+      var confirmField = form.querySelector("input[name='confirm_password']");
+      var submitButton = form.querySelector("button[type='submit']");
+      var password = String(passwordField && passwordField.value || '');
+      var confirmPassword = String(confirmField && confirmField.value || '');
+
+      if (password.length < 8) {
+        setStatus(form, 'Password must be at least 8 characters.', true);
+        return;
+      }
+      if (password !== confirmPassword) {
+        setStatus(form, 'Passwords do not match.', true);
+        return;
+      }
+      if (!authState.supabase) {
+        setStatus(form, 'Password reset is temporarily unavailable. Please refresh and try again.', true);
+        return;
+      }
+
+      if (submitButton) submitButton.disabled = true;
+      setStatus(form, 'Updating password...', false);
+      authState.supabase.auth.updateUser({ password: password })
+        .then(function(result) {
+          if (result && result.error) {
+            throw result.error;
+          }
+          setStatus(form, 'Password updated. Redirecting to sign in...', false);
+          setTimeout(function() {
+            window.location.href = '/signin.html';
+          }, 1200);
+        })
+        .catch(function(error) {
+          console.error('Password update error:', error);
+          setStatus(form, userFacingAuthMessage(error && error.message, 'Failed to update password. Please try again.'), true);
+        })
+        .finally(function() {
+          if (submitButton) submitButton.disabled = false;
+        });
+    });
+  }
+
+  function updateResetPasswordPage() {
+    if (window.location.pathname !== '/reset-password.html') {
+      return;
+    }
+    var intro = document.getElementById('reset-password-intro');
+    var requestPanel = document.getElementById('reset-password-request-panel');
+    var confirmPanel = document.getElementById('reset-password-confirm-panel');
+    var recoveryActive = recoveryMode || (!!authState.session && !!authState.user && hasRecoveryParams());
+
+    if (requestPanel) {
+      requestPanel.style.display = recoveryActive ? 'none' : 'block';
+    }
+    if (confirmPanel) {
+      confirmPanel.style.display = recoveryActive ? 'block' : 'none';
+    }
+    if (intro) {
+      intro.textContent = recoveryActive
+        ? 'Choose a new password to finish recovering your account.'
+        : 'Enter your email and we\'ll send you a password reset link.';
+    }
+  }
+
   // Get current user
   function getCurrentUser() {
     return authState.user;
@@ -527,22 +677,6 @@
       }
     });
     return formData;
-  }
-
-  function setStatus(form, text, isError) {
-    var node = form.parentElement ? form.parentElement.querySelector(".auth-status") : null;
-    if (!node) {
-      node = document.createElement("p");
-      node.className = "auth-status";
-      node.style.marginTop = "10px";
-      node.style.fontSize = "0.85rem";
-      node.style.color = isError ? "#fecaca" : "rgba(255,255,255,0.8)";
-      if (form.parentElement) {
-        form.parentElement.appendChild(node);
-      }
-    }
-    node.textContent = text;
-    node.style.color = isError ? "#fecaca" : "rgba(255,255,255,0.8)";
   }
 
   // Bind authentication forms
@@ -618,7 +752,7 @@
 
   // Bind password reset links
   function bindPasswordResetLinks() {
-    var resetLinks = document.querySelectorAll("a[href='#']");
+    var resetLinks = document.querySelectorAll("[data-password-reset-link]");
     Array.prototype.forEach.call(resetLinks, function(link) {
       if (String(link.textContent || "").toLowerCase().indexOf("forgot password") === -1) return;
       link.addEventListener("click", function(e) {
@@ -674,15 +808,21 @@
     // Bind forms if we're on auth pages
     var signinForm = document.querySelector(".signin-form form");
     var signupForm = document.querySelector(".signup-form form");
+    var resetPasswordRequestForm = document.getElementById('reset-password-request-form');
+    var resetPasswordConfirmForm = document.getElementById('reset-password-confirm-form');
 
     if (signinForm) bindAuthForm(signinForm, "signin");
     if (signupForm) bindAuthForm(signupForm, "signup");
+    if (resetPasswordRequestForm) bindResetPasswordRequestForm(resetPasswordRequestForm);
+    if (resetPasswordConfirmForm) bindResetPasswordConfirmForm(resetPasswordConfirmForm);
 
     // Bind OAuth buttons
     bindOAuthButtons();
 
     // Bind password reset links
     bindPasswordResetLinks();
+    bindPasswordVisibilityToggles();
+    updateResetPasswordPage();
 
     // Initialize user dropdown
     initializeUserDropdown();
@@ -706,3 +846,4 @@
   window.authenticatedApiCall = authenticatedApiCall;
 
 })();
+

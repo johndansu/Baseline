@@ -3304,7 +3304,8 @@ code {
 }
 
 .signin-form,
-.signup-form {
+.signup-form,
+.reset-password-form {
   max-width: 468px !important;
   margin: 0 auto;
   padding: 12px;
@@ -3312,7 +3313,8 @@ code {
 }
 
 .signin-form h2,
-.signup-form h2 {
+.signup-form h2,
+.reset-password-form h2 {
   margin: 0 0 8px 0;
   color: #2a1810;
   font-size: 1.45rem;
@@ -3320,7 +3322,8 @@ code {
 }
 
 .signin-form p,
-.signup-form p {
+.signup-form p,
+.reset-password-form p {
   margin: 0 0 14px 0;
   color: var(--xp-muted);
   line-height: 1.4;
@@ -3328,7 +3331,8 @@ code {
 }
 
 .signin-form .auth-page-note,
-.signup-form .auth-page-note {
+.signup-form .auth-page-note,
+.reset-password-form .auth-page-note {
   margin-top: -12px;
   margin-bottom: 18px;
   font-size: 0.85rem;
@@ -3370,6 +3374,54 @@ code {
   background: rgba(255, 255, 255, 0.1);
   color: var(--xp-text);
   transition: all 0.2s ease;
+}
+
+.password-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-field input {
+  width: 100%;
+  padding-right: 72px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--xp-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.password-toggle:hover {
+  color: #9a3412;
+}
+
+.password-toggle:focus {
+  outline: none;
+  color: #9a3412;
+}
+
+.auth-status {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  display: none;
+}
+
+.auth-status.is-error {
+  color: #b91c1c;
+}
+
+.auth-status.is-success {
+  color: #166534;
 }
 
 .form-group input:focus {
