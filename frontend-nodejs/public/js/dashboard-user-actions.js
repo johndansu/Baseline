@@ -2,6 +2,62 @@ export function adminUserRowKey(userID) {
     return String(userID || '').replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+export async function submitAdminUserCreate(dashboard) {
+    const emailField = document.getElementById('admin-user-create-email');
+    const nameField = document.getElementById('admin-user-create-display-name');
+    const roleField = document.getElementById('admin-user-create-role');
+    const statusField = document.getElementById('admin-user-create-status');
+    const feedback = document.getElementById('admin-users-feedback');
+    const email = String(emailField?.value || '').trim().toLowerCase();
+    const displayName = String(nameField?.value || '').trim();
+    const role = String(roleField?.value || 'viewer').trim().toLowerCase();
+    const status = String(statusField?.value || 'active').trim().toLowerCase();
+
+    if (!email) {
+        dashboard.showError('Email is required.');
+        if (feedback) {
+            feedback.textContent = 'Email is required to create a user.';
+            feedback.className = 'mt-2 text-xs text-red-600';
+        }
+        return;
+    }
+
+    if (feedback) {
+        feedback.textContent = `Creating ${email}...`;
+        feedback.className = 'mt-2 text-xs text-gray-500';
+    }
+    try {
+        const createdUser = await dashboard.apiRequest('/v1/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, display_name: displayName, role, status })
+        });
+        if (emailField) emailField.value = '';
+        if (nameField) nameField.value = '';
+        if (roleField) roleField.value = 'viewer';
+        if (statusField) statusField.value = 'active';
+        await dashboard.loadUsersData(true);
+        if (createdUser && typeof createdUser === 'object' && createdUser.id) {
+            dashboard.userState.selected = createdUser;
+        }
+        if (dashboard.currentTab === 'users') {
+            await dashboard.loadUsersTabData();
+        }
+        const refreshedFeedback = document.getElementById('admin-users-feedback');
+        if (refreshedFeedback) {
+            refreshedFeedback.textContent = `Created ${email} successfully.`;
+            refreshedFeedback.className = 'mt-2 text-xs text-green-700';
+        }
+        dashboard.showSuccess(`Created ${email}.`);
+    } catch (error) {
+        if (feedback) {
+            feedback.textContent = error.message || `Failed to create ${email}.`;
+            feedback.className = 'mt-2 text-xs text-red-600';
+        }
+        dashboard.showError(error.message || `Failed to create ${email}.`);
+    }
+}
+
 export async function setSelectedUserStatus(dashboard, userID, status) {
     const id = String(userID || '').trim();
     const nextStatus = String(status || '').trim().toLowerCase();

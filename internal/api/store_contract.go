@@ -37,6 +37,7 @@ type PersistentStore interface {
 	GetCLITrace(traceID string) (CLITraceDetail, error)
 
 	UpsertOIDCUser(provider, subject, email, displayName string, now time.Time) (string, error)
+	CreateUser(email, displayName string, role Role, status UserStatus, now time.Time) (UserRecord, error)
 	ListUsersPage(filter UserListFilter) (UserListResult, error)
 	GetUserByID(userID string) (UserRecord, bool, error)
 	GetUserByEmail(email string) (UserRecord, bool, error)

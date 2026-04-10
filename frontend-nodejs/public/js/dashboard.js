@@ -86,6 +86,7 @@ import {
 import { renderScansPage as renderDashboardScansPage } from './dashboard-scan-table.js';
 import {
     adminUserRowKey as getDashboardAdminUserRowKey,
+    submitAdminUserCreate as submitDashboardAdminUserCreate,
     setSelectedUserStatus as setDashboardSelectedUserStatus,
     submitAdminUserUpdate as submitDashboardAdminUserUpdate
 } from './dashboard-user-actions.js';
@@ -3195,6 +3196,14 @@ class BaselineDashboard {
     }
 
     bindUsersTabControls() {
+        const createButton = document.getElementById('admin-user-create-submit');
+        if (createButton && createButton.dataset.bound !== '1') {
+            createButton.dataset.bound = '1';
+            createButton.addEventListener('click', async () => {
+                await this.submitAdminUserCreate();
+            });
+        }
+
         const applyButton = document.getElementById('users-filter-apply');
         if (applyButton && applyButton.dataset.bound !== '1') {
             applyButton.dataset.bound = '1';
@@ -3396,6 +3405,10 @@ class BaselineDashboard {
 
     async submitAdminUserUpdate(userID, source = 'row') {
         return submitDashboardAdminUserUpdate(this, userID, source);
+    }
+
+    async submitAdminUserCreate() {
+        return submitDashboardAdminUserCreate(this);
     }
 
     async loadAuditData() {

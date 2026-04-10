@@ -1367,10 +1367,50 @@ func (s *Store) UpsertOIDCUser(provider, subject, email, displayName string, now
 	}
 
 	if errors.Is(err, sql.ErrNoRows) {
-		userID = "usr_" + randomToken(12)
-		if strings.TrimSpace(userID) == "usr_" {
-			userID = fmt.Sprintf("usr_%d", time.Now().UTC().UnixNano())
+		if emailValue != "" {
+			existingUser, found, lookupErr := s.GetUserByEmail(emailValue)
+			if lookupErr != nil {
+				return "", lookupErr
+			}
+			if found && strings.TrimSpace(existingUser.ID) != "" {
+				userID = strings.TrimSpace(existingUser.ID)
+				if nameValue == "" {
+					nameValue = strings.TrimSpace(existingUser.DisplayName)
+				}
+				_, err = tx.Exec(
+					`UPDATE users
+					 SET display_name = ?, email = ?, updated_at = ?, last_login_at = ?
+					 WHERE id = ?`,
+					nameValue,
+					emailValue,
+					nowRaw,
+					nowRaw,
+					userID,
+				)
+				if err != nil {
+					return "", err
+				}
+				_, err = tx.Exec(
+					`INSERT INTO user_identities (provider, subject, user_id, email, created_at, updated_at)
+					 VALUES (?, ?, ?, ?, ?, ?)`,
+					providerKey,
+					subjectKey,
+					userID,
+					emailValue,
+					nowRaw,
+					nowRaw,
+				)
+				if err != nil {
+					return "", err
+				}
+				if err := tx.Commit(); err != nil {
+					return "", err
+				}
+				return userID, nil
+			}
 		}
+
+		userID = newUserID(now)
 		_, err = tx.Exec(
 			`INSERT INTO users (id, display_name, email, created_at, updated_at, last_login_at)
 			 VALUES (?, ?, ?, ?, ?, ?)`,
@@ -1451,6 +1491,63 @@ func (s *Store) UpsertOIDCUser(provider, subject, email, displayName string, now
 		return "", err
 	}
 	return userID, nil
+}
+
+func (s *Store) CreateUser(email, displayName string, role Role, status UserStatus, now time.Time) (UserRecord, error) {
+	if s == nil || s.db == nil {
+		return UserRecord{}, nil
+	}
+	emailValue := normalizeUserEmail(email)
+	nameValue := strings.TrimSpace(displayName)
+	if emailValue == "" {
+		return UserRecord{}, errors.New("email is required")
+	}
+	if role == "" {
+		role = RoleViewer
+	}
+	if status == "" {
+		status = UserStatusActive
+	}
+	if !isValidRole(role) {
+		return UserRecord{}, errors.New("invalid user role")
+	}
+	if !isValidUserStatus(status) {
+		return UserRecord{}, errors.New("invalid user status")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if existing, found, err := s.GetUserByEmail(emailValue); err != nil {
+		return UserRecord{}, err
+	} else if found {
+		return UserRecord{}, fmt.Errorf("%w: %s", errUserEmailAlreadyExists, existing.Email)
+	}
+
+	userID := newUserID(now)
+	nowRaw := now.UTC().Format(time.RFC3339Nano)
+	_, err := s.db.Exec(
+		`INSERT INTO users (id, display_name, email, role, status, created_at, updated_at, last_login_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID,
+		nameValue,
+		emailValue,
+		string(role),
+		string(status),
+		nowRaw,
+		nowRaw,
+		nowRaw,
+	)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	user, found, err := s.GetUserByID(userID)
+	if err != nil {
+		return UserRecord{}, err
+	}
+	if !found {
+		return UserRecord{}, fmt.Errorf("user %s not found", userID)
+	}
+	return user, nil
 }
 
 type UserListFilter struct {

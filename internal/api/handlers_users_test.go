@@ -73,12 +73,107 @@ func TestUsersEndpointsRequireAdminAndSupportRoleStatusUpdate(t *testing.T) {
 	if updated.Role != RoleOperator || updated.Status != UserStatusSuspended {
 		t.Fatalf("unexpected updated user role/status: %+v", updated)
 	}
+	persisted, found, err := store.GetUserByID(userID)
+	if err != nil {
+		t.Fatalf("GetUserByID returned error after patch: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected patched user to remain in store")
+	}
+	if persisted.Role != RoleOperator || persisted.Status != UserStatusSuspended {
+		t.Fatalf("expected persisted role/status to match update, got %+v", persisted)
+	}
 
 	resp, body = mustRequest(t, client, http.MethodGet, ts.URL+"/v1/users/"+userID, nil, map[string]string{
 		"Authorization": "Bearer admin-key",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 getting user detail, got %d body=%s", resp.StatusCode, body)
+	}
+}
+
+func TestAdminCanCreateUsersAndLaterOIDCSignInReusesThem(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "users_create_endpoints.db")
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	cfg := DefaultConfig()
+	cfg.DBPath = dbPath
+	cfg.APIKeys = map[string]Role{
+		"admin-key":    RoleAdmin,
+		"operator-key": RoleOperator,
+	}
+	server, err := NewServer(cfg, store)
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	client := &http.Client{}
+
+	resp, body := mustRequest(t, client, http.MethodPost, ts.URL+"/v1/users", map[string]any{
+		"email":        "created.user@example.com",
+		"display_name": "Created User",
+		"role":         "operator",
+		"status":       "active",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating user, got %d body=%s", resp.StatusCode, body)
+	}
+	var created UserRecord
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatalf("failed to decode created user response: %v body=%s", err, body)
+	}
+	if strings.TrimSpace(created.ID) == "" {
+		t.Fatalf("expected created user id, body=%s", body)
+	}
+	if created.Email != "created.user@example.com" || created.Role != RoleOperator || created.Status != UserStatusActive {
+		t.Fatalf("unexpected created user payload: %+v", created)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/users", map[string]any{
+		"email": "created.user@example.com",
+	}, map[string]string{
+		"Authorization": "Bearer admin-key",
+	})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 for duplicate created user email, got %d body=%s", resp.StatusCode, body)
+	}
+
+	resp, body = mustRequest(t, client, http.MethodPost, ts.URL+"/v1/users", map[string]any{
+		"email": "blocked@example.com",
+	}, map[string]string{
+		"Authorization": "Bearer operator-key",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-admin create user, got %d body=%s", resp.StatusCode, body)
+	}
+
+	signedInID, err := store.UpsertOIDCUser("https://issuer.example", "sub-created-user", "created.user@example.com", "Created User Signed In", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("UpsertOIDCUser returned error for admin-created user: %v", err)
+	}
+	if signedInID != created.ID {
+		t.Fatalf("expected sign-in to reuse created user id=%q, got %q", created.ID, signedInID)
+	}
+
+	persisted, found, err := store.GetUserByID(created.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID returned error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected created user to remain in store")
+	}
+	if persisted.Role != RoleOperator || persisted.Status != UserStatusActive {
+		t.Fatalf("expected created user's role/status to persist after sign-in, got %+v", persisted)
+	}
+	if persisted.Email != "created.user@example.com" {
+		t.Fatalf("expected created user's email to remain normalized, got %+v", persisted)
 	}
 }
 
