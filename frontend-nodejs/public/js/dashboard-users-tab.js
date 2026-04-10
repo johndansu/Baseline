@@ -247,6 +247,31 @@ export function renderUsersTab(dashboard, users, errorMessage = '') {
                     <button id="users-filter-reset" type="button" class="px-3 py-1.5 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-xs font-medium">Reset</button>
                     <span class="text-xs text-gray-500">Showing ${totalCount === 0 ? 0 : start + 1}-${Math.min(start + pageRows.length, totalCount)} of ${totalCount} | Sort: ${userSortDescriptor(sortBy, sortDir)}</span>
                 </div>
+                <div class="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                        <div>
+                            <h4 class="text-sm font-semibold text-gray-900">Create User</h4>
+                            <p class="mt-1 text-xs text-gray-600">Add a user record up front, assign access, and let later sign-in reuse the same identity by email.</p>
+                        </div>
+                    </div>
+                    <div class="mt-3 grid grid-cols-1 md:grid-cols-5 gap-3">
+                        <input id="admin-user-create-email" type="email" placeholder="name@example.com" class="md:col-span-2 px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                        <input id="admin-user-create-display-name" type="text" placeholder="Display name (optional)" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                        <select id="admin-user-create-role" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <option value="viewer">viewer</option>
+                            <option value="operator">operator</option>
+                            <option value="admin">admin</option>
+                        </select>
+                        <select id="admin-user-create-status" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <option value="active">active</option>
+                            <option value="suspended">suspended</option>
+                        </select>
+                    </div>
+                    <div class="mt-3 flex items-center gap-2">
+                        <button id="admin-user-create-submit" type="button" class="px-3 py-1.5 bg-blue-700 text-white rounded hover:bg-blue-800 text-xs font-medium">Create User</button>
+                        <span class="text-xs text-gray-500">This creates the record immediately and makes it available for role/status updates.</span>
+                    </div>
+                </div>
                 <p id="admin-users-feedback" class="mt-2 text-xs ${errorMessage ? 'text-red-600' : 'text-gray-500'}">${dashboard.escapeHtml(errorMessage || 'Edit role or status, then save from the row or the selected user panel.')}</p>
             </div>
             ${detailPanel}

@@ -302,57 +302,113 @@ func (s *Server) handleMeAPIKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUsersCollection(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+	principal, err := s.requestPrincipal(r)
+	if err != nil {
+		writeUnauthorized(w, err.Error())
 		return
 	}
 
-	filter := UserListFilter{
-		Limit:  parsePositiveIntQueryWithDefault(r.URL.Query().Get("limit"), 50, 200),
-		Offset: parseNonNegativeIntQueryWithDefault(r.URL.Query().Get("offset"), 0, 1000000),
-		Query:  strings.TrimSpace(r.URL.Query().Get("q")),
-	}
-	sortBy, err := parseUserSortByQuery(r.URL.Query().Get("sort_by"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	sortDir, err := parseUserSortDirQuery(r.URL.Query().Get("sort_dir"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	filter.SortBy = sortBy
-	filter.SortDir = sortDir
-	if roleRaw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("role"))); roleRaw != "" {
-		role := Role(roleRaw)
-		if !isValidRole(role) {
+	switch r.Method {
+	case http.MethodGet:
+		filter := UserListFilter{
+			Limit:  parsePositiveIntQueryWithDefault(r.URL.Query().Get("limit"), 50, 200),
+			Offset: parseNonNegativeIntQueryWithDefault(r.URL.Query().Get("offset"), 0, 1000000),
+			Query:  strings.TrimSpace(r.URL.Query().Get("q")),
+		}
+		sortBy, err := parseUserSortByQuery(r.URL.Query().Get("sort_by"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		sortDir, err := parseUserSortDirQuery(r.URL.Query().Get("sort_dir"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		filter.SortBy = sortBy
+		filter.SortDir = sortDir
+		if roleRaw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("role"))); roleRaw != "" {
+			role := Role(roleRaw)
+			if !isValidRole(role) {
+				writeError(w, http.StatusBadRequest, "bad_request", "role must be one of viewer|operator|admin")
+				return
+			}
+			filter.Role = role
+		}
+		if statusRaw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status"))); statusRaw != "" {
+			status := UserStatus(statusRaw)
+			if !isValidUserStatus(status) {
+				writeError(w, http.StatusBadRequest, "bad_request", "status must be one of active|suspended")
+				return
+			}
+			filter.Status = status
+		}
+
+		result, err := s.store.ListUsersPage(filter)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "system_error", "unable to list users")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"users":    result.Users,
+			"total":    result.Total,
+			"limit":    result.Limit,
+			"offset":   result.Offset,
+			"has_more": result.HasMore,
+		})
+	case http.MethodPost:
+		if !s.requestBodyAllowed(w, r) {
+			return
+		}
+		if !s.enforceSessionCSRF(w, r, principal.AuthSource) {
+			return
+		}
+		var req struct {
+			Email       string `json:"email"`
+			DisplayName string `json:"display_name"`
+			Role        string `json:"role"`
+			Status      string `json:"status"`
+		}
+		if !s.decodeJSONBody(w, r, &req) {
+			return
+		}
+		email := normalizeUserEmail(req.Email)
+		if email == "" {
+			writeError(w, http.StatusBadRequest, "bad_request", "email is required")
+			return
+		}
+		targetRole := Role(strings.ToLower(strings.TrimSpace(req.Role)))
+		if targetRole == "" {
+			targetRole = RoleViewer
+		}
+		if !isValidRole(targetRole) {
 			writeError(w, http.StatusBadRequest, "bad_request", "role must be one of viewer|operator|admin")
 			return
 		}
-		filter.Role = role
-	}
-	if statusRaw := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status"))); statusRaw != "" {
-		status := UserStatus(statusRaw)
-		if !isValidUserStatus(status) {
+		targetStatus := UserStatus(strings.ToLower(strings.TrimSpace(req.Status)))
+		if targetStatus == "" {
+			targetStatus = UserStatusActive
+		}
+		if !isValidUserStatus(targetStatus) {
 			writeError(w, http.StatusBadRequest, "bad_request", "status must be one of active|suspended")
 			return
 		}
-		filter.Status = status
+		created, err := s.store.CreateUser(email, req.DisplayName, targetRole, targetStatus, time.Now().UTC())
+		if err != nil {
+			if errors.Is(err, errUserEmailAlreadyExists) {
+				writeError(w, http.StatusConflict, "conflict", "user with this email already exists")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "system_error", "unable to create user")
+			return
+		}
+		s.dataMu.Lock()
+		s.appendEventLocked(s.newRequestAuditEvent(r, principal.AuthSource, "user_created", "", created.ID))
+		s.dataMu.Unlock()
+		writeJSON(w, http.StatusCreated, created)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
-
-	result, err := s.store.ListUsersPage(filter)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "system_error", "unable to list users")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"users":    result.Users,
-		"total":    result.Total,
-		"limit":    result.Limit,
-		"offset":   result.Offset,
-		"has_more": result.HasMore,
-	})
 }
 
 func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request, principal authPrincipal, userID string) {
