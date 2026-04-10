@@ -63,6 +63,38 @@ var password = "super-secret-value"`
 	}
 }
 
+func TestCheckPlaintextSecretsIgnoresVariableSelfReference(t *testing.T) {
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+
+	tempDir, err := os.MkdirTemp("", "baseline-policy-regression-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
+
+	content := `package main
+
+func update(password string) {
+	payload := map[string]string{
+		"password": password,
+	}
+	_ = payload
+}`
+	if err := os.WriteFile("dynamic_secret.go", []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	violation := CheckPlaintextSecrets()
+	if violation != nil {
+		t.Fatalf("expected no secret violation for variable self reference, got: %+v", *violation)
+	}
+}
+
 func TestCheckSecurityScanningIgnoresUnsafePointerLiteral(t *testing.T) {
 	origDir, _ := os.Getwd()
 	defer os.Chdir(origDir)

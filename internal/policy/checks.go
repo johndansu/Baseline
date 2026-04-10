@@ -783,6 +783,7 @@ func findSecretInFile(root, file string) *types.PolicyViolation {
 				continue
 			}
 			keyStart := match[2]
+			keyEnd := match[3]
 			valueStart := match[4]
 			valueEnd := match[5]
 
@@ -792,6 +793,10 @@ func findSecretInFile(root, file string) *types.PolicyViolation {
 			}
 
 			rawValue := strings.TrimSpace(line[valueStart:valueEnd])
+			rawKey := strings.TrimSpace(line[keyStart:keyEnd])
+			if looksLikeSecretSelfReference(rawKey, rawValue) {
+				continue
+			}
 			if strings.HasSuffix(file, ".go") && looksLikeGoSelectorValue(rawValue) {
 				continue
 			}
@@ -821,6 +826,42 @@ func findSecretInFile(root, file string) *types.PolicyViolation {
 	}
 
 	return nil
+}
+
+func looksLikeSecretSelfReference(rawKey, rawValue string) bool {
+	key := normalizeSecretIdentifier(rawKey)
+	value := normalizeSecretIdentifier(rawValue)
+	if key == "" || value == "" {
+		return false
+	}
+	return key == value
+}
+
+func normalizeSecretIdentifier(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	trimmed = strings.Trim(trimmed, `"'`)
+	trimmed = strings.TrimRight(trimmed, ",)}]>")
+	if trimmed == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, ch := range trimmed {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			b.WriteRune(ch)
+		case ch >= 'A' && ch <= 'Z':
+			b.WriteRune(ch + ('a' - 'A'))
+		case ch >= '0' && ch <= '9':
+			b.WriteRune(ch)
+		case ch == '_' || ch == '-':
+			continue
+		default:
+			return ""
+		}
+	}
+
+	return b.String()
 }
 
 func findSecurityIssueInFile(root, file string) *types.PolicyViolation {
