@@ -537,7 +537,7 @@
         var reveal = input.type === 'password';
         input.type = reveal ? 'text' : 'password';
         toggle.textContent = reveal ? 'Hide' : 'Show';
-        toggle.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+        toggle.setAttribute('aria-label', reveal ? 'Hide field value' : 'Show field value');
       });
     });
   }
