@@ -40,7 +40,7 @@ export function renderCLITelemetryPanel(dashboard) {
                         <button type="button" id="cli-trace-clear-filters" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium">
                             Clear filters
                         </button>
-                        <button type="button" id="cli-trace-export" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium" style="background-color:#ea580c;color:#ffffff;">
+                        <button type="button" id="cli-trace-export" class="px-4 py-2 bg-orange-600 text-black rounded-lg hover:bg-orange-700 text-sm font-medium" style="background-color:#ea580c;color:#ffffff;">
                             Export JSON
                         </button>
                     </div>
@@ -133,7 +133,7 @@ export function renderCLITraceDetailContent(dashboard, trace, isLoading = false,
                     <h3 class="text-base font-semibold text-gray-900">${dashboard.escapeHtml(title)}</h3>
                     <p class="mt-1 text-sm text-gray-700">${dashboard.escapeHtml(summary.message || 'Detailed execution trace')}</p>
                 </div>
-                <button type="button" id="cli-trace-detail-export" class="px-3 py-1.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium shrink-0" style="background-color:#ea580c;color:#ffffff;">
+                <button type="button" id="cli-trace-detail-export" class="px-3 py-1.5 bg-orange-600 text-black rounded-lg hover:bg-orange-700 text-sm font-medium shrink-0" style="background-color:#ea580c;color:#ffffff;">
                     Export Trace
                 </button>
             </div>
@@ -588,7 +588,7 @@ function summarizeCLITraceGroupSet(traces, getLabel) {
 function renderQuickToggle(label, value, activeValue) {
     const isActive = value === activeValue;
     const className = isActive
-        ? 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium border-orange-600 text-white'
+        ? 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium border-orange-600 text-black'
         : 'inline-flex items-center px-3 py-2 rounded-lg border text-sm font-medium text-gray-700 border-gray-300 hover:bg-gray-50';
     const style = isActive
         ? 'background-color:#ea580c;color:#ffffff;'

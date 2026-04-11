@@ -3,7 +3,7 @@ export function renderScansTable(dashboard, scans) {
     if (!scansTab) return;
     const canRunScans = dashboard.hasCapability('scans.run');
     const runScanButton = canRunScans
-        ? `<button type="button" data-open-modal="runScanModal" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">Run New Scan</button>`
+        ? `<button type="button" data-open-modal="runScanModal" class="px-4 py-2 bg-orange-600 text-black rounded-lg hover:bg-orange-700 text-sm font-medium">Run New Scan</button>`
         : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Run New Scan</button>`;
 
     const uniqueProjects = Array.from(new Set(scans.map((scan) => scan.project_name))).sort((a, b) => a.localeCompare(b));

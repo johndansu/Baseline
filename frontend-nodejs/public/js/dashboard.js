@@ -2256,7 +2256,7 @@ class BaselineDashboard {
                         <input id="integration-github-details-url" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Details URL (optional)" ${disabledAttr}>
                         <div class="flex items-center justify-between gap-3">
                             <p id="integration-github-feedback" class="text-xs text-gray-500">Ready.</p>
-                            <button type="submit" id="integration-github-submit" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium${disabledClass}" ${disabledAttr}>Publish</button>
+                            <button type="submit" id="integration-github-submit" class="px-4 py-2 bg-orange-600 text-black rounded-lg hover:bg-orange-700 text-sm font-medium${disabledClass}" ${disabledAttr}>Publish</button>
                         </div>
                     </form>
                 </div>
@@ -2283,7 +2283,7 @@ class BaselineDashboard {
                         <input id="integration-gitlab-description" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Description (optional)" ${disabledAttr}>
                         <div class="flex items-center justify-between gap-3">
                             <p id="integration-gitlab-feedback" class="text-xs text-gray-500">Ready.</p>
-                            <button type="submit" id="integration-gitlab-submit" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium${disabledClass}" ${disabledAttr}>Publish</button>
+                            <button type="submit" id="integration-gitlab-submit" class="px-4 py-2 bg-orange-600 text-black rounded-lg hover:bg-orange-700 text-sm font-medium${disabledClass}" ${disabledAttr}>Publish</button>
                         </div>
                     </form>
                 </div>
@@ -2302,7 +2302,7 @@ class BaselineDashboard {
                     <input id="integration-secret-gitlab-url" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="GitLab API URL (optional)" ${secretsDisabledAttr}>
                     <div class="md:col-span-2 flex items-center justify-between gap-3">
                         <p id="integration-secrets-feedback" class="text-xs text-gray-500">Provide one or more fields to update runtime integration config.</p>
-                        <button type="submit" id="integration-secrets-submit" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium${secretsDisabledClass}" ${secretsDisabledAttr}>Update Secrets</button>
+                        <button type="submit" id="integration-secrets-submit" class="px-4 py-2 bg-orange-600 text-black rounded-lg hover:bg-orange-700 text-sm font-medium${secretsDisabledClass}" ${secretsDisabledAttr}>Update Secrets</button>
                     </div>
                 </form>
             </div>
@@ -3981,11 +3981,11 @@ class BaselineDashboard {
         }
 
         if (headerAvatar) {
-            headerAvatar.className = 'w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold bg-gray-800 text-white';
+            headerAvatar.className = 'w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold bg-gray-800 text-black';
         }
 
         if (profileAvatar) {
-            profileAvatar.className = 'w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-white text-sm font-bold';
+            profileAvatar.className = 'w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center text-black text-sm font-bold';
         }
 
         if (userDropdown) {
