@@ -268,7 +268,7 @@ export function renderUsersTab(dashboard, users, errorMessage = '') {
                         </select>
                     </div>
                     <div class="mt-3 flex items-center gap-2">
-                        <button id="admin-user-create-submit" type="button" class="px-3 py-1.5 bg-blue-700 text-black rounded hover:bg-orange-700 text-xs font-medium">Create User</button>
+                        <button id="admin-user-create-submit" type="button" class="px-3 py-1.5 bg-orange-600 text-black rounded hover:bg-orange-700 text-xs font-medium">Create User</button>
                         <span class="text-xs text-gray-500">This creates the record immediately and makes it available for role/status updates.</span>
                     </div>
                 </div>
