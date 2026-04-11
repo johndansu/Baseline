@@ -6,7 +6,7 @@ const { getUserSession, refreshAccessToken } = require('../utils/supabase');
  */
 function sessionManager(req, res, next) {
   // Skip session management for public routes
-  const publicRoutes = ['/health', '/api/status', '/signin.html', '/signup.html', '/index.html'];
+  const publicRoutes = ['/health', '/api/status', '/signin.html', '/signup.html', '/reset-password.html', '/index.html'];
   if (publicRoutes.includes(req.path) || req.path.startsWith('/css/') || req.path.startsWith('/js/') || req.path.startsWith('/assets/')) {
     return next();
   }
