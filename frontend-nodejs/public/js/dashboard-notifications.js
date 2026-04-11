@@ -50,7 +50,7 @@ export function renderNotifications(dashboard, items) {
         const chips = [];
         chips.push(`<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-700">${items.length} updates</span>`);
         if (unreadCount > 0) {
-            chips.push(`<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-900 text-white">${unreadCount} unread</span>`);
+            chips.push(`<span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-900 text-black">${unreadCount} unread</span>`);
         }
         summary.innerHTML = chips.join('');
     }
