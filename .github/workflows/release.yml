@@ -226,7 +226,7 @@ jobs:
           echo "run_dir=${run_dir}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@v4.1.1
 
       - name: Sign release artifacts (keyless)
         run: |
