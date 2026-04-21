@@ -11,7 +11,7 @@ export function renderApiKeysTable(dashboard, apiKeys) {
             : 'Admin inventory: global key management';
     const canGenerateInScope = canWriteKeys && (scope.mode !== 'user' || String(dashboard.apiKeyState.targetUserID || '').trim() !== '');
     const generateKeyButton = canGenerateInScope
-        ? `<button type="button" data-open-modal="generateKeyModal" class="px-4 py-2 bg-orange-600 text-black rounded-lg hover:bg-orange-700 text-sm font-medium" style="background-color:#ea580c;color:#ffffff;">Generate Key</button>`
+        ? `<button type="button" data-open-modal="generateKeyModal" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium" style="background-color:#ea580c;color:#ffffff;">Generate Key</button>`
         : `<button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 bg-gray-100 rounded-lg text-sm font-medium cursor-not-allowed" aria-disabled="true" disabled>Generate Key</button>`;
     const actionsHeader = canWriteKeys
         ? `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>`
