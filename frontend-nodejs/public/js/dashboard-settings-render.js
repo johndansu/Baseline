@@ -1,6 +1,6 @@
 export function renderSettingsActionButton(dashboard, label, options = {}, primary = false) {
     const baseClasses = primary
-        ? 'inline-flex items-center justify-center rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-black hover:bg-orange-700'
+        ? 'inline-flex items-center justify-center rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700'
         : 'inline-flex items-center justify-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50';
     const actionAttributes = options.tab
         ? `data-settings-nav="${dashboard.escapeHtml(options.tab)}"`
@@ -293,7 +293,7 @@ export function renderSettingsPanel(dashboard) {
                     <button
                         id="settings-cli-approve-button"
                         type="button"
-                        class="inline-flex items-center justify-center rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-black hover:bg-orange-700"
+                        class="inline-flex items-center justify-center rounded-lg bg-orange-600 px-3 py-2 text-sm font-medium text-white hover:bg-orange-700"
                         style="background-color:#ea580c;color:#ffffff;"
                     >
                         Approve CLI login

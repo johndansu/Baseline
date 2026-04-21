@@ -119,7 +119,7 @@ export function renderUsersTab(dashboard, users, errorMessage = '') {
                             <input id="users-activity-filter-from" type="datetime-local" value="${dashboard.escapeHtml(selectedActivityFilters.from || '')}" class="px-2 py-1 border border-gray-300 rounded text-xs">
                             <input id="users-activity-filter-to" type="datetime-local" value="${dashboard.escapeHtml(selectedActivityFilters.to || '')}" class="px-2 py-1 border border-gray-300 rounded text-xs">
                             <div class="flex items-center gap-2 justify-start md:justify-end">
-                                <button id="users-activity-filter-apply" type="button" class="px-3 py-1.5 bg-blue-700 text-black rounded text-xs hover:bg-blue-800">Apply</button>
+                                <button id="users-activity-filter-apply" type="button" class="px-3 py-1.5 bg-blue-700 text-white rounded text-xs hover:bg-blue-800">Apply</button>
                                 <button id="users-activity-filter-reset" type="button" class="px-3 py-1.5 border border-gray-300 text-gray-700 rounded text-xs hover:bg-gray-50">Reset</button>
                             </div>
                         </div>
@@ -182,7 +182,7 @@ export function renderUsersTab(dashboard, users, errorMessage = '') {
                         </button>
                         <button
                             type="button"
-                            class="px-3 py-1 bg-orange-600 text-black rounded hover:bg-orange-700 text-xs font-medium"
+                            class="px-3 py-1 bg-orange-600 text-white rounded hover:bg-orange-700 text-xs font-medium"
                             data-user-action="save"
                             data-user-id="${dashboard.escapeHtml(userID)}"
                             data-user-source="row"
@@ -243,7 +243,7 @@ export function renderUsersTab(dashboard, users, errorMessage = '') {
                     </select>
                 </div>
                 <div class="mt-3 flex items-center gap-2">
-                    <button id="users-filter-apply" type="button" class="px-3 py-1.5 bg-orange-600 text-black rounded hover:bg-orange-700 text-xs font-medium">Apply</button>
+                    <button id="users-filter-apply" type="button" class="px-3 py-1.5 bg-orange-600 text-white rounded hover:bg-orange-700 text-xs font-medium">Apply</button>
                     <button id="users-filter-reset" type="button" class="px-3 py-1.5 border border-gray-300 text-gray-700 rounded hover:bg-gray-50 text-xs font-medium">Reset</button>
                     <span class="text-xs text-gray-500">Showing ${totalCount === 0 ? 0 : start + 1}-${Math.min(start + pageRows.length, totalCount)} of ${totalCount} | Sort: ${userSortDescriptor(sortBy, sortDir)}</span>
                 </div>
@@ -268,7 +268,7 @@ export function renderUsersTab(dashboard, users, errorMessage = '') {
                         </select>
                     </div>
                     <div class="mt-3 flex items-center gap-2">
-                        <button id="admin-user-create-submit" type="button" class="px-3 py-1.5 bg-orange-600 text-black rounded hover:bg-orange-700 text-xs font-medium">Create User</button>
+                        <button id="admin-user-create-submit" type="button" class="px-3 py-1.5 bg-orange-600 text-white rounded hover:bg-orange-700 text-xs font-medium">Create User</button>
                         <span class="text-xs text-gray-500">This creates the record immediately and makes it available for role/status updates.</span>
                     </div>
                 </div>
