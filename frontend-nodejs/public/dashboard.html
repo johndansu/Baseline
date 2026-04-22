@@ -10,6 +10,33 @@
     <style>
         .tab-content.hidden { display: none; }
 
+        .dashboard-overlay-tint {
+            background-color: rgba(249, 250, 251, 0.95);
+        }
+
+        .dashboard-eyebrow {
+            letter-spacing: 0.18em;
+        }
+
+        .sidebar-link-active {
+            background-color: #fff7ed;
+            color: #c2410c;
+        }
+
+        .button-orange-strong {
+            background-color: #ea580c;
+            color: #ffffff !important;
+        }
+
+        .button-red-strong {
+            background-color: #dc2626;
+            color: #ffffff !important;
+        }
+
+        .dashboard-usage-chart-panel {
+            height: 400px;
+        }
+
         button.bg-orange-600,
         button.bg-red-600,
         button.bg-blue-700 {
@@ -92,7 +119,7 @@
     </style>
 </head>
 <body class="bg-gray-50">
-    <div id="dashboard-bootstrap-overlay" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-50 px-6" style="background-color: rgba(249, 250, 251, 0.95);">
+    <div id="dashboard-bootstrap-overlay" class="dashboard-overlay-tint fixed inset-0 z-50 flex items-center justify-center bg-gray-50 px-6">
         <div class="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-xl">
             <div class="flex items-start gap-4">
                 <div class="mt-1 flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
@@ -102,7 +129,7 @@
                     </svg>
                 </div>
                 <div class="min-w-0 flex-1">
-                    <p class="text-xs font-semibold uppercase text-orange-600" style="letter-spacing: 0.18em;">Baseline Dashboard</p>
+                    <p class="dashboard-eyebrow text-xs font-semibold uppercase text-orange-600">Baseline Dashboard</p>
                     <h2 id="dashboard-bootstrap-title" class="mt-2 text-2xl font-semibold text-gray-900">Loading your workspace</h2>
                     <p id="dashboard-bootstrap-message" class="mt-2 text-sm leading-6 text-gray-600">
                         We are checking your session and pulling in your latest dashboard data.
@@ -130,61 +157,61 @@
                 </div>
                 
                 <nav class="space-y-1">
-                    <a href="#" data-tab="overview" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg bg-orange-50 text-orange-700" style="background-color:#fff7ed;color:#c2410c;">
+                    <button type="button" data-tab="overview" class="sidebar-link-active flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg bg-orange-50 text-orange-700">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
                         </svg>
                         Dashboard
-                    </a>
-                    <a href="#" data-tab="scans" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    </button>
+                    <button type="button" data-tab="scans" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                         Scan History
-                    </a>
-                    <a href="#" data-tab="policies" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    </button>
+                    <button type="button" data-tab="policies" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                         </svg>
                         Policies
-                    </a>
-                    <a href="#" data-tab="projects" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    </button>
+                    <button type="button" data-tab="projects" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                         </svg>
                         Projects
-                    </a>
-                    <a href="#" data-tab="users" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    </button>
+                    <button type="button" data-tab="users" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5V18a4 4 0 00-4-4h-1m-4 6H4V18a4 4 0 014-4h5m-2-4a4 4 0 11-8 0 4 4 0 018 0zm10-2a3 3 0 11-6 0 3 3 0 016 0z"></path>
                         </svg>
                         Users
-                    </a>
-                    <a href="#" data-tab="keys" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    </button>
+                    <button type="button" data-tab="keys" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
                         </svg>
                         API Keys
-                    </a>
-                    <a href="#" data-tab="audit" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    </button>
+                    <button type="button" data-tab="audit" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                         Audit Log
-                    </a>
-                    <a href="#" data-tab="cli" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    </button>
+                    <button type="button" data-tab="cli" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                         </svg>
                         CLI Telemetry
-                    </a>
-                    <a href="#" data-tab="settings" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    </button>
+                    <button type="button" data-tab="settings" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium rounded-lg text-gray-700 hover:bg-gray-50 hover:text-gray-900">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c-.94 1.543.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c.94-1.543-.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                         </svg>
                         Settings
-                    </a>
+                    </button>
                 </nav>
             </div>
         </aside>
@@ -240,7 +267,7 @@
                         
                         <!-- User Profile Dropdown -->
                         <div class="relative">
-                            <button id="dashboard-user-button" type="button" onclick="(function(){var d=document.getElementById('userDropdown'); if(d){ d.classList.toggle('hidden'); } })();" class="flex items-center gap-2.5 pl-1 pr-3 py-1 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
+                            <button id="dashboard-user-button" type="button" class="flex items-center gap-2.5 pl-1 pr-3 py-1 rounded-lg border border-gray-300 hover:border-gray-400 transition-colors">
                                 <div id="dashboard-user-avatar" class="w-7 h-7 rounded-md flex items-center justify-center text-white text-xs font-bold">
                                     OP
                                 </div>
@@ -268,8 +295,8 @@
                                     </div>
                                 </div>
                                 <div class="py-2">
-                                    <a href="#" data-profile-tab="settings" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Account Settings</a>
-                                    <a href="#" data-profile-tab="keys" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Manage API Keys</a>
+                                    <button type="button" data-profile-tab="settings" class="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">Account Settings</button>
+                                    <button type="button" data-profile-tab="keys" class="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">Manage API Keys</button>
                                     <div class="border-t border-gray-100 my-2"></div>
                                     <button id="dashboard-signout-button" type="button" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors">Sign Out</button>
                                 </div>
@@ -291,7 +318,7 @@
 
                         <!-- Charts Section -->
                         <div class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 mb-8">
-                            <div class="bg-white p-6 rounded-lg border border-gray-200" style="height: 400px;">
+                            <div class="dashboard-usage-chart-panel bg-white p-6 rounded-lg border border-gray-200">
                                 <div class="flex items-center justify-between mb-4 gap-4">
                                     <h3 class="text-lg font-semibold text-gray-900">Usage Trends</h3>
                                     <select id="usage-range-select" class="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-700" title="Select time range for usage trends">
@@ -389,7 +416,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 my-2 max-h-[calc(100vh-2rem)] flex flex-col">
             <div class="p-4 border-b border-gray-200 flex items-center justify-between shrink-0">
                 <h3 class="text-lg font-bold text-gray-900">CLI Trace Detail</h3>
-                <button type="button" data-close-modal="cliTraceDetailModal" class="text-gray-400 hover:text-gray-700">
+                <button type="button" data-close-modal="cliTraceDetailModal" class="text-gray-400 hover:text-gray-700" aria-label="Close CLI trace detail" title="Close CLI trace detail">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -405,7 +432,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-5xl w-full mx-4">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">CLI Session Detail</h3>
-                <button type="button" data-close-modal="cliSessionDetailModal" class="text-gray-400 hover:text-gray-700">
+                <button type="button" data-close-modal="cliSessionDetailModal" class="text-gray-400 hover:text-gray-700" aria-label="Close CLI session detail" title="Close CLI session detail">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -423,7 +450,7 @@
             <form id="add-project-form">
                 <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                     <h3 id="add-project-modal-title" class="text-lg font-bold text-gray-900">Add New Project</h3>
-                    <button type="button" data-close-modal="addProjectModal" class="text-gray-400 hover:text-gray-700">
+                    <button type="button" data-close-modal="addProjectModal" class="text-gray-400 hover:text-gray-700" aria-label="Close add project" title="Close add project">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
@@ -466,7 +493,7 @@
             <form id="project-owner-form">
                 <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                     <h3 id="project-owner-modal-title" class="text-lg font-bold text-gray-900">Assign Project Owner</h3>
-                    <button type="button" data-close-modal="projectOwnerModal" class="text-gray-400 hover:text-gray-700">
+                    <button type="button" data-close-modal="projectOwnerModal" class="text-gray-400 hover:text-gray-700" aria-label="Close project owner assignment" title="Close project owner assignment">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
@@ -503,7 +530,7 @@
             <form id="generate-key-form">
                 <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                     <h3 class="text-lg font-bold text-gray-900">Generate API Key</h3>
-                    <button type="button" data-close-modal="generateKeyModal" class="text-gray-400 hover:text-gray-700">
+                    <button type="button" data-close-modal="generateKeyModal" class="text-gray-400 hover:text-gray-700" aria-label="Close generate API key" title="Close generate API key">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
@@ -528,7 +555,7 @@
                 </div>
                 <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
                     <button type="button" data-close-modal="generateKeyModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                    <button id="generate-key-submit" type="submit" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700" style="background-color:#ea580c;color:#ffffff;">Generate Key</button>
+                    <button id="generate-key-submit" type="submit" class="button-orange-strong px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Generate Key</button>
                 </div>
             </form>
         </div>
@@ -540,7 +567,7 @@
             <form id="run-scan-form">
                 <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                     <h3 class="text-lg font-bold text-gray-900">Run New Scan</h3>
-                    <button type="button" data-close-modal="runScanModal" class="text-gray-400 hover:text-gray-700">
+                    <button type="button" data-close-modal="runScanModal" class="text-gray-400 hover:text-gray-700" aria-label="Close run scan" title="Close run scan">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
@@ -582,7 +609,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-xl w-full mx-4 max-h-[76vh] overflow-hidden">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">Project Details</h3>
-                <button data-close-modal="projectDetailsModal" class="text-gray-400 hover:text-gray-700">
+                <button type="button" data-close-modal="projectDetailsModal" class="text-gray-400 hover:text-gray-700" aria-label="Close project details" title="Close project details">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -592,8 +619,8 @@
                 <div class="text-sm text-gray-600">Loading project summary...</div>
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button data-close-modal="projectDetailsModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Close</button>
-                <button id="projectDetailsOpenScansButton" type="button" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700" style="background-color:#ea580c;color:#ffffff;">Open Scans</button>
+                <button type="button" data-close-modal="projectDetailsModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Close</button>
+                <button id="projectDetailsOpenScansButton" type="button" class="button-orange-strong px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Open Scans</button>
             </div>
         </div>
     </div>
@@ -602,7 +629,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">New API Key</h3>
-                <button type="button" data-close-modal="copyKeyModal" class="text-gray-400 hover:text-gray-700">
+                <button type="button" data-close-modal="copyKeyModal" class="text-gray-400 hover:text-gray-700" aria-label="Close new API key" title="Close new API key">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -613,7 +640,7 @@
                     <label for="issued-key-value" class="block text-sm font-medium text-gray-700 mb-1">Key</label>
                     <div class="flex items-center gap-2">
                         <input id="issued-key-value" type="text" value="" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg font-mono text-sm">
-                        <button id="issued-key-copy-btn" type="button" class="px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm" style="background-color:#ea580c;color:#ffffff;">Copy</button>
+                        <button id="issued-key-copy-btn" type="button" class="button-orange-strong px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Copy</button>
                     </div>
                 </div>
                 <p id="issued-key-meta" class="text-xs text-gray-600"></p>
@@ -623,7 +650,7 @@
                 </div>
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button type="button" data-close-modal="copyKeyModal" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700" style="background-color:#ea580c;color:#ffffff;">Done</button>
+                <button type="button" data-close-modal="copyKeyModal" class="button-orange-strong px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Done</button>
             </div>
         </div>
     </div>
@@ -634,7 +661,7 @@
             <form id="revoke-key-form">
                 <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                     <h3 class="text-lg font-bold text-gray-900">Revoke API Key</h3>
-                    <button type="button" data-close-modal="revokeKeyModal" class="text-gray-400 hover:text-gray-700">
+                    <button type="button" data-close-modal="revokeKeyModal" class="text-gray-400 hover:text-gray-700" aria-label="Close revoke API key" title="Close revoke API key">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
@@ -674,7 +701,7 @@
                 </div>
                 <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
                     <button type="button" data-close-modal="revokeKeyModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                    <button id="revoke-key-submit" type="submit" class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700" style="background-color:#dc2626;color:#ffffff;">Revoke Key</button>
+                    <button id="revoke-key-submit" type="submit" class="button-red-strong px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700">Revoke Key</button>
                 </div>
             </form>
         </div>
@@ -685,7 +712,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">Policy Configuration</h3>
-                <button data-close-modal="policyConfigModal" class="text-gray-400 hover:text-gray-700">
+                <button type="button" data-close-modal="policyConfigModal" class="text-gray-400 hover:text-gray-700" aria-label="Close policy configuration" title="Close policy configuration">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -693,32 +720,32 @@
             </div>
             <div class="p-6 space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Policy Name</label>
-                    <input type="text" value="Primary Branch Protection" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                    <label for="policy-config-name" class="block text-sm font-medium text-gray-700 mb-1">Policy Name</label>
+                    <input id="policy-config-name" type="text" value="Primary Branch Protection" readonly title="Policy name" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <label for="policy-config-status" class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select id="policy-config-status" title="Policy status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option>Enabled</option>
                         <option>Disabled</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Action</label>
-                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <label for="policy-config-action" class="block text-sm font-medium text-gray-700 mb-1">Action</label>
+                    <select id="policy-config-action" title="Policy action" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option>Block</option>
                         <option>Warn</option>
                         <option>Info</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                    <textarea rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">Repository configuration</textarea>
+                    <label for="policy-config-description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="policy-config-description" rows="3" title="Policy description" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">Repository configuration</textarea>
                 </div>
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button data-close-modal="policyConfigModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button data-close-modal="policyConfigModal" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Save Changes</button>
+                <button type="button" data-close-modal="policyConfigModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button type="button" data-close-modal="policyConfigModal" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Save Changes</button>
             </div>
         </div>
     </div>
@@ -728,7 +755,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">Audit Details</h3>
-                <button data-close-modal="auditDetailsModal" class="text-gray-400 hover:text-gray-700">
+                <button type="button" data-close-modal="auditDetailsModal" class="text-gray-400 hover:text-gray-700" aria-label="Close audit details" title="Close audit details">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -736,28 +763,28 @@
             </div>
             <div class="p-6 space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Event Type</label>
-                    <input type="text" value="API Response Time" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                    <label for="audit-detail-event-type" class="block text-sm font-medium text-gray-700 mb-1">Event Type</label>
+                    <input id="audit-detail-event-type" type="text" value="API Response Time" readonly title="Audit event type" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Response Time</label>
-                    <input type="text" value="124ms" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                    <label for="audit-detail-response-time" class="block text-sm font-medium text-gray-700 mb-1">Response Time</label>
+                    <input id="audit-detail-response-time" type="text" value="124ms" readonly title="Audit response time" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Warning</span>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Timestamp</label>
-                    <input type="text" value="2024-12-23 15:45:00 UTC" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                    <label for="audit-detail-timestamp" class="block text-sm font-medium text-gray-700 mb-1">Timestamp</label>
+                    <input id="audit-detail-timestamp" type="text" value="2024-12-23 15:45:00 UTC" readonly title="Audit timestamp" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Details</label>
-                    <textarea rows="3" readonly class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">API response time exceeded threshold of 100ms. Consider optimization.</textarea>
+                    <label for="audit-detail-message" class="block text-sm font-medium text-gray-700 mb-1">Details</label>
+                    <textarea id="audit-detail-message" rows="3" readonly title="Audit details" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg">API response time exceeded threshold of 100ms. Consider optimization.</textarea>
                 </div>
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button data-close-modal="auditDetailsModal" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Close</button>
+                <button type="button" data-close-modal="auditDetailsModal" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Close</button>
             </div>
         </div>
     </div>
@@ -767,7 +794,7 @@
         <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="text-lg font-bold text-gray-900">Integration Configuration</h3>
-                <button data-close-modal="integrationConfigModal" class="text-gray-400 hover:text-gray-700">
+                <button type="button" data-close-modal="integrationConfigModal" class="text-gray-400 hover:text-gray-700" aria-label="Close integration configuration" title="Close integration configuration">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -775,8 +802,8 @@
             </div>
             <div class="p-6 space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Integration Type</label>
-                    <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <label for="integration-config-type" class="block text-sm font-medium text-gray-700 mb-1">Integration Type</label>
+                    <select id="integration-config-type" title="Integration type" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option>GitHub</option>
                         <option>GitLab</option>
                         <option>Webhooks</option>
@@ -784,16 +811,16 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Repository URL</label>
-                    <input type="text" placeholder="github.com/company/repo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <label for="integration-config-repo-url" class="block text-sm font-medium text-gray-700 mb-1">Repository URL</label>
+                    <input id="integration-config-repo-url" type="text" title="Repository URL" placeholder="github.com/company/repo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
-                    <input type="password" placeholder="Enter access token" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <label for="integration-config-access-token" class="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
+                    <input id="integration-config-access-token" type="password" title="Access token" placeholder="Enter access token" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Webhook URL (Optional)</label>
-                    <input type="text" placeholder="https://your-app.com/webhook" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <label for="integration-config-webhook-url" class="block text-sm font-medium text-gray-700 mb-1">Webhook URL (Optional)</label>
+                    <input id="integration-config-webhook-url" type="text" title="Webhook URL" placeholder="https://your-app.com/webhook" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
                     <p class="font-medium mb-1">🔗 Connection Info</p>
@@ -801,8 +828,8 @@
                 </div>
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-end gap-3">
-                <button data-close-modal="integrationConfigModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button data-close-modal="integrationConfigModal" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Connect</button>
+                <button type="button" data-close-modal="integrationConfigModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button type="button" data-close-modal="integrationConfigModal" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Connect</button>
             </div>
         </div>
     </div>
@@ -823,7 +850,7 @@
                         <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-gray-600">Loading</span>
                     </div>
                 </div>
-                <button data-close-modal="notificationsModal" class="text-gray-400 hover:text-gray-700 transition-colors">
+                <button type="button" data-close-modal="notificationsModal" class="text-gray-400 hover:text-gray-700 transition-colors" aria-label="Close notifications" title="Close notifications">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -835,7 +862,7 @@
                 </div>
             </div>
             <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-between bg-white">
-                <button data-close-modal="notificationsModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
+                <button type="button" data-close-modal="notificationsModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
                 <div class="flex items-center gap-2">
                     <button id="notifications-mark-read-button" type="button" class="px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:text-gray-400 disabled:bg-gray-100 disabled:cursor-not-allowed" disabled>Mark all as read</button>
                 </div>
@@ -851,7 +878,7 @@
                     <h3 class="text-lg font-bold text-gray-900">Approve CLI Login</h3>
                     <p class="mt-1 text-sm text-gray-600">Paste the code from the terminal and approve the waiting CLI session.</p>
                 </div>
-                <button type="button" data-close-modal="cliLoginApprovalModal" class="text-gray-400 hover:text-gray-700 transition-colors">
+                <button type="button" data-close-modal="cliLoginApprovalModal" class="text-gray-400 hover:text-gray-700 transition-colors" aria-label="Close approve CLI login" title="Close approve CLI login">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -867,7 +894,7 @@
             </div>
             <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-end gap-3 bg-white">
                 <button type="button" data-close-modal="cliLoginApprovalModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Cancel</button>
-                <button id="cli-login-approval-submit" type="button" class="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700" style="background-color:#ea580c;color:#ffffff;">Approve CLI Session</button>
+                <button id="cli-login-approval-submit" type="button" class="button-orange-strong px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700">Approve CLI Session</button>
             </div>
         </div>
     </div>
@@ -880,7 +907,7 @@
                     <h3 class="text-lg font-bold text-gray-900">CLI Installation</h3>
                     <p class="text-sm text-gray-500">Command line tool for Baseline</p>
                 </div>
-                <button data-close-modal="cliModal" class="text-gray-400 hover:text-gray-700 transition-colors">
+                <button type="button" data-close-modal="cliModal" class="text-gray-400 hover:text-gray-700 transition-colors" aria-label="Close CLI installation" title="Close CLI installation">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -892,25 +919,25 @@
                     <div class="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm mb-3">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-gray-300">#</span>
-                            <button data-copy-text="curl -sSL https://baseline.sh/install | bash" class="text-green-400 hover:text-green-300 text-xs font-medium">Copy</button>
+                            <button type="button" data-copy-text="curl -sSL https://baseline.sh/install | bash" class="text-green-400 hover:text-green-300 text-xs font-medium">Copy</button>
                         </div>
                         <span class="text-gray-100">curl -sSL https://baseline.sh/install | bash</span>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Version</label>
-                        <div class="flex items-center gap-2">
-                            <input type="text" value="v2.1.0" readonly class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm">
-                            <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">Latest</span>
-                        </div>
+                    <label for="cli-modal-version" class="block text-sm font-medium text-gray-700 mb-1">Version</label>
+                    <div class="flex items-center gap-2">
+                        <input id="cli-modal-version" type="text" value="v2.1.0" readonly title="CLI version" class="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm">
+                        <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">Latest</span>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Platform</label>
-                        <select class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option>macOS</option>
-                            <option>Linux</option>
-                            <option>Windows</option>
+                </div>
+                <div>
+                    <label for="cli-modal-platform" class="block text-sm font-medium text-gray-700 mb-1">Platform</label>
+                    <select id="cli-modal-platform" title="CLI platform" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option>macOS</option>
+                        <option>Linux</option>
+                        <option>Windows</option>
                         </select>
                     </div>
                 </div>
@@ -919,17 +946,17 @@
                     <div class="space-y-2">
                         <div class="flex items-center justify-between">
                             <code class="bg-blue-100 px-2 py-1 rounded text-blue-800 text-xs font-mono">baseline --help</code>
-                            <button data-copy-text="baseline --help" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Copy</button>
+                            <button type="button" data-copy-text="baseline --help" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Copy</button>
                         </div>
                         <div class="flex items-center justify-between">
                             <code class="bg-blue-100 px-2 py-1 rounded text-blue-800 text-xs font-mono">baseline scan</code>
-                            <button data-copy-text="baseline scan" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Copy</button>
+                            <button type="button" data-copy-text="baseline scan" class="text-xs text-blue-600 hover:text-blue-700 font-medium">Copy</button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="p-6 border-t border-gray-200 flex items-center justify-between">
-                <button data-close-modal="cliModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
+                <button type="button" data-close-modal="cliModal" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">Close</button>
                 <div class="flex items-center gap-2">
                     <button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 text-sm font-medium rounded-lg bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>Documentation</button>
                     <button type="button" class="px-4 py-2 border border-gray-300 text-gray-400 text-sm font-medium rounded-lg bg-gray-100 cursor-not-allowed" aria-disabled="true" disabled>Download</button>
