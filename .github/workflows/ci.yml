@@ -129,7 +129,7 @@ jobs:
 
       - name: Upload gosec SARIF
         if: always() && hashFiles('security/gosec.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3.27.9
+        uses: github/codeql-action/upload-sarif@v4.35.1
         with:
           sarif_file: security/gosec.sarif
 
