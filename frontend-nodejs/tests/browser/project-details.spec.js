@@ -173,7 +173,7 @@ test.beforeEach(async ({ page }) => {
 
 test('project details modal shows project summary and can jump to scans', async ({ page }) => {
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'Projects' }).click();
+  await page.locator('button[data-tab="projects"]').click();
 
   await expect(page.locator('#page-title')).toHaveText('Projects');
   await expect(page.locator('#projects-tab')).toContainText('Alpha Repo');
@@ -196,7 +196,7 @@ test('project details modal shows project summary and can jump to scans', async 
 
 test('project details modal ignores stale responses when switching projects quickly', async ({ page }) => {
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'Projects' }).click();
+  await page.locator('button[data-tab="projects"]').click();
 
   await page.locator('[data-project-action="view"][data-project-id="alpha_repo"]').click();
   await page.locator('[data-project-action="view"][data-project-id="beta_repo"]').evaluate((button) => button.click());

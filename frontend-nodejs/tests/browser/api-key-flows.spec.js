@@ -218,7 +218,7 @@ test('API keys tab supports generate and revoke flows', async ({ page }) => {
   const state = await mockAPIKeyDashboardAPI(page);
 
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'API Keys' }).click();
+  await page.locator('button[data-tab="keys"]').click();
 
   await expect(page.locator('#page-title')).toHaveText('API Keys');
   await expect(page.locator('#keys-tab')).toContainText('Primary deploy key');

@@ -135,6 +135,10 @@ const BUILTIN_POLICY_CATALOG = [
 ];
 
 // Baseline Dashboard JavaScript
+// Sidebar items are <button data-tab> since the markup clean-up; older
+// markup used <a data-tab>. Match both so navigation works either way.
+const NAV_TAB_SELECTOR = 'a[data-tab], button[data-tab]';
+
 class BaselineDashboard {
     constructor() {
         this.autoRefreshIntervalMs = 60000;
@@ -608,7 +612,7 @@ class BaselineDashboard {
     }
 
     applyCapabilitiesToNavigation() {
-        document.querySelectorAll('a[data-tab]').forEach((item) => {
+        document.querySelectorAll(NAV_TAB_SELECTOR).forEach((item) => {
             const tabName = String(item.dataset.tab || '').trim();
             if (!this.canAccessTab(tabName)) {
                 item.classList.add('hidden');
@@ -621,7 +625,7 @@ class BaselineDashboard {
     }
 
     setupTabNavigation() {
-        const navItems = document.querySelectorAll('a[data-tab]');
+        const navItems = document.querySelectorAll(NAV_TAB_SELECTOR);
         
         navItems.forEach(item => {
             item.addEventListener('click', (e) => {
@@ -643,7 +647,7 @@ class BaselineDashboard {
         }
 
         // Update sidebar navigation
-        document.querySelectorAll('a[data-tab]').forEach(item => {
+        document.querySelectorAll(NAV_TAB_SELECTOR).forEach(item => {
             item.classList.remove('bg-blue-50', 'text-blue-700', 'bg-gray-100', 'text-gray-900', 'bg-orange-50', 'text-orange-700');
             item.classList.add('text-gray-600', 'hover:bg-gray-50', 'hover:text-gray-900');
             item.style.backgroundColor = '';

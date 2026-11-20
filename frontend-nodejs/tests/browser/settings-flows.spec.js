@@ -120,7 +120,7 @@ test('settings profile save updates the displayed account name', async ({ page }
   const state = await mockSettingsDashboardAPI(page);
 
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.locator('button[data-tab="settings"]').click();
 
   await expect(page.getByRole('heading', { name: 'Account settings' })).toBeVisible();
   await expect(page.locator('#settings-display-name')).toHaveValue('Admin User');
@@ -138,7 +138,7 @@ test('settings preferences save and reset persist dashboard defaults', async ({ 
   await mockSettingsDashboardAPI(page);
 
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.locator('button[data-tab="settings"]').click();
 
   await expect(page.locator('#settings-default-tab')).toHaveValue('settings');
   await expect(page.locator('#settings-refresh-interval')).toHaveValue('30000');
