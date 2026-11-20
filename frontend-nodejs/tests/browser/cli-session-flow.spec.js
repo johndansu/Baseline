@@ -337,7 +337,7 @@ test('manual CLI approval modal opens blank without query params', async ({ page
   await mockDashboardSessionAPI(page);
 
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.locator('button[data-tab="settings"]').click();
   await page.getByRole('button', { name: 'Approve CLI login' }).click();
 
   await expect(page.getByRole('heading', { name: 'Approve CLI Login' })).toBeVisible();
@@ -366,7 +366,7 @@ test('CLI session settings supports detail, single revoke, and revoke-all flows'
   const state = await mockDashboardSessionAPI(page);
 
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.locator('button[data-tab="settings"]').click();
 
   await expect(page.getByRole('heading', { name: 'Account settings' })).toBeVisible();
   await expect(page.locator('#settings-cli-sessions-list')).toContainText('John Laptop');
