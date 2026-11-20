@@ -234,7 +234,7 @@ async function mockDashboardAPI(page, options = {}) {
 test('CLI trace tab supports filters, drill-down, and reset', async ({ page }) => {
   await mockDashboardAPI(page);
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'CLI Telemetry' }).click();
+  await page.locator('button[data-tab="cli"]').click();
 
   await expect(page.getByRole('heading', { name: 'CLI Trace Runs' })).toBeVisible();
   await expect(page.getByText('Errors today')).toBeVisible();
@@ -268,7 +268,7 @@ test('CLI trace tab supports filters, drill-down, and reset', async ({ page }) =
 test('CLI trace tab keeps active filters when returning to the tab', async ({ page }) => {
   await mockDashboardAPI(page);
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'CLI Telemetry' }).click();
+  await page.locator('button[data-tab="cli"]').click();
 
   await page.getByRole('button', { name: 'Warnings only' }).click();
   await page.getByRole('button', { name: 'Baseline' }).first().click();
@@ -278,10 +278,10 @@ test('CLI trace tab keeps active filters when returning to the tab', async ({ pa
   await expect(page.locator('#cli-tab').getByText('trc_err_1')).not.toBeVisible();
   await expect(page.locator('#cli-tab').getByText('trc_ok_1')).not.toBeVisible();
 
-  await page.getByRole('link', { name: 'Projects' }).click();
+  await page.locator('button[data-tab="projects"]').click();
   await expect(page.locator('#page-title')).toHaveText('Projects');
 
-  await page.getByRole('link', { name: 'CLI Telemetry' }).click();
+  await page.locator('button[data-tab="cli"]').click();
   await expect(page.getByRole('heading', { name: 'CLI Trace Runs' })).toBeVisible();
   await expect(page.locator('#cli-filter-repository')).toHaveValue('Baseline');
   await expect(page.locator('#cli-tab').getByText('trc_warn_1')).toBeVisible();
@@ -292,7 +292,7 @@ test('CLI trace tab keeps active filters when returning to the tab', async ({ pa
 test('CLI trace tab supports manual refresh for fresh runs', async ({ page }) => {
   await mockDashboardAPI(page);
   await page.goto('/dashboard.html');
-  await page.getByRole('link', { name: 'CLI Telemetry' }).click();
+  await page.locator('button[data-tab="cli"]').click();
   await expect(page.getByRole('heading', { name: 'CLI Trace Runs' })).toBeVisible();
   await expect(page.locator('#cli-tab').getByText('trc_new_1')).not.toBeVisible();
 
